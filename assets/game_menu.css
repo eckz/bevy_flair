@@ -1,0 +1,107 @@
+@font-face {
+    font-family: "Kenney Space";
+    src: url("fonts/Kenney Space.ttf");
+}
+
+@keyframes borders-animation {
+    0%, 50%, 100% {
+        margin-top: 0;
+        width: 250px;
+        height: 60px;
+    }
+
+    25% {
+        margin-top: -5px;
+        width: 270px;
+        height: 70px;
+    }
+}
+
+:root {
+    width: 100%;
+    height: 100%;
+    background-color: #1f2730;
+}
+
+:root, #game_menu {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#game_menu {
+    width: auto;
+    height: auto;
+    padding: 25px 90px 40px;
+
+    background-color: rgb(39, 58, 66);
+
+    flex-direction: column;
+
+    border-radius: 2px;
+
+    image-texture: url("panel-border-030.png");
+    image-mode: sliced(20.0px);
+}
+
+Button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    margin-top: 30px;
+    background-color: transparent;
+}
+
+Button, #floating_borders {
+    width: 250px;
+    height: 60px;
+}
+
+#floating_borders {
+    display: flex;
+    position: absolute;
+    top: 100px;
+    transition: top 0.6s;
+    image-texture: url("panel-border-010.png");
+    image-mode: sliced(20.0px);
+}
+
+Button:nth-child(2):focus ~ #floating_borders {
+    top: 100px;
+}
+
+Button:nth-child(3):focus ~ #floating_borders {
+    top: 190px;
+}
+
+Button:nth-child(4):focus ~ #floating_borders {
+    top: 280px;
+}
+
+Button:nth-child(5):focus ~ #floating_borders {
+    top: 370px;
+}
+
+Button:hover ~ #floating_borders {
+    animation: 2.0s linear infinite borders-animation;
+}
+
+#menu_title Text {
+    font-family: "Kenney Space";
+    font-size: 38px;
+    color: #d68a4c;
+}
+
+Button Text {
+    font-family: "Kenney Space";
+    font-size: 20px;
+    color: rgb(20, 20, 21);
+
+    transition: color 0.6s;
+}
+
+Button:focus Text {
+    color: #E6E6E6;
+}
+

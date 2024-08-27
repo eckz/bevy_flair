@@ -1,0 +1,46 @@
+[package]
+name = "bevy_flair_style"
+version = "0.1.0"
+edition = "2021"
+description = "Bevy UI styling using CSS"
+license = "MIT OR Apache-2.0"
+categories = ["games", "game-development"]
+keywords = ["style", "animations", "bevy", "css"]
+repository = "https://github.com/eckz/bevy_flair"
+rust-version = "1.80.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+type_complexity = "allow"
+
+[dependencies]
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+bitflags = "2.8"
+smol_str = "0.2"
+
+bevy = { workspace = true, features = ["bevy_image"] }
+bevy_flair_core = { workspace = true }
+
+cssparser = { version = "0.34", optional = true }
+selectors = { version = "0.26", optional = true }
+precomputed-hash = { version = "0.1", optional = true }
+
+[features]
+default = ["css_selectors"]
+css_selectors = [
+    "dep:selectors",
+    "dep:cssparser",
+    "dep:precomputed-hash"
+]
+
+[dev-dependencies]
+bevy = { workspace = true, features = [
+    "bevy_scene"
+] }
+ego-tree = "0.10"
+uuid = { version = "1.11", default-features = false }
+insta = { version = "1.42", features = ["ron"] }

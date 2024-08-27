@@ -1,0 +1,344 @@
+---
+source: crates/bevy_flair_style/src/lib.rs
+expression: scene_serializer
+---
+Scene(
+  resources: {},
+  entities: {
+    4294967296: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "00000000-0000-0000-0000-0000075bcd15",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: true,
+          name: Some("Root"),
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": StyleSheet(Weak(Uuid(
+          uuid: "00000000-0000-0000-0000-0000075bcd15",
+        ))),
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: None,
+          previous_sibling: None,
+        ),
+        "bevy_hierarchy::components::children::Children": Children([
+          4294967297,
+          4294967301,
+          4294967302,
+        ]),
+      },
+    ),
+    4294967297: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "00000000-0000-0000-0000-0000075bcd15",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967301),
+          previous_sibling: None,
+        ),
+        "bevy_flair_style::tests::Child": Child(),
+        "bevy_hierarchy::components::children::Children": Children([
+          4294967298,
+          4294967299,
+          4294967300,
+        ]),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967296),
+      },
+    ),
+    4294967298: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "00000000-0000-0000-0000-0000075bcd15",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967299),
+          previous_sibling: None,
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967297),
+      },
+    ),
+    4294967299: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "00000000-0000-0000-0000-0000075bcd15",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967300),
+          previous_sibling: Some(4294967298),
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967297),
+      },
+    ),
+    4294967300: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "00000000-0000-0000-0000-0000075bcd15",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: None,
+          previous_sibling: Some(4294967299),
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967297),
+      },
+    ),
+    4294967301: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "00000000-0000-0000-0000-0000075bcd15",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967302),
+          previous_sibling: Some(4294967297),
+        ),
+        "bevy_flair_style::tests::Child": Child(),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967296),
+      },
+    ),
+    4294967302: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Block,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: None,
+          previous_sibling: Some(4294967301),
+        ),
+        "bevy_flair_style::tests::Child": Child(),
+        "bevy_hierarchy::components::children::Children": Children([
+          4294967303,
+          4294967304,
+          4294967305,
+        ]),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967296),
+      },
+    ),
+    4294967303: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967304),
+          previous_sibling: None,
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967302),
+      },
+    ),
+    4294967304: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967305),
+          previous_sibling: Some(4294967303),
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967302),
+      },
+    ),
+    4294967305: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
+          )),
+          selector_flags: 0,
+          recalculation_flags: 0,
+          is_root: false,
+          name: None,
+          classes: [],
+          type_names: [
+            TypeNameWithPriority(
+              priority: 0,
+              name: "Node",
+            ),
+          ],
+          pseudo_state: NodeState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: None,
+          previous_sibling: Some(4294967304),
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+        "bevy_hierarchy::components::parent::Parent": Parent(4294967302),
+      },
+    ),
+  },
+)

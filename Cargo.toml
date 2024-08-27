@@ -1,0 +1,46 @@
+[package]
+name = "bevy_flair"
+version = "0.1.0"
+edition = "2021"
+description = "Bevy UI styling using CSS"
+license = "MIT OR Apache-2.0"
+categories = ["games", "game-development"]
+keywords = ["style", "animations", "bevy", "css"]
+repository = "https://github.com/eckz/bevy_flair"
+rust-version = "1.80.0"
+
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+bevy = { version = "0.15", default-features = false, features = [
+    "bevy_ui",
+    "serialize"
+] }
+bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.1.0" }
+bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.1.0" }
+bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.1.0" }
+
+[dependencies]
+bevy = { workspace = true }
+bevy_flair_core = { workspace = true }
+bevy_flair_style = { workspace = true }
+bevy_flair_css_parser = { workspace = true }
+
+[dev-dependencies]
+bevy = { version = "0.15.0", default-features = false, features = [
+    "bevy_ui",
+    "bevy_text",
+    "bevy_winit",
+    "png",
+    "bevy_dev_tools",
+    "default_font",
+    "x11"
+] }
+
+[features]
+default = []
+
+[profile.dev.package."*"]
+opt-level = 1

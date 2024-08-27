@@ -1,0 +1,23 @@
+[package]
+name = "bevy_flair_core"
+version = "0.1.0"
+edition = "2021"
+description = "Bevy UI styling using CSS"
+license = "MIT OR Apache-2.0"
+categories = ["games", "game-development"]
+keywords = ["style", "animations", "bevy", "css"]
+repository = "https://github.com/eckz/bevy_flair"
+rust-version = "1.80.0"
+
+[lints.rust]
+unsafe_code = "allow"
+missing_docs = "warn"
+
+[dependencies]
+thiserror = { version = "2.0" }
+serde = { version = "1.0", features = ["derive"] }
+
+# Same version as bevy so it implements reflect
+smol_str = "0.2"
+
+bevy = { workspace = true }

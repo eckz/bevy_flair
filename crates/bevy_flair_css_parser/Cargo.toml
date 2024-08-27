@@ -1,0 +1,33 @@
+[package]
+name = "bevy_flair_css_parser"
+version = "0.1.0"
+edition = "2021"
+description = "Bevy UI styling using CSS"
+license = "MIT OR Apache-2.0"
+categories = ["games", "game-development"]
+keywords = ["style", "animations", "bevy", "css"]
+repository = "https://github.com/eckz/bevy_flair"
+rust-version = "1.80.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[dependencies]
+thiserror = "2.0"
+smallvec = "1.13"
+either = "1.13"
+
+bevy = { workspace = true }
+bevy_flair_core = { workspace = true }
+bevy_flair_style = { workspace = true, features = ["css_selectors"] }
+
+cssparser = { version = "0.34" }
+cssparser-color = { version = "0.2.0" }
+selectors = { version = "0.26" }
+
+ariadne = "0.5"
+
+[dev-dependencies]
+indoc = "2.0"
+approx = "0.5"

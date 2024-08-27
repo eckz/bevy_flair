@@ -1,0 +1,97 @@
+@keyframes box-animation {
+    from {
+        width: 15vw;
+        height: 15vh;
+    }
+
+    to {
+        width: 40vw;
+        height: 40vh;
+    }
+}
+
+@keyframes red-animation {
+    from {
+        background-color: rgb(15%, 15%, 15%);
+    }
+
+    to {
+        background-color: red;
+    }
+}
+
+@keyframes green-animation {
+    from {
+        background-color: rgb(15%, 15%, 15%);
+    }
+
+    to {
+        background-color: green;
+    }
+}
+
+@keyframes blue-animation {
+    from {
+        background-color: rgb(15%, 15%, 15%);
+    }
+
+    to {
+        background-color: blue;
+    }
+}
+
+@keyframes yellow-animation {
+    from {
+        background-color: rgb(15%, 15%, 15%);
+    }
+
+    to {
+        background-color: yellow;
+    }
+}
+
+:root {
+    width: 100%;
+    height: 100%;
+}
+
+.box {
+    position: absolute;
+    width: 20vw;
+    height: 20vh;
+    border: 4px;
+    border-color: black;
+}
+
+.box:nth-child(1) {
+    left: 5vw;
+    top: 5vh;
+
+    animation: 3s ease-in-out 5 red-animation;
+}
+
+.box:nth-child(2) {
+    right: 5vw;
+    top: 5vh;
+
+    animation: 3s ease-in-out 4 alternate-reverse blue-animation;
+}
+
+
+.box:nth-child(3) {
+    left: 5vw;
+    bottom: 5vh;
+
+    animation: 3s linear infinite alternate yellow-animation;
+}
+
+.box:nth-child(4) {
+    right: 5vw;
+    bottom: 5vh;
+
+    animation: 3s steps(5, end) infinite alternate green-animation;
+}
+
+.box.animated {
+    animation: 3s ease infinite alternate box-animation;
+}
