@@ -49,9 +49,9 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 [`Outline`]: https://docs.rs/bevy/0.15.1/bevy/ui/struct.Outline.html
 [`BoxShadow`]: https://docs.rs/bevy/0.15.1/bevy/ui/struct.BoxShadow.html
 [`ZIndex`]: https://docs.rs/bevy/0.15.1/bevy/ui/struct.ZIndex.html
-[`ClassList`]: https://docs.rs/tbd.html
-[`TrackTypeNameComponentPlugin`]: https://docs.rs/tbd.html
-[`NodeStyleSheet`]: https://docs.rs/tbd.html
+[`ClassList`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/struct.ClassList.html
+[`TrackTypeNameComponentPlugin`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.TrackTypeNameComponentPlugin.html
+[`NodeStyleSheet`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.NodeStyleSheet.html
 [selectors]: https://crates.io/crates/selectors
 [`transition`]: https://developer.mozilla.org/en-US/docs/Web/CSS/transition
 [`@keyframes`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@keyframes
