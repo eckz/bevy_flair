@@ -81,6 +81,12 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 [`calc()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/calc
 [`var()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/var
 
+
+## Showcase
+This example works by only using CSS (See [example](https://github.com/eckz/bevy_flair/blob/main/assets/game_menu.css))
+
+https://github.com/user-attachments/assets/792b9cfa-42fb-4e50-a85f-8d21aafeb1e5
+
 ## Getting started
 
 1. Add `bevy_flair` to your `Cargo.toml`.
