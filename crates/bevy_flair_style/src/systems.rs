@@ -3,21 +3,23 @@ use crate::components::{
     RecalculateOnChangeFlags, Siblings,
 };
 use crate::{css_selector, StyleSheet};
-use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
+use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
 use bevy::ecs::system::SystemState;
 use bevy::log::Level;
 use bevy::prelude::*;
-use bevy::utils::tracing::enabled;
-use bevy::utils::HashSet;
+
+use bevy::input_focus::{InputFocus, InputFocusVisible};
+use bevy::platform_support::collections::HashSet;
 use bevy_flair_core::{ComponentPropertyId, NewComponentsQueue, PropertiesRegistry, ReflectValue};
 use smol_str::SmolStr;
 use std::sync::atomic;
+use tracing::enabled;
 
 pub(crate) fn sync_siblings_system(
     mut siblings_param_set: ParamSet<(
         Query<
-            (Entity, &mut Siblings, &Parent),
-            (Or<(Changed<Parent>, Added<Siblings>)>, With<Siblings>),
+            (Entity, &mut Siblings, &ChildOf),
+            (Or<(Changed<ChildOf>, Added<Siblings>)>, With<Siblings>),
         >,
         Query<&mut Siblings>,
     )>,
@@ -40,7 +42,7 @@ pub(crate) fn sync_siblings_system(
     let mut siblings_query = siblings_param_set.p1();
 
     for (parent, children) in &children_changed_query {
-        for &entity in children.iter() {
+        for entity in children.iter() {
             if entities_recalculated.contains(&parent) {
                 continue;
             }
@@ -67,7 +69,7 @@ pub(crate) fn calculate_effective_style_sheet(
         &mut NodeStyleMarker,
     )>,
     node_style_sheet_query: Query<&NodeStyleSheet>,
-    parent_query: Query<&Parent, With<NodeStyleSheet>>,
+    parent_query: Query<&ChildOf, With<NodeStyleSheet>>,
     children_query: Query<&Children, With<NodeStyleSheet>>,
 ) {
     const INVALID_STYLE_SHEET_HANDLE: Handle<StyleSheet> = Handle::Weak(AssetId::invalid());
@@ -125,10 +127,10 @@ pub(crate) fn calculate_effective_style_sheet(
 
 pub(crate) fn calculate_is_root(
     mut param_set_queries: ParamSet<(
-        Query<(&mut NodeStyleData, Has<Parent>)>,
-        Query<Entity, Or<(Added<NodeStyleData>, Changed<Parent>)>>,
+        Query<(&mut NodeStyleData, Has<ChildOf>)>,
+        Query<Entity, Or<(Added<NodeStyleData>, Changed<ChildOf>)>>,
     )>,
-    mut removed_parent: RemovedComponents<Parent>,
+    mut removed_parent: RemovedComponents<ChildOf>,
 ) {
     let mut entities_to_recalculate = EntityHashSet::default();
 
@@ -185,6 +187,39 @@ pub(crate) fn track_name_changes(
     });
 }
 
+pub(crate) fn sync_input_focus(
+    input_focus: Option<Res<InputFocus>>,
+    input_focus_visible: Option<Res<InputFocusVisible>>,
+    mut data_query: Query<&mut NodeStyleData>,
+    mut previous_focus: Local<InputFocus>,
+) {
+    let Some(input_focus) = input_focus else {
+        return;
+    };
+    if !input_focus.is_changed() {
+        return;
+    }
+    if input_focus.0 == previous_focus.0 {
+        return;
+    }
+
+    let focus_visible = input_focus_visible
+        .as_deref()
+        .map_or(false, |visible| visible.0);
+
+    if let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok()) {
+        style_data.get_pseudo_state_mut().focused = false;
+        style_data.get_pseudo_state_mut().focused_and_visible = false;
+    }
+
+    if let Some(mut style_data) = input_focus.0.and_then(|e| data_query.get_mut(e).ok()) {
+        style_data.get_pseudo_state_mut().focused = true;
+        style_data.get_pseudo_state_mut().focused_and_visible = focus_visible;
+    }
+
+    *previous_focus = (*input_focus).clone()
+}
+
 pub(crate) fn mark_nodes_for_recalculation(
     mut queries: ParamSet<(
         Query<
@@ -192,7 +227,7 @@ pub(crate) fn mark_nodes_for_recalculation(
                 Entity,
                 Ref<NodeStyleData>,
                 &NodeStyleMarker,
-                Option<&Parent>,
+                Option<&ChildOf>,
             ),
             Or<(Changed<NodeStyleData>, Changed<NodeStyleMarker>)>,
         >,

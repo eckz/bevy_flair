@@ -12,8 +12,8 @@ use bevy::reflect::{Reflect, ReflectFromReflect, Struct, TypeRegistry, Typed};
 use bevy::{
     asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError},
     image::Image,
+    platform_support::collections::HashMap,
     text::Font,
-    utils::HashMap,
 };
 use bevy_flair_core::*;
 use std::sync::Arc;

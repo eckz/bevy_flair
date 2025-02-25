@@ -1,9 +1,11 @@
 use crate::static_type_info::static_type_info;
 use crate::{ComponentPropertyId, ComponentPropertyRef};
+use bevy::ecs::component::Mutable;
 use bevy::ecs::world::FilteredEntityRef;
+use bevy::platform_support::collections;
 use bevy::prelude::*;
 use bevy::reflect::*;
-use bevy::utils::{hashbrown, TypeIdMap};
+use bevy::utils::TypeIdMap;
 use std::fmt;
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
@@ -66,7 +68,7 @@ impl PropertyFns {
 type GetComponentFromEntity = for<'a> fn(FilteredEntityRef<'a>) -> Option<&'a dyn PartialReflect>;
 type GetComponentFromEntityMut = for<'w> fn(EntityMut<'w>) -> Option<&'w mut dyn PartialReflect>;
 
-type AddComponentToWorldFn = for<'a> fn(Entity, &mut World, Box<dyn Reflect>);
+type AddComponentToWorldFn = for<'a> fn(&mut EntityWorldMut, Box<dyn Reflect>);
 
 fn get_component_from_entity<T: Component + Reflect>(
     entity: FilteredEntityRef,
@@ -75,7 +77,7 @@ fn get_component_from_entity<T: Component + Reflect>(
     Some(component.as_partial_reflect())
 }
 
-fn get_component_from_entity_mut<T: Component + Reflect>(
+fn get_component_from_entity_mut<T: Component<Mutability = Mutable> + Reflect>(
     entity: EntityMut,
 ) -> Option<&mut dyn PartialReflect> {
     let component = entity.into_mut::<T>()?.into_inner();
@@ -83,8 +85,7 @@ fn get_component_from_entity_mut<T: Component + Reflect>(
 }
 
 fn add_component_to_world<T: Component + TypePath>(
-    entity: Entity,
-    world: &mut World,
+    entity: &mut EntityWorldMut,
     component: Box<dyn Reflect>,
 ) {
     let component = component
@@ -95,7 +96,7 @@ fn add_component_to_world<T: Component + TypePath>(
 
         );
 
-    world.entity_mut(entity).insert(component);
+    entity.insert(component);
 }
 
 #[derive(Copy, Clone)]
@@ -107,7 +108,7 @@ struct ComponentFns {
 }
 
 impl ComponentFns {
-    fn new<T: Component + Reflect + TypePath>() -> Self {
+    fn new<T: Component<Mutability = Mutable> + Reflect + TypePath>() -> Self {
         Self {
             get_component_from_entity: get_component_from_entity::<T>,
             get_component_from_entity_mut: get_component_from_entity_mut::<T>,
@@ -116,7 +117,8 @@ impl ComponentFns {
         }
     }
 
-    fn new_with_default<T: Component + Reflect + TypePath + Default>() -> Self {
+    fn new_with_default<T: Component<Mutability = Mutable> + Reflect + TypePath + Default>() -> Self
+    {
         Self {
             get_component_from_entity: get_component_from_entity::<T>,
             get_component_from_entity_mut: get_component_from_entity_mut::<T>,
@@ -159,17 +161,18 @@ impl NewComponentsQueue {
 impl Command for NewComponentsQueue {
     fn apply(self, world: &mut World) {
         let entity = self.entity.expect("No entity was specified for this queue");
+        let mut entity = world.entity_mut(entity);
 
         for (component, add_to_world_fn) in self.components.into_values() {
-            add_to_world_fn(entity, world, component);
+            add_to_world_fn(&mut entity, component);
         }
     }
 }
 
 impl EntityCommand for NewComponentsQueue {
-    fn apply(self, entity: Entity, world: &mut World) {
+    fn apply(self, mut entity: EntityWorldMut) {
         for (component, add_to_world_fn) in self.components.into_values() {
-            add_to_world_fn(entity, world, component);
+            add_to_world_fn(&mut entity, component);
         }
     }
 }
@@ -215,13 +218,15 @@ pub struct ComponentProperty {
 impl ComponentProperty {
     /// Creates a new property from a component and a path.
     /// If the component does not exist in the entity, nothing happens.
-    pub fn new<T: Typed + Component>(path: &'static str) -> Self {
+    pub fn new<T: Typed + Component<Mutability = Mutable>>(path: &'static str) -> Self {
         Self::with_component_fns(path, T::type_info(), ComponentFns::new::<T>())
     }
 
     /// Creates a new property from a component and a path.
     /// If the component does not exist in the entity, it is inserted with a default value.
-    pub fn new_insert_if_missing<T: Typed + Component + Default>(path: &'static str) -> Self {
+    pub fn new_insert_if_missing<T: Typed + Component<Mutability = Mutable> + Default>(
+        path: &'static str,
+    ) -> Self {
         Self::with_component_fns(path, T::type_info(), ComponentFns::new_with_default::<T>())
     }
 
@@ -496,10 +501,10 @@ impl PartialEq for ComponentProperty {
 impl Eq for ComponentProperty {}
 
 /// A [`HashMap`](hashbrown::HashMap) for [`ComponentPropertyId`] as key.
-pub type PropertiesHashMap<V> = hashbrown::HashMap<ComponentPropertyId, V>;
+pub type PropertiesHashMap<V> = collections::hash_map::HashMap<ComponentPropertyId, V>;
 
 /// A [`HashSet`](hashbrown::HashSet) for [`ComponentPropertyId`] as key.
-pub type PropertiesHashSet = hashbrown::HashSet<ComponentPropertyId>;
+pub type PropertiesHashSet = collections::hash_set::HashSet<ComponentPropertyId>;
 
 #[cfg(test)]
 mod tests {

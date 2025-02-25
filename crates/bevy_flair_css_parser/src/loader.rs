@@ -149,7 +149,7 @@ impl AssetLoader for CssStyleLoader {
                         let name = keyframes.name;
 
                         let mut keyframes_per_property =
-                            PropertiesHashMap::<AnimationKeyframesBuilder>::new();
+                            PropertiesHashMap::<AnimationKeyframesBuilder>::default();
 
                         for k in keyframes.keyframes {
                             match k {

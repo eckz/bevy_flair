@@ -26,7 +26,9 @@ Button {
     background-color: rgb(15%, 15.0%, 15.0%);
     border-radius: 30px;
 
-    transition: border-radius 0.6s ease-in-out, border-color 0.3s, background-color 0.3s;
+    transition: border-radius 0.6s ease-in-out, border-color 0.3s, background-color 0.3s, outline-color 0.3s;
+
+    outline: 3px transparent;
 }
 
 Button:hover {
@@ -40,6 +42,10 @@ Button:active {
     background-color: rgb(35.0%, 75.0%, 35.0%);
     border-color: white;
     border-radius: 30px;
+}
+
+Button:focus-visible {
+    outline: 3px red;
 }
 
 Button Text {

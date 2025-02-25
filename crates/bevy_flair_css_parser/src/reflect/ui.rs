@@ -1,3 +1,4 @@
+use bevy::prelude::ShadowStyle;
 use bevy::reflect::FromType;
 use bevy::ui::{BorderRadius, BoxShadow, Outline, Overflow, OverflowAxis, UiRect, Val, ZIndex};
 
@@ -101,6 +102,7 @@ fn parse_outline(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     fn parse_width_ident(parser: &mut Parser) -> Result<Val, CssError> {
         let ident = parser.expect_ident()?;
         Ok(match_ignore_ascii_case! { ident.as_ref(),
+            "none" => Val::ZERO,
             "thin" => Val::Px(1.0),
             "medium" => Val::Px(2.0),
             "thick" => Val::Px(5.0),
@@ -155,9 +157,9 @@ fn parse_overflow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     }
 }
 
-fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, CssError> {
     let mut values = SmallVec::<[_; 4]>::new();
-    let mut color = BoxShadow::default().color;
+    let mut color = ShadowStyle::default().color;
 
     while !parser.is_exhausted() {
         let val_result = parser.try_parse(parse_val);
@@ -176,21 +178,21 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
         return Err(CssError::from(parser.new_error_for_next_token::<()>()));
     }
 
-    let box_shadow = match *values.as_slice() {
-        [x_offset, y_offset] => BoxShadow {
+    let shadow_style = match *values.as_slice() {
+        [x_offset, y_offset] => ShadowStyle {
             color,
             x_offset,
             y_offset,
             ..Default::default()
         },
-        [x_offset, y_offset, blur_radius] => BoxShadow {
+        [x_offset, y_offset, blur_radius] => ShadowStyle {
             color,
             x_offset,
             y_offset,
             blur_radius,
             ..Default::default()
         },
-        [x_offset, y_offset, blur_radius, spread_radius] => BoxShadow {
+        [x_offset, y_offset, blur_radius, spread_radius] => ShadowStyle {
             color,
             x_offset,
             y_offset,
@@ -205,7 +207,15 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
         }
     };
 
-    Ok(ReflectValue::new(box_shadow))
+    Ok(shadow_style)
+}
+
+fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    let styles = parser.parse_comma_separated(|parser| {
+        parse_single_box_shadow_style(parser).map_err(|err| err.into_parse_error())
+    })?;
+
+    Ok(ReflectValue::new(BoxShadow(styles)))
 }
 
 // TODO: OverflowClipMargin
@@ -262,24 +272,18 @@ impl FromType<BoxShadow> for ReflectParseCss {
 mod tests {
     use crate::reflect::testing::test_parse_css;
     use bevy::color::palettes::css;
+    use bevy::prelude::ShadowStyle;
     use bevy::ui::{BorderRadius, BoxShadow, Outline, Overflow, UiRect, Val, ZIndex};
 
     #[test]
     fn test_val() {
         assert_eq!(test_parse_css::<Val>("auto"), Val::Auto);
-
         assert_eq!(test_parse_css::<Val>("33.5"), Val::Px(33.5));
-
         assert_eq!(test_parse_css::<Val>("15px"), Val::Px(15.0));
-
         assert_eq!(test_parse_css::<Val>("55%"), Val::Percent(55.0));
-
         assert_eq!(test_parse_css::<Val>("157vw"), Val::Vw(157.0));
-
         assert_eq!(test_parse_css::<Val>("343.5vh"), Val::Vh(343.5));
-
         assert_eq!(test_parse_css::<Val>("987vmin"), Val::VMin(987.0));
-
         assert_eq!(test_parse_css::<Val>("9999vmax"), Val::VMax(9999.0));
     }
 
@@ -373,6 +377,13 @@ mod tests {
             }
         );
         assert_eq!(
+            test_parse_css::<Outline>("none"),
+            Outline {
+                width: Val::ZERO,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
             test_parse_css::<Outline>("thin"),
             Outline {
                 width: Val::Px(1.0),
@@ -423,32 +434,32 @@ mod tests {
     fn test_box_shadow() {
         assert_eq!(
             test_parse_css::<BoxShadow>("10px 5px"),
-            BoxShadow {
+            BoxShadow::from(ShadowStyle {
                 x_offset: Val::Px(10.0),
                 y_offset: Val::Px(5.0),
                 ..Default::default()
-            }
+            })
         );
 
         assert_eq!(
             test_parse_css::<BoxShadow>("60px -16px teal"),
-            BoxShadow {
+            BoxShadow::from(ShadowStyle {
                 x_offset: Val::Px(60.0),
                 y_offset: Val::Px(-16.0),
                 color: css::TEAL.into(),
                 ..Default::default()
-            }
+            })
         );
 
         assert_eq!(
             test_parse_css::<BoxShadow>("white 12px -22px 2px 1px"),
-            BoxShadow {
+            BoxShadow::from(ShadowStyle {
                 x_offset: Val::Px(12.0),
                 y_offset: Val::Px(-22.0),
                 blur_radius: Val::Px(2.0),
                 spread_radius: Val::Px(1.0),
                 color: css::WHITE.into(),
-            }
+            })
         );
     }
 }

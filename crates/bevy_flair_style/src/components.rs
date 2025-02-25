@@ -5,9 +5,9 @@ use crate::animations::{
 
 use crate::{ClassName, IdName, NodePseudoStateSelector, NodeState, ResolvedAnimation, StyleSheet};
 
+use bevy::platform_support::collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistry;
-use bevy::utils::hashbrown::hash_map::Entry as HashMapEntry;
 use bevy_flair_core::{ComponentPropertyId, PropertiesHashMap, PropertiesRegistry, ReflectValue};
 use bitflags::bitflags;
 
@@ -15,12 +15,11 @@ use std::collections::BinaryHeap;
 use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
 
-use bevy::ecs::component::ComponentId;
+use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::reflect::serde::{
     ReflectSerializeWithRegistry, SerializeWithRegistry, TypedReflectSerializer,
 };
-use bevy::utils::{Entry, HashMap, HashSet};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 use std::mem;
@@ -46,12 +45,12 @@ impl Siblings {
         let all_siblings = siblings.iter().enumerate().collect::<Vec<_>>();
         let entity_index = all_siblings
             .iter()
-            .find_map(|(index, e)| (**e == self_entity).then_some(*index))
+            .find_map(|(index, e)| (*e == self_entity).then_some(*index))
             .unwrap();
 
         let next_sibling =
-            (entity_index < all_siblings.len() - 1).then(|| *all_siblings[entity_index + 1].1);
-        let previous_sibling = (entity_index > 0).then(|| *all_siblings[entity_index - 1].1);
+            (entity_index < all_siblings.len() - 1).then(|| all_siblings[entity_index + 1].1);
+        let previous_sibling = (entity_index > 0).then(|| all_siblings[entity_index - 1].1);
 
         *self = Self {
             previous_sibling,
@@ -285,10 +284,10 @@ pub struct NodeProperties {
     animations: PropertiesHashMap<Vec<Animation>>,
 }
 
-fn set_properties_registry(mut world: DeferredWorld, entity: Entity, _: ComponentId) {
+fn set_properties_registry(mut world: DeferredWorld, context: HookContext) {
     let properties_registry = world.resource::<PropertiesRegistry>().clone();
     world
-        .get_mut::<NodeProperties>(entity)
+        .get_mut::<NodeProperties>(context.entity)
         .unwrap()
         .properties_registry = Some(properties_registry);
 }
@@ -401,11 +400,11 @@ impl NodeProperties {
         new_value: &ReflectValue,
     ) {
         match self.applied_properties.entry(id) {
-            Entry::Vacant(vacant) => {
+            HashMapEntry::Vacant(vacant) => {
                 self.pending_properties.push((id, new_value.clone()));
                 vacant.insert(new_value.clone());
             }
-            Entry::Occupied(mut occupied) => {
+            HashMapEntry::Occupied(mut occupied) => {
                 if occupied.get() != new_value {
                     self.pending_properties.push((id, new_value.clone()));
                     occupied.insert(new_value.clone());

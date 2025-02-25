@@ -14,7 +14,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bevy = { version = "0.15", default-features = false, features = [
+bevy = { version = "0.16.0-dev", git = "https://github.com/bevyengine/bevy.git", default-features = false, features = [
     "bevy_ui"
 ] }
 bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.1.0" }
@@ -28,10 +28,13 @@ bevy_flair_style = { workspace = true }
 bevy_flair_css_parser = { workspace = true }
 
 [dev-dependencies]
-bevy = { version = "0.15.0", default-features = false, features = [
+bevy = { workspace = true, features = [
     "bevy_ui",
     "bevy_text",
+    "bevy_picking",
+    "bevy_ui_picking_backend",
     "bevy_winit",
+    "bevy_gilrs",
     "png",
     "bevy_dev_tools",
     "default_font",

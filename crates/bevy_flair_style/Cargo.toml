@@ -23,6 +23,7 @@ bitflags = "2.8"
 smol_str = "0.2"
 
 bevy = { workspace = true, features = ["bevy_image"] }
+tracing = "0.1"
 bevy_flair_core = { workspace = true }
 
 cssparser = { version = "0.34", optional = true }
@@ -42,5 +43,4 @@ bevy = { workspace = true, features = [
     "bevy_scene"
 ] }
 ego-tree = "0.10"
-uuid = { version = "1.11", default-features = false }
 insta = { version = "1.42", features = ["ron"] }

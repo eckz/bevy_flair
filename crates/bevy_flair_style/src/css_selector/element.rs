@@ -97,7 +97,7 @@ macro_rules! impl_element_commons {
 #[derive(Debug, SystemParam)]
 pub(crate) struct ElementRefSystemParam<'w, 's> {
     match_data_query: Query<'w, 's, &'static NodeStyleData>,
-    parent_query: Query<'w, 's, &'static Parent>,
+    parent_query: Query<'w, 's, &'static ChildOf>,
     children_query: Query<'w, 's, &'static Children>,
     siblings_query: Query<'w, 's, &'static Siblings>,
 }
@@ -200,11 +200,7 @@ impl Element for ElementRef<'_> {
             .ok()?
             .iter()
             .next()?;
-        Self::related_new(
-            *first_child,
-            self.queries,
-            RecalculateOnChangeFlags::empty(),
-        )
+        Self::related_new(first_child, self.queries, RecalculateOnChangeFlags::empty())
     }
 
     fn has_local_name(&self, local_name: &<Self::Impl as SelectorImpl>::BorrowedLocalName) -> bool {

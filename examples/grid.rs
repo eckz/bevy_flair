@@ -31,7 +31,7 @@ fn main() {
                         font_size: 48.0,
                         ..default()
                     },
-                    enabled: true,
+                    ..default()
                 },
             },
         ))

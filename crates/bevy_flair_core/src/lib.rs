@@ -125,7 +125,6 @@ impl Plugin for BevyUiPropertiesPlugin {
             Overflow,
             BorderRadius,
             Outline,
-            BoxShadow,
         });
 
         let registry_arc = app.world().resource::<AppTypeRegistry>().0.clone();

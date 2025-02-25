@@ -31,6 +31,7 @@ pub(crate) enum InternalPseudoStateSelector {
     Pressed,
     Hovered,
     Focused,
+    FocusedAndVisible,
 }
 
 impl From<InternalPseudoStateSelector> for NodePseudoStateSelector {
@@ -39,6 +40,9 @@ impl From<InternalPseudoStateSelector> for NodePseudoStateSelector {
             InternalPseudoStateSelector::Pressed => NodePseudoStateSelector::Pressed,
             InternalPseudoStateSelector::Hovered => NodePseudoStateSelector::Hovered,
             InternalPseudoStateSelector::Focused => NodePseudoStateSelector::Focused,
+            InternalPseudoStateSelector::FocusedAndVisible => {
+                NodePseudoStateSelector::FocusedAndVisible
+            }
         }
     }
 }
@@ -69,6 +73,9 @@ impl ToCss for InternalPseudoStateSelector {
             }
             InternalPseudoStateSelector::Focused => {
                 write!(dest, ":focus")?;
+            }
+            InternalPseudoStateSelector::FocusedAndVisible => {
+                write!(dest, ":focus-visible")?;
             }
         }
         Ok(())
@@ -110,7 +117,7 @@ macro_rules! unconstructable {
 }
 
 fn hash_32<T: Hash>(value: T) -> u32 {
-    bevy::utils::FixedState.hash_one(value) as u32
+    bevy::platform_support::hash::FixedHasher.hash_one(value) as u32
 }
 
 macro_rules! str_wrapper {
@@ -210,6 +217,9 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
             },
             "focus" => {
                 Ok(InternalPseudoStateSelector::Focused)
+            },
+            "focus-visible" => {
+                Ok(InternalPseudoStateSelector::FocusedAndVisible)
             },
             _ => {
                 Err(

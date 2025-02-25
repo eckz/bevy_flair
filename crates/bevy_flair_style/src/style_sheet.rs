@@ -1,5 +1,6 @@
 use crate::{builder::StyleSheetBuilder, simple_selector::SimpleSelector};
-use bevy::{asset::Asset, prelude::TypePath, reflect::Reflect, utils::HashMap};
+use bevy::platform_support::collections::HashMap;
+use bevy::{asset::Asset, prelude::TypePath, reflect::Reflect};
 use bevy_flair_core::*;
 use std::borrow::Borrow;
 use std::cmp;
@@ -72,7 +73,7 @@ const MAX_10BIT: u32 = (1u32 << 10) - 1;
 impl From<u32> for SelectorSpecificity {
     #[inline]
     fn from(value: u32) -> SelectorSpecificity {
-        assert!(value <= MAX_10BIT << 20 | MAX_10BIT << 10 | MAX_10BIT);
+        assert!(value <= (MAX_10BIT << 20) | (MAX_10BIT << 10) | MAX_10BIT);
         SelectorSpecificity {
             id_selectors: value >> 20,
             class_like_selectors: (value >> 10) & MAX_10BIT,
@@ -84,8 +85,8 @@ impl From<u32> for SelectorSpecificity {
 impl From<SelectorSpecificity> for u32 {
     #[inline]
     fn from(specificity: SelectorSpecificity) -> u32 {
-        cmp::min(specificity.id_selectors, MAX_10BIT) << 20
-            | cmp::min(specificity.class_like_selectors, MAX_10BIT) << 10
+        (cmp::min(specificity.id_selectors, MAX_10BIT) << 20)
+            | (cmp::min(specificity.class_like_selectors, MAX_10BIT) << 10)
             | cmp::min(specificity.element_selectors, MAX_10BIT)
     }
 }

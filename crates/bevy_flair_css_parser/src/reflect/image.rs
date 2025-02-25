@@ -139,7 +139,7 @@ mod tests {
         ));
 
         let expected_slicer = TextureSlicer {
-            border: BorderRect::square(20.0),
+            border: BorderRect::all(20.0),
             ..Default::default()
         };
 

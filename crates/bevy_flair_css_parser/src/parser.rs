@@ -8,8 +8,8 @@ use crate::error_codes;
 use crate::reflect::{ParseFn, ReflectParseCss, ReflectParseCssEnum};
 use crate::{CssParseResult, ParserExt};
 use bevy::math::Vec2;
+use bevy::platform_support::collections::HashSet;
 use bevy::reflect::TypeRegistry;
-use bevy::utils::HashSet;
 use bevy_flair_core::{
     ComponentPropertyId, PropertiesRegistry, ReflectBreakIntoSubProperties, ReflectValue,
 };

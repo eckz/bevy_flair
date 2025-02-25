@@ -2,7 +2,7 @@ use crate::component_property::ComponentProperty;
 use crate::sub_properties::ReflectCreateSubProperties;
 use crate::{PropertiesHashMap, ReflectValue};
 use bevy::reflect::{TypeRegistry, Typed};
-use bevy::{prelude::*, utils::HashMap};
+use bevy::{platform_support::collections::hash_map::HashMap, prelude::*};
 use smol_str::SmolStr;
 use std::any::TypeId;
 use std::borrow::Cow;

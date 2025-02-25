@@ -42,6 +42,8 @@ pub struct NodeState {
     pub hovered: bool,
     /// If the entity is focused
     pub focused: bool,
+    /// If the entity is focused and the focus visibility is active
+    pub focused_and_visible: bool,
 }
 
 impl NodeState {
@@ -50,18 +52,8 @@ impl NodeState {
         pressed: false,
         hovered: false,
         focused: false,
+        focused_and_visible: false,
     };
-
-    /// Returns true if state represents a hovered state.
-    pub fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    /// Returns true if state represents a focused state.
-    pub fn is_focused(&self) -> bool {
-        self.focused
-    }
-
     /// Returns true if state represents a pressed state.
     pub fn is_pressed(&self) -> bool {
         self.pressed
@@ -73,6 +65,7 @@ impl NodeState {
             NodePseudoStateSelector::Pressed => self.pressed,
             NodePseudoStateSelector::Hovered => self.hovered,
             NodePseudoStateSelector::Focused => self.focused,
+            NodePseudoStateSelector::FocusedAndVisible => self.focused_and_visible,
         }
     }
 }
@@ -86,6 +79,8 @@ pub enum NodePseudoStateSelector {
     Hovered,
     /// If the entity is focused
     Focused,
+    /// If the entity is focused and the focus indicator is visible
+    FocusedAndVisible,
 }
 
 /// System sets for the [`FlairStylePlugin`] plugin.
@@ -163,6 +158,7 @@ impl Plugin for FlairStylePlugin {
                         systems::apply_classes,
                         systems::interaction_system,
                         systems::track_name_changes,
+                        systems::sync_input_focus,
                     )
                         .in_set(StyleSystemSets::SetStyleData),
                     systems::mark_nodes_for_recalculation
@@ -228,17 +224,13 @@ impl<C: Component + TypePath> Plugin for TrackTypeNameComponentPlugin<C> {
 mod tests {
     use super::*;
     use bevy::app::App;
+    use bevy::asset::weak_handle;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::ui::Node;
     use std::sync::atomic;
-    use uuid::Uuid;
-
-    const TEST_STYLE_SHEET_ASSET_ID: AssetId<StyleSheet> = AssetId::Uuid {
-        uuid: Uuid::from_u128(123456789),
-    };
 
     const TEST_STYLE_SHEET: NodeStyleSheet =
-        NodeStyleSheet::new(Handle::Weak(TEST_STYLE_SHEET_ASSET_ID));
+        NodeStyleSheet::new(weak_handle!("fe981062-17ce-46e4-999a-5a61ea8fe722"));
 
     const ROOT: (TestNode, NodeStyleSheet) = (TestNode, TEST_STYLE_SHEET);
 
@@ -289,7 +281,7 @@ mod tests {
             let mut scene_builder = bevy::scene::DynamicSceneBuilder::from_world($app.world());
             scene_builder = scene_builder
                 .allow_component::<Name>()
-                .allow_component::<Parent>()
+                .allow_component::<ChildOf>()
                 .allow_component::<Children>()
                 .allow_component::<NodeStyleSheet>()
                 $(.allow_component::<$components>())*
@@ -312,7 +304,6 @@ mod tests {
         app.add_plugins((
             bevy::time::TimePlugin,
             AssetPlugin::default(),
-            HierarchyPlugin,
             BevyUiPropertiesPlugin,
             FlairStylePlugin,
         ));
@@ -502,7 +493,7 @@ mod tests {
 
         {
             app.world_mut()
-                .run_system_once(|mut query: Query<&mut NodeStyleMarker, Without<Parent>>| {
+                .run_system_once(|mut query: Query<&mut NodeStyleMarker, Without<ChildOf>>| {
                     query.single_mut().mark_for_recalculation();
                 })
                 .unwrap();
@@ -541,7 +532,7 @@ mod tests {
         {
             app.world_mut()
                 .run_system_once(
-                    |mut query: Query<(&NodeStyleData, &mut NodeStyleMarker), Without<Parent>>| {
+                    |mut query: Query<(&NodeStyleData, &mut NodeStyleMarker), Without<ChildOf>>| {
                         let (data, mut marker) = query.single_mut();
                         marker.mark_for_recalculation();
                         data.recalculation_flags.fetch_or(
