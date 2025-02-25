@@ -15,7 +15,7 @@ missing_docs = "warn"
 
 [dependencies]
 thiserror = { version = "2.0" }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0" }
 
 # Same version as bevy so it implements reflect
 smol_str = "0.2"

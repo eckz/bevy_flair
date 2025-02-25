@@ -15,8 +15,7 @@ resolver = "2"
 
 [workspace.dependencies]
 bevy = { version = "0.15", default-features = false, features = [
-    "bevy_ui",
-    "serialize"
+    "bevy_ui"
 ] }
 bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.1.0" }
 bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.1.0" }

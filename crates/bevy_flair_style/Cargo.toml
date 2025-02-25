@@ -18,7 +18,7 @@ type_complexity = "allow"
 
 [dependencies]
 thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0" }
 bitflags = "2.8"
 smol_str = "0.2"
 
