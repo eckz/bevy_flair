@@ -12,10 +12,10 @@ use bevy::reflect::{Reflect, ReflectFromReflect, Struct, TypeRegistry, Typed};
 use bevy::{
     asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError},
     image::Image,
-    platform_support::collections::HashMap,
     text::Font,
 };
 use bevy_flair_core::*;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use std::{fmt::Debug, marker::PhantomData, mem};
 use thiserror::Error;
@@ -270,7 +270,7 @@ impl RulesetBuilder<'_> {
 #[derive(Debug, Default)]
 struct BuilderRuleset {
     pub(super) properties: Vec<StyleBuilderProperty>,
-    pub(super) property_transitions: HashMap<ComponentPropertyRef, TransitionOptions>,
+    pub(super) property_transitions: FxHashMap<ComponentPropertyRef, TransitionOptions>,
     pub(super) animations: Vec<(Arc<str>, AnimationOptions)>,
 }
 
@@ -311,7 +311,7 @@ impl BuilderRuleset {
 pub struct StyleSheetBuilder {
     font_faces: Vec<StyleFontFace>,
     rulesets: Vec<BuilderRuleset>,
-    animation_keyframes: HashMap<Arc<str>, Vec<(ComponentPropertyRef, AnimationKeyframes)>>,
+    animation_keyframes: FxHashMap<Arc<str>, Vec<(ComponentPropertyRef, AnimationKeyframes)>>,
     simple_selectors_to_rulesets: Vec<(SimpleSelector, StyleSheetRulesetId)>,
     #[cfg(feature = "css_selectors")]
     css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
@@ -333,7 +333,7 @@ impl StyleSheetBuilder {
 
     fn validate_all_properties(
         properties_registry: &PropertiesRegistry,
-        animation_keyframes: &HashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
+        animation_keyframes: &FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
         rulesets: &[Ruleset],
     ) -> Result<(), StyleSheetBuilderError> {
         struct InvalidPropertyError {
@@ -342,7 +342,7 @@ impl StyleSheetBuilder {
             found_value_type_path: &'static str,
         }
 
-        pub fn validate_property(
+        pub fn validate_value(
             properties_registry: &PropertiesRegistry,
             property_id: ComponentPropertyId,
             value: &ReflectValue,
@@ -362,8 +362,20 @@ impl StyleSheetBuilder {
             }
         }
 
+        pub fn validate_property_value(
+            properties_registry: &PropertiesRegistry,
+            property_id: ComponentPropertyId,
+            property_value: &PropertyValue,
+        ) -> Result<(), InvalidPropertyError> {
+            let PropertyValue::Value(value) = property_value else {
+                return Ok(());
+            };
+
+            validate_value(properties_registry, property_id, value)
+        }
+
         for (property_id, value) in rulesets.iter().flat_map(|a| a.properties.iter()) {
-            validate_property(properties_registry, *property_id, value).map_err(
+            validate_property_value(properties_registry, *property_id, value).map_err(
                 |InvalidPropertyError {
                      property,
                      expected_value_type_path,
@@ -385,7 +397,7 @@ impl StyleSheetBuilder {
         for (animation_name, properties) in animation_keyframes.iter() {
             for (property_id, keyframes) in properties {
                 for (_, value, _) in keyframes {
-                    validate_property(properties_registry, *property_id, value).map_err(
+                    validate_value(properties_registry, *property_id, value).map_err(
                         |InvalidPropertyError {
                              property,
                              expected_value_type_path,
@@ -534,25 +546,27 @@ impl StyleSheetBuilder {
             loader: &mut L,
             property_value: &mut StyleBuilderProperty,
         ) -> Result<(), StyleSheetBuilderError> {
-            if property_value.1.value_is::<AssetPathPlaceHolder<A>>() {
-                let place_holder = mem::replace(&mut property_value.1, ReflectValue::Usize(0))
-                    .downcast_value::<AssetPathPlaceHolder<A>>()
-                    .unwrap();
+            if let PropertyValue::Value(reflect_value) = property_value.1.as_mut() {
+                if reflect_value.value_is::<AssetPathPlaceHolder<A>>() {
+                    let place_holder = mem::replace(reflect_value, ReflectValue::Usize(0))
+                        .downcast_value::<AssetPathPlaceHolder<A>>()
+                        .unwrap();
 
-                let path = AssetPath::try_parse(&place_holder.0).map_err(|error| {
-                    StyleSheetBuilderError::InvalidAssetPath {
-                        path: place_holder.0.clone(),
-                        error,
-                    }
-                })?;
+                    let path = AssetPath::try_parse(&place_holder.0).map_err(|error| {
+                        StyleSheetBuilderError::InvalidAssetPath {
+                            path: place_holder.0.clone(),
+                            error,
+                        }
+                    })?;
 
-                let handle = loader.load_asset::<A>(path)?;
-                property_value.1 = ReflectValue::new(handle);
+                    let handle = loader.load_asset::<A>(path)?;
+                    *reflect_value = ReflectValue::new(handle);
+                }
             }
             Ok(())
         }
 
-        let font_faces: HashMap<String, Handle<Font>> = mem::take(&mut self.font_faces)
+        let font_faces: FxHashMap<String, Handle<Font>> = mem::take(&mut self.font_faces)
             .into_iter()
             .map(|ff| {
                 let path = AssetPath::try_parse(&ff.path).map_err(|error| {
@@ -571,16 +585,18 @@ impl StyleSheetBuilder {
             .iter_mut()
             .flat_map(|r| r.properties.iter_mut())
         {
-            if property_value.1.value_is::<FontTypePlaceholder>() {
-                let place_holder = mem::replace(&mut property_value.1, ReflectValue::Usize(0))
-                    .downcast_value::<FontTypePlaceholder>()
-                    .unwrap();
+            if let PropertyValue::Value(reflect_value) = property_value.1.as_mut() {
+                if reflect_value.value_is::<FontTypePlaceholder>() {
+                    let place_holder = mem::replace(reflect_value, ReflectValue::Usize(0))
+                        .downcast_value::<FontTypePlaceholder>()
+                        .unwrap();
 
-                let Some(handle) = font_faces.get(&place_holder.0) else {
-                    return Err(StyleSheetBuilderError::FontFamilyNotFound(place_holder.0));
-                };
+                    let Some(handle) = font_faces.get(&place_holder.0) else {
+                        return Err(StyleSheetBuilderError::FontFamilyNotFound(place_holder.0));
+                    };
 
-                property_value.1 = ReflectValue::new(handle.clone());
+                    *reflect_value = ReflectValue::new(handle.clone());
+                }
             }
 
             resolve_placeholder::<Image, _>(&mut loader, property_value)?;
@@ -635,7 +651,7 @@ impl StyleSheetBuilder {
 
                 Ok((animation_name, properties))
             })
-            .collect::<Result<HashMap<_, _>, ResolvePropertyError>>()?;
+            .collect::<Result<FxHashMap<_, _>, ResolvePropertyError>>()?;
 
         Self::validate_all_properties(properties_registry, &animation_keyframes, &rulesets)?;
 
@@ -675,11 +691,17 @@ impl StyleSheetBuilder {
 
 /// Represents a property and its value inside a [``StyleSheetBuilder].
 #[derive(Debug)]
-pub struct StyleBuilderProperty(pub ComponentPropertyRef, pub ReflectValue);
+pub struct StyleBuilderProperty(pub ComponentPropertyRef, pub PropertyValue);
 
 impl From<(ComponentPropertyRef, ReflectValue)> for StyleBuilderProperty {
     fn from((property, value): (ComponentPropertyRef, ReflectValue)) -> Self {
-        Self(property, value)
+        Self(property, PropertyValue::Value(value))
+    }
+}
+
+impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
+    fn from((property, property_value): (ComponentPropertyRef, PropertyValue)) -> Self {
+        Self(property, property_value)
     }
 }
 
@@ -688,7 +710,10 @@ where
     T: FromReflect,
 {
     fn from((property, value): (ComponentPropertyId, T)) -> Self {
-        Self(property.into(), ReflectValue::new(value))
+        Self(
+            property.into(),
+            PropertyValue::Value(ReflectValue::new(value)),
+        )
     }
 }
 
@@ -697,7 +722,10 @@ where
     T: FromReflect,
 {
     fn from((property, value): (&'static str, T)) -> Self {
-        Self(property.into(), ReflectValue::new(value))
+        Self(
+            property.into(),
+            PropertyValue::Value(ReflectValue::new(value)),
+        )
     }
 }
 

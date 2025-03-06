@@ -30,7 +30,7 @@ impl CubicBezierEaseCurve {
     /// [unit interval]: `Interval::UNIT`
     pub fn new(p1: impl Into<Vec2>, p2: impl Into<Vec2>) -> Self {
         Self {
-            cubic_segment: CubicSegment::new_bezier(p1, p2),
+            cubic_segment: CubicSegment::new_bezier_easing(p1, p2),
         }
     }
 

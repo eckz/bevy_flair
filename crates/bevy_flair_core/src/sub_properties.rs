@@ -1,4 +1,4 @@
-use crate::{ComponentProperty, ComponentPropertyRef, ReflectValue};
+use crate::{ComponentProperty, ComponentPropertyRef, PropertyValue, ReflectValue};
 
 use bevy::reflect::*;
 
@@ -81,20 +81,26 @@ where
     }
 }
 
-type BreakIntoSubPropertiesFn =
-    fn(&TypeRegistry, &str, value: ReflectValue) -> Vec<(ComponentPropertyRef, ReflectValue)>;
+type BreakIntoSubPropertiesFn = fn(
+    &TypeRegistry,
+    &str,
+    property_value: PropertyValue,
+) -> Vec<(ComponentPropertyRef, PropertyValue)>;
 
 fn break_into_sub_properties<T: Typed + FromReflect + Struct>(
     type_registry: &TypeRegistry,
     property_canonical_name: &str,
-    value: ReflectValue,
-) -> Vec<(ComponentPropertyRef, ReflectValue)> {
+    property_value: PropertyValue,
+) -> Vec<(ComponentPropertyRef, PropertyValue)> {
     let TypeInfo::Struct(struct_info) = T::type_info() else {
         panic!("Invalid TypeInfo for {}", T::type_path());
     };
-    let value: T = value
-        .downcast_value()
-        .expect("Received a DynamicValue with the wrong type");
+
+    let property_value = property_value.map(|value| {
+        value
+            .downcast_value::<T>()
+            .expect("Received a DynamicValue with the wrong type")
+    });
 
     struct_info
         .iter()
@@ -110,37 +116,41 @@ fn break_into_sub_properties<T: Typed + FromReflect + Struct>(
                 )
             });
 
-            let value_partial = value.field(field_name).unwrap_or_else(|| {
-                panic!(
-                    "Could get value for '{canonical_name}'",
-
-                )
-            });
-
-            let reflect_from_reflect = type_registry
-                .get_type_data::<ReflectFromReflect>(field_type_info.type_id())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Could not create sub-property value '{canonical_name}' because type '{}' has not ReflectFromReflect registered",
-                        field_type_info.type_path()
-                    )
-                });
-
-            let value_box = reflect_from_reflect
-                .from_reflect(value_partial)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Could not create sub-property value '{canonical_name}' because FromReflect failed"
-                    )
-                });
-
-            let reflect_value = ReflectValue::new_from_box(value_box);
 
             let sub_property_ref = ComponentPropertyRef::CanonicalName(format!(
                 "{property_canonical_name}.{field_name}"
             ));
 
-            (sub_property_ref, reflect_value)
+
+            let property_value = property_value.as_ref().map(|value| {
+                let value_partial = value.field(field_name).unwrap_or_else(|| {
+                    panic!(
+                        "Could get value for '{canonical_name}'",
+
+                    )
+                });
+
+                let reflect_from_reflect = type_registry
+                    .get_type_data::<ReflectFromReflect>(field_type_info.type_id())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Could not create sub-property value '{canonical_name}' because type '{}' has not ReflectFromReflect registered",
+                            field_type_info.type_path()
+                        )
+                    });
+
+                let value_box = reflect_from_reflect
+                    .from_reflect(value_partial)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Could not create sub-property value '{canonical_name}' because FromReflect failed"
+                        )
+                    });
+
+                ReflectValue::new_from_box(value_box)
+            });
+
+            (sub_property_ref, property_value)
         })
         .collect()
 }
@@ -161,25 +171,26 @@ fn break_into_sub_properties<T: Typed + FromReflect + Struct>(
 /// let property_id = properties_registry.register_recursively_with_css_name(
 ///         "margin",
 ///         ComponentProperty::new::<Node>(".margin"),
+///         PropertyValue::None,
 ///         &type_registry,
 /// );
 ///
 /// let property = properties_registry.get_property(property_id);
 ///
-/// let property_value = ReflectValue::new(UiRect {
+/// let property_value = PropertyValue::Value(ReflectValue::new(UiRect {
 ///     left: Val::Px(10.0),
 ///     ..default()
-/// });
+/// }));
 ///
 /// let reflect_break_into_sub_properties = type_registry.get_type_data::<ReflectBreakIntoSubProperties>(TypeId::of::<UiRect>()).unwrap();
 ///
 /// let sub_properties = reflect_break_into_sub_properties.break_into_sub_properties(&property, property_value, &type_registry);
 ///
 /// assert_eq!(sub_properties, vec![
-///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.left".into()), ReflectValue::new(Val::Px(10.0))),
-///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.right".into()), ReflectValue::new(Val::Px(0.0))),
-///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.top".into()), ReflectValue::new(Val::Px(0.0))),
-///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.bottom".into()), ReflectValue::new(Val::Px(0.0))),
+///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.left".into()), PropertyValue::Value(ReflectValue::new(Val::Px(10.0)))),
+///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.right".into()), PropertyValue::Value(ReflectValue::new(Val::Px(0.0)))),
+///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.top".into()), PropertyValue::Value(ReflectValue::new(Val::Px(0.0)))),
+///     (ComponentPropertyRef::CanonicalName("bevy_ui::ui_node::Node.margin.bottom".into()), PropertyValue::Value(ReflectValue::new(Val::Px(0.0)))),
 /// ]);
 ///
 /// ```
@@ -200,10 +211,10 @@ impl ReflectBreakIntoSubProperties {
     pub fn break_into_sub_properties(
         &self,
         property: &ComponentProperty,
-        value: ReflectValue,
+        property_value: PropertyValue,
         type_registry: &TypeRegistry,
-    ) -> Vec<(ComponentPropertyRef, ReflectValue)> {
+    ) -> Vec<(ComponentPropertyRef, PropertyValue)> {
         let canonical_name = property.canonical_name();
-        self.0(type_registry, &canonical_name, value)
+        self.0(type_registry, &canonical_name, property_value)
     }
 }

@@ -96,7 +96,7 @@ macro_rules! impl_element_commons {
 
 #[derive(Debug, SystemParam)]
 pub(crate) struct ElementRefSystemParam<'w, 's> {
-    match_data_query: Query<'w, 's, &'static NodeStyleData>,
+    style_data_query: Query<'w, 's, &'static NodeStyleData>,
     parent_query: Query<'w, 's, &'static ChildOf>,
     children_query: Query<'w, 's, &'static Children>,
     siblings_query: Query<'w, 's, &'static Siblings>,
@@ -118,7 +118,7 @@ impl Borrow<NodeStyleData> for ElementRef<'_> {
 impl<'a> ElementRef<'a> {
     pub fn new(entity: Entity, queries: &'a ElementRefSystemParam<'a, 'a>) -> Self {
         let data = queries
-            .match_data_query
+            .style_data_query
             .get(entity)
             .expect("NodeStyleData does not exist for entity");
 
@@ -134,7 +134,7 @@ impl<'a> ElementRef<'a> {
         queries: &'a ElementRefSystemParam<'a, 'a>,
         flags: RecalculateOnChangeFlags,
     ) -> Option<Self> {
-        let data = queries.match_data_query.get(entity).ok()?;
+        let data = queries.style_data_query.get(entity).ok()?;
         data.recalculation_flags
             .fetch_or(flags.bits(), Ordering::Relaxed);
 
@@ -156,7 +156,7 @@ impl Element for ElementRef<'_> {
     }
 
     fn parent_element(&self) -> Option<Self> {
-        let parent = self.queries.parent_query.get(self.entity).ok()?.get();
+        let parent = self.queries.parent_query.get(self.entity).ok()?.parent;
         Self::related_new(
             parent,
             self.queries,

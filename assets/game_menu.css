@@ -18,6 +18,8 @@
 }
 
 :root {
+    font-family: "Kenney Space";
+
     width: 100%;
     height: 100%;
     background-color: #1f2730;
@@ -27,6 +29,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+#menu_title {
+    font-size: 38px;
+    color: #d68a4c;
 }
 
 #game_menu {
@@ -51,6 +58,17 @@ Button {
 
     margin-top: 30px;
     background-color: transparent;
+
+    font-size: 20px;
+    color: rgb(20, 20, 21);
+}
+
+Button Text {
+    transition: color 0.6s;
+}
+
+Button:focus {
+    color: #E6E6E6;
 }
 
 Button, #floating_borders {
@@ -85,23 +103,5 @@ Button:nth-child(5):focus ~ #floating_borders {
 
 Button:hover ~ #floating_borders {
     animation: 2.0s linear infinite borders-animation;
-}
-
-#menu_title Text {
-    font-family: "Kenney Space";
-    font-size: 38px;
-    color: #d68a4c;
-}
-
-Button Text {
-    font-family: "Kenney Space";
-    font-size: 20px;
-    color: rgb(20, 20, 21);
-
-    transition: color 0.6s;
-}
-
-Button:focus Text {
-    color: #E6E6E6;
 }
 

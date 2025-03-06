@@ -12,10 +12,10 @@ use bevy::{
     input::InputSystem,
     input_focus::{directional_navigation::*, AutoFocus, InputDispatchPlugin, InputFocus},
     math::CompassOctant,
-    platform_support::collections::HashSet,
     prelude::*,
 };
 use bevy_flair::prelude::*;
+use std::collections::HashSet;
 
 #[derive(Debug, Component, Copy, Clone)]
 struct NavigableChildren {
@@ -238,7 +238,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 spawner.spawn((
                     Name::new("menu_title"),
                     Node::default(),
-                    Children::spawn_one(Text::new("Game Menu")),
+                    Children::spawn_one(Text::new("Main Menu")),
                 ));
 
                 spawner.spawn((button("Continue"), AutoFocus)).observe(
@@ -246,7 +246,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         info!("Button continue selected");
                     },
                 );
-                spawner.spawn(button("New Game"));
+                spawner.spawn(button("New"));
                 spawner.spawn(button("Options"));
                 spawner.spawn(button("Quit")).observe(
                     |_trigger: Trigger<ButtonActivate>, mut exit_event: EventWriter<AppExit>| {

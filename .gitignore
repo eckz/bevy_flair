@@ -23,3 +23,5 @@ target/
 # Added by cargo
 
 /target
+
+rust-toolchain.toml

@@ -1,5 +1,4 @@
 use crate::{builder::StyleSheetBuilder, simple_selector::SimpleSelector};
-use bevy::platform_support::collections::HashMap;
 use bevy::{asset::Asset, prelude::TypePath, reflect::Reflect};
 use bevy_flair_core::*;
 use std::borrow::Borrow;
@@ -16,6 +15,7 @@ use crate::animations::TransitionOptions;
 use crate::css_selector::CssSelector;
 
 use bevy::prelude::FromReflect;
+use rustc_hash::FxHashMap;
 use std::ops::Add;
 use std::sync::Arc;
 use thiserror::Error;
@@ -286,9 +286,9 @@ impl AnimationKeyframesBuilder {
 
 #[derive(Debug, Default)]
 pub(crate) struct Ruleset {
-    pub(super) properties: Vec<(ComponentPropertyId, ReflectValue)>,
+    pub(super) properties: Vec<(ComponentPropertyId, PropertyValue)>,
     pub(super) animations: Vec<(Arc<str>, AnimationOptions)>,
-    pub(super) transitions: HashMap<ComponentPropertyId, TransitionOptions>,
+    pub(super) transitions: PropertiesHashMap<TransitionOptions>,
 }
 
 // TODO: Add StyleSheetId
@@ -335,7 +335,7 @@ impl StyleSheetSelector {
 pub struct StyleSheet {
     pub(super) rulesets: Vec<Ruleset>,
     pub(super) animation_keyframes:
-        HashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
+        FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
     pub(super) selectors_to_rulesets: Vec<(StyleSheetSelector, StyleSheetRulesetId)>,
 }
 
@@ -352,20 +352,15 @@ impl StyleSheet {
     pub(crate) fn get_property_values(
         &self,
         rules_sets: &[StyleSheetRulesetId],
-    ) -> PropertiesHashMap<&ReflectValue> {
-        let mut result = PropertiesHashMap::default();
-
+        output: &mut PropertiesMap<PropertyValue>,
+    ) {
         for ruleset_id in rules_sets {
             let ruleset = self.get(*ruleset_id).unwrap();
 
-            for rule_property in ruleset.properties.iter() {
-                let property = &rule_property.0;
-                let value = &rule_property.1;
-
-                result.insert(*property, value);
+            for &(property, ref value) in ruleset.properties.iter() {
+                output.set_if_neq(property, value.clone());
             }
         }
-        result
     }
 
     pub(crate) fn get_transition_options(
@@ -409,7 +404,7 @@ impl StyleSheet {
 
     /// Returns ids that matches with the given element.
     /// Results are sorted from less specific to more specific.
-    pub(crate) fn get_ruleset_ids_for_entity<E: StyleMatchableElement>(
+    pub(crate) fn get_matching_ruleset_ids_for_element<E: StyleMatchableElement>(
         &self,
         element: &E,
     ) -> Vec<StyleSheetRulesetId> {
@@ -419,15 +414,6 @@ impl StyleSheet {
             .collect()
     }
 }
-
-// impl Index<StyleSheetRulesetId> for StyleSheet {
-//     type Output = Ruleset;
-//
-//     #[inline]
-//     fn index(&self, index: StyleSheetRulesetId) -> &Self::Output {
-//         &self.rulesets[index.0]
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -451,6 +437,7 @@ mod tests {
         registry.register_with_css_name(
             TEST_PROPERTY,
             ComponentProperty::new::<TestComponent>("value"),
+            PropertyValue::None,
         );
         registry
     });
@@ -467,9 +454,31 @@ mod tests {
         ($($k:expr => $v:expr),* $(,)?) => {
             PropertiesHashMap::from_iter([$((
                 resolve!($k),
-                 $v
+                $v
             ),)*])
         };
+    }
+
+    macro_rules! properties_map {
+        () => {
+            PROPERTIES_REGISTRY.get_default_values()
+        };
+        ($($k:expr => $v:expr),* $(,)?) => {{
+            let mut properties_map = PROPERTIES_REGISTRY.get_default_values();
+            properties_map.extend([$((
+                resolve!($k),
+                $v
+            ),)*]);
+            properties_map
+        }};
+    }
+
+    macro_rules! get_properties {
+        ($style_sheet:expr, $rules:expr) => {{
+            let mut properties_map = PROPERTIES_REGISTRY.get_default_values();
+            $style_sheet.get_property_values($rules, &mut properties_map);
+            properties_map
+        }};
     }
 
     macro_rules! element {
@@ -539,19 +548,20 @@ mod tests {
         let style_sheet = builder.build_without_loader(&PROPERTIES_REGISTRY).unwrap();
 
         assert_eq!(
-            style_sheet.get_ruleset_ids_for_entity(element!(Text)),
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text)),
             vec![rule_any_id]
         );
         assert_eq!(
-            style_sheet.get_ruleset_ids_for_entity(element!(Text.class_1)),
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text.class_1)),
             vec![rule_any_id, rule_class_id]
         );
         assert_eq!(
-            style_sheet.get_ruleset_ids_for_entity(element!(Text.class_1 #test_name)),
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text.class_1 #test_name)),
             vec![rule_any_id, rule_class_id, rule_with_name_id]
         );
         assert_eq!(
-            style_sheet.get_ruleset_ids_for_entity(element!(Text.class_1 :hover #test_name)),
+            style_sheet
+                .get_matching_ruleset_ids_for_element(element!(Text.class_1 :hover #test_name)),
             vec![
                 rule_any_id,
                 rule_class_id,
@@ -561,18 +571,21 @@ mod tests {
         );
 
         assert_eq!(
-            style_sheet.get_property_values(&[rule_any_id, rule_class_id]),
-            properties! { TEST_PROPERTY => &ReflectValue::Float(2.0) }
+            get_properties!(style_sheet, &[rule_any_id, rule_class_id]),
+            properties_map! { TEST_PROPERTY => ReflectValue::Float(2.0) }
         );
 
         assert_eq!(
-            style_sheet.get_property_values(&[
-                rule_any_id,
-                rule_class_id,
-                rule_class_with_hover_id,
-                rule_with_name_id
-            ]),
-            properties! { TEST_PROPERTY => &ReflectValue::Float(4.0) }
+            get_properties!(
+                style_sheet,
+                &[
+                    rule_any_id,
+                    rule_class_id,
+                    rule_class_with_hover_id,
+                    rule_with_name_id
+                ]
+            ),
+            properties_map! { TEST_PROPERTY => ReflectValue::Float(4.0) }
         );
 
         assert_eq!(

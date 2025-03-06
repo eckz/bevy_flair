@@ -2,7 +2,7 @@ use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
 use bevy::log::warn;
 use bevy::reflect::TypeRegistryArc;
-use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertiesRegistry};
+use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertiesRegistry, PropertyValue};
 use bevy_flair_style::{
     AnimationKeyframesBuilder, StyleSheet, StyleSheetBuilder, StyleSheetBuilderError,
 };
@@ -158,7 +158,7 @@ impl AssetLoader for CssStyleLoader {
                                         match property {
                                             CssRulesetProperty::SingleProperty(
                                                 property_id,
-                                                sample,
+                                                PropertyValue::Value(sample),
                                             ) => {
                                                 for time in &times {
                                                     keyframes_per_property

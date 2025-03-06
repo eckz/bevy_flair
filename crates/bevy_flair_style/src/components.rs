@@ -1,16 +1,21 @@
 //! Contains all components used by the style system.
+
 use crate::animations::{
     Animation, AnimationState, ReflectAnimatable, Transition, TransitionOptions,
 };
+use std::cell::RefCell;
 
 use crate::{ClassName, IdName, NodePseudoStateSelector, NodeState, ResolvedAnimation, StyleSheet};
 
-use bevy::platform_support::collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistry;
-use bevy_flair_core::{ComponentPropertyId, PropertiesHashMap, PropertiesRegistry, ReflectValue};
+use bevy_flair_core::{
+    ComponentPropertyId, ComputedValue, PropertiesHashMap, PropertiesMap, PropertiesRegistry,
+    PropertyValue, ReflectValue,
+};
 use bitflags::bitflags;
 
+use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
 use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
@@ -20,6 +25,8 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::reflect::serde::{
     ReflectSerializeWithRegistry, SerializeWithRegistry, TypedReflectSerializer,
 };
+use itertools::izip;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 use std::mem;
@@ -266,30 +273,48 @@ impl NodeStyleSheet {
     }
 }
 
+#[derive(Clone, Resource)]
+pub(crate) struct EmptyComputedProperties(PropertiesMap<ComputedValue>);
+
+impl FromWorld for EmptyComputedProperties {
+    fn from_world(world: &mut World) -> Self {
+        let properties_registry = world.resource::<PropertiesRegistry>();
+        Self(properties_registry.create_properties_map(ComputedValue::None))
+    }
+}
+
 /// Contains all properties applied to the current Node.
 /// Also contains active animations and transits
 #[derive(Clone, Debug, Default, Component, Reflect)]
-#[component(on_add = set_properties_registry)]
+#[component(on_add = set_node_properties_initial_data)]
 #[reflect(opaque, Debug, Default, Component, SerializeWithRegistry)]
 pub struct NodeProperties {
     properties_registry: Option<PropertiesRegistry>,
+    empty_computed_properties: PropertiesMap<ComputedValue>,
 
     pub(crate) transitions_options: PropertiesHashMap<TransitionOptions>,
 
-    applied_properties: PropertiesHashMap<ReflectValue>,
-    pending_properties: Vec<(ComponentPropertyId, ReflectValue)>,
+    // NEW STUFF
+    pub(crate) pending_property_values: PropertiesMap<PropertyValue>,
+    pub(crate) property_values: PropertiesMap<PropertyValue>,
+    pub(crate) pending_computed_values: PropertiesMap<ComputedValue>,
+    pub(crate) pending_animation_values: PropertiesMap<ComputedValue>,
+    pub(crate) computed_values: PropertiesMap<ComputedValue>,
 
     transitions: PropertiesHashMap<Transition>,
     // TODO: SmallVec here?
     animations: PropertiesHashMap<Vec<Animation>>,
 }
 
-fn set_properties_registry(mut world: DeferredWorld, context: HookContext) {
+fn set_node_properties_initial_data(mut world: DeferredWorld, context: HookContext) {
     let properties_registry = world.resource::<PropertiesRegistry>().clone();
-    world
-        .get_mut::<NodeProperties>(context.entity)
-        .unwrap()
-        .properties_registry = Some(properties_registry);
+    let empty_computed_properties = world.resource::<EmptyComputedProperties>().0.clone();
+    let mut this = world.get_mut::<NodeProperties>(context.entity).unwrap();
+
+    this.properties_registry = Some(properties_registry);
+    this.empty_computed_properties = empty_computed_properties;
+
+    this.computed_values = this.empty_computed_properties.clone();
 }
 
 fn get_reflect_animatable<'a>(
@@ -322,106 +347,280 @@ fn get_reflect_animatable<'a>(
 }
 
 impl NodeProperties {
-    pub(crate) fn apply_properties(
+    pub(crate) fn compute_pending_property_values_for_root(
         &mut self,
-        properties: PropertiesHashMap<&ReflectValue>,
         type_registry: &TypeRegistry,
         properties_registry: &PropertiesRegistry,
     ) {
-        for (property_id, value) in properties {
-            if let Some(options) = self.transitions_options.get(&property_id) {
-                let from_value = self.applied_properties.get(&property_id);
+        debug_assert!(self.pending_computed_values.is_empty(),);
+        debug_assert!(self.pending_animation_values.is_empty());
 
-                if from_value.is_none() {
-                    // If from_value does not exist, we assume the new value is the default property,
-                    // so it's better to not create a transition, until we find a better way.
-                    self.apply_property_if_neq(property_id, value);
-                    continue;
-                }
+        let mut pending_computed_values;
 
-                let to_value = value;
-                if from_value == Some(to_value) {
-                    // Equal values, do nothing
-                    continue;
-                }
+        if self.pending_property_values.is_empty() {
+            debug_assert!(
+                !self.computed_values.is_empty(),
+                "computed_values should not be empty"
+            );
+            // We are the root and nothing can change even for inherited properties
+            pending_computed_values = self.computed_values.clone();
+        } else {
+            debug_assert!(
+                !self.empty_computed_properties.is_empty(),
+                "empty_computed_properties should not be empty"
+            );
 
-                let from_value = from_value.cloned();
+            pending_computed_values = self.empty_computed_properties.clone();
+            let pending_property_values = mem::take(&mut self.pending_property_values);
 
-                // TODO: This should be catch during parsing or building
-                let Some(reflect_animatable) =
-                    get_reflect_animatable(property_id, type_registry, properties_registry)
-                else {
-                    // We set the property directly
-                    self.apply_property_if_neq(property_id, value);
-                    continue;
-                };
-
-                // Set the value to `applied_properties`, even though we are not really applying the value
-                // but it's needed to detect follow-up changes
-                self.applied_properties
-                    .insert(property_id, to_value.clone());
-
-                match self.transitions.entry(property_id) {
-                    HashMapEntry::Occupied(mut occupied) => {
-                        let previous_transition = occupied.get();
-
-                        let new_transition = Transition::from_possibly_reversed_transition(
-                            from_value,
-                            to_value.clone(),
-                            options,
-                            reflect_animatable,
-                            previous_transition,
-                        );
-
-                        trace!("Replaced transition: {new_transition:?}");
-                        *occupied.get_mut() = new_transition;
-                    }
-                    HashMapEntry::Vacant(vacant) => {
-                        let new_transition = Transition::new(
-                            from_value,
-                            to_value.clone(),
-                            options,
-                            reflect_animatable,
-                        );
-
-                        trace!("New transition: {new_transition:?}");
-                        vacant.insert(new_transition);
-                    }
-                }
-            } else {
-                self.apply_property_if_neq(property_id, value);
+            for (property_value, mut new_computed) in izip!(
+                pending_property_values.iter_values(),
+                pending_computed_values.iter_values_mut()
+            ) {
+                new_computed.set_if_neq(property_value.compute_root_value());
             }
+            self.property_values = pending_property_values;
         }
+        self.pending_computed_values = pending_computed_values;
+        self.pending_animation_values = self.empty_computed_properties.clone();
+        self.create_transitions(type_registry, properties_registry);
+        self.apply_transitions_and_animations();
     }
 
-    pub(crate) fn apply_property_if_neq(
+    pub(crate) fn compute_pending_property_values_with_parent(
         &mut self,
-        id: ComponentPropertyId,
-        new_value: &ReflectValue,
+        parent: &Self,
+        type_registry: &TypeRegistry,
+        properties_registry: &PropertiesRegistry,
     ) {
-        match self.applied_properties.entry(id) {
-            HashMapEntry::Vacant(vacant) => {
-                self.pending_properties.push((id, new_value.clone()));
-                vacant.insert(new_value.clone());
+        debug_assert!(self.pending_computed_values.is_empty());
+        debug_assert!(self.pending_animation_values.is_empty());
+        debug_assert!(
+            !parent.pending_computed_values.is_empty(),
+            "Parent does not have pending_computed_values calculated"
+        );
+        debug_assert!(
+            !parent.pending_animation_values.is_empty(),
+            "Parent does not have pending_animation_values calculated"
+        );
+
+        let mut pending_computed_values;
+        let mut pending_animation_values = self.empty_computed_properties.clone();
+
+        if self.pending_property_values.is_empty() {
+            // Calculate only inherited properties
+            pending_computed_values = self.computed_values.clone();
+
+            for (property_value, parent, parent_animated, mut new_computed, mut new_animated) in izip!(
+                self.property_values.iter_values(),
+                parent.pending_computed_values.iter_values(),
+                parent.pending_animation_values.iter_values(),
+                pending_computed_values.iter_values_mut(),
+                pending_animation_values.iter_values_mut()
+            ) {
+                if property_value.inherits() {
+                    new_computed.set_if_neq(property_value.compute_with_parent(parent));
+                    if *property_value == PropertyValue::Inherit {
+                        new_animated
+                            .set_if_neq(property_value.compute_with_parent(parent_animated));
+                    }
+                }
             }
-            HashMapEntry::Occupied(mut occupied) => {
-                if occupied.get() != new_value {
-                    self.pending_properties.push((id, new_value.clone()));
-                    occupied.insert(new_value.clone());
+        } else {
+            debug_assert!(
+                !self.empty_computed_properties.is_empty(),
+                "empty_computed_properties should not be empty"
+            );
+            pending_computed_values = self.empty_computed_properties.clone();
+            let pending_property_values = mem::take(&mut self.pending_property_values);
+
+            for (property_value, parent, parent_animated, mut new_computed, mut new_animated) in izip!(
+                pending_property_values.iter_values(),
+                parent.pending_computed_values.iter_values(),
+                parent.pending_animation_values.iter_values(),
+                pending_computed_values.iter_values_mut(),
+                pending_animation_values.iter_values_mut()
+            ) {
+                new_computed.set_if_neq(property_value.compute_with_parent(parent));
+                if *property_value == PropertyValue::Inherit {
+                    new_animated.set_if_neq(property_value.compute_with_parent(parent_animated));
+                }
+            }
+            self.property_values = pending_property_values;
+        }
+
+        self.pending_computed_values = pending_computed_values;
+        self.pending_animation_values = pending_animation_values;
+        self.create_transitions(type_registry, properties_registry);
+        self.apply_transitions_and_animations();
+    }
+
+    // Checks the difference between pending_computed_values and computed_values
+    // And creates transitions accordingly
+    fn create_transitions(
+        &mut self,
+        type_registry: &TypeRegistry,
+        properties_registry: &PropertiesRegistry,
+    ) {
+        for ((property_id, to_value), mut computed_value_mut) in izip!(
+            self.pending_computed_values.iter(),
+            self.computed_values.iter_values_mut(),
+        ) {
+            let Some(options) = self.transitions_options.get(&property_id) else {
+                continue;
+            };
+            if to_value == &*computed_value_mut {
+                // Equal values, do nothing
+                continue;
+            }
+
+            let (from_value, to_value) = match (computed_value_mut.clone(), to_value.clone()) {
+                (ComputedValue::Value(from_value), ComputedValue::Value(to_value)) => {
+                    (from_value, to_value)
+                }
+                (ComputedValue::Value(from_value), ComputedValue::None) => {
+                    let canonical_name = properties_registry
+                        .get_property(property_id)
+                        .canonical_name();
+                    warn!("Cannot create a transition '{canonical_name}' from '{from_value:?}' to None. You should avoid this by setting a baseline style that set the default values.");
+                    continue;
+                }
+                _ => {
+                    continue;
+                }
+            };
+
+            let Some(reflect_animatable) =
+                get_reflect_animatable(property_id, type_registry, properties_registry)
+            else {
+                continue;
+            };
+
+            // Set the value so it looks applied, but it will be modified through transition.
+            computed_value_mut.set_if_neq(ComputedValue::Value(to_value.clone()));
+
+            match self.transitions.entry(property_id) {
+                Entry::Occupied(mut occupied) => {
+                    let previous_transition = occupied.get();
+
+                    let new_transition = Transition::from_possibly_reversed_transition(
+                        Some(from_value),
+                        to_value,
+                        options,
+                        reflect_animatable,
+                        previous_transition,
+                    );
+
+                    trace!("Replaced transition: {new_transition:?}");
+                    *occupied.get_mut() = new_transition;
+                }
+                Entry::Vacant(vacant) => {
+                    let new_transition =
+                        Transition::new(Some(from_value), to_value, options, reflect_animatable);
+
+                    trace!("New transition: {new_transition:?}");
+                    vacant.insert(new_transition);
                 }
             }
         }
     }
 
-    pub(crate) fn change_transition_options(
+    // Sets pending_animation_values with transitions and animations
+    fn apply_transitions_and_animations(&mut self) {
+        debug_assert!(
+            !self.pending_computed_values.is_empty(),
+            "pending_animation_values should not be empty"
+        );
+        debug_assert!(
+            !self.pending_animation_values.is_empty(),
+            "pending_animation_values should not be empty"
+        );
+
+        for (&property_id, transition) in &self.transitions {
+            match transition.state {
+                AnimationState::Running => {
+                    if let Some(value) = transition.sample_value() {
+                        self.pending_animation_values[property_id] = value.into();
+                    }
+                }
+                AnimationState::Finished | AnimationState::Canceled => {
+                    self.pending_animation_values[property_id] = transition.to.clone().into();
+                }
+                _ => {}
+            }
+        }
+
+        for (property_id, value) in self
+            .animations
+            .iter()
+            .flat_map(|(property_id, animations)| {
+                animations
+                    .iter()
+                    .filter_map(|animation| {
+                        (animation.state == AnimationState::Running)
+                            .then(|| animation.sample_value())
+                            .flatten()
+                    })
+                    .map(move |value| (*property_id, value))
+            })
+        {
+            self.pending_animation_values[property_id] = value.into();
+        }
+    }
+
+    // Moves from pending_computed_values to computed_values calling apply_change_fn for every change.
+    pub(crate) fn apply_computed_properties(
+        &mut self,
+        mut apply_change_fn: impl FnMut(ComponentPropertyId, ReflectValue),
+    ) {
+        debug_assert!(!self.pending_computed_values.is_empty());
+        debug_assert!(!self.pending_animation_values.is_empty());
+
+        let pending_computed_values = mem::take(&mut self.pending_computed_values);
+        let pending_animation_values = mem::take(&mut self.pending_animation_values);
+
+        // If nothing has changed this will evaluate to true
+        if pending_computed_values.ptr_eq(&self.computed_values)
+            && pending_animation_values.ptr_eq(&self.empty_computed_properties)
+        {
+            return;
+        }
+
+        for ((property_id, pending_value), pending_animation_value, mut computed_value) in izip!(
+            pending_computed_values.iter(),
+            pending_animation_values.iter_values(),
+            self.computed_values.iter_values_mut(),
+        ) {
+            if computed_value.set_if_neq(pending_value.clone())
+                || pending_animation_value.is_value()
+            {
+                let new_value = pending_animation_value.clone().or(pending_value.clone());
+
+                if let ComputedValue::Value(new_value) = new_value {
+                    apply_change_fn(property_id, new_value);
+                } else {
+                    let canonical_name = self
+                        .properties_registry
+                        .as_ref()
+                        .unwrap()
+                        .get_property(property_id)
+                        .canonical_name();
+
+                    warn!("Cannot set property '{canonical_name}' to None. You should avoid this by setting a baseline style that set the default values.")
+                }
+            }
+        }
+    }
+
+    pub(crate) fn set_transition_options(
         &mut self,
         new_options: PropertiesHashMap<TransitionOptions>,
     ) {
         let previous_options = &self.transitions_options;
-
         if previous_options == &new_options {
             return;
         }
+        trace!("New transition options: {new_options:#?}");
 
         for property_id in previous_options.keys() {
             if !new_options.contains_key(property_id) {
@@ -432,14 +631,12 @@ impl NodeProperties {
                         if transition.state != AnimationState::Canceled
                             && transition.state != AnimationState::Finished
                         {
-                            self.pending_properties
-                                .push((*property_id, transition.to.clone()));
+                            trace!("Cancelling transition on '{property_id:?}': '{transition:?}'");
                             transition.state = AnimationState::Canceled
                         }
                     });
             }
         }
-
         self.transitions_options = new_options;
     }
 
@@ -456,9 +653,9 @@ impl NodeProperties {
                 let running_animation = animations.iter().find(|a| a.state.needs_to_be_ticked())?;
                 Some((*property_id, running_animation.name.clone()))
             })
-            .collect::<HashSet<_>>();
+            .collect::<FxHashSet<_>>();
 
-        let new_animations_map: HashMap<_, _> = new_animations
+        let new_animations_map: FxHashMap<_, _> = new_animations
             .into_iter()
             .map(|a| ((a.property_id, a.name.clone()), a))
             .collect();
@@ -468,7 +665,7 @@ impl NodeProperties {
             if new_animations_map.contains_key(&(*property_id, name.clone())) {
                 continue;
             }
-            let animations = self.animations.entry(*property_id).or_insert_with(Vec::new);
+            let animations = self.animations.entry(*property_id).or_default();
 
             for animation in animations {
                 if !animation.state.is_finished() && &animation.name == name {
@@ -484,7 +681,7 @@ impl NodeProperties {
                 continue;
             }
 
-            let animations = self.animations.entry(property_id).or_insert_with(Vec::new);
+            let animations = self.animations.entry(property_id).or_default();
 
             let Some(reflect_animatable) =
                 get_reflect_animatable(property_id, type_registry, properties_registry)
@@ -527,21 +724,16 @@ impl NodeProperties {
         }
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.transitions_options.clear();
-        self.applied_properties.clear();
-        self.pending_properties.clear();
         self.transitions.clear();
         self.animations.clear();
-    }
 
-    pub(crate) fn has_pending_changes(&self) -> bool {
-        !self.pending_properties.is_empty() || self.has_active_animations()
-    }
-
-    // TODO: Change to impl Iterator<Item=..>
-    pub(crate) fn take_pending_properties(&mut self) -> Vec<(ComponentPropertyId, ReflectValue)> {
-        mem::take(&mut self.pending_properties)
+        self.property_values = PropertiesMap::default();
+        self.pending_property_values = PropertiesMap::default();
+        self.pending_computed_values = PropertiesMap::default();
+        self.pending_animation_values = PropertiesMap::default();
+        self.computed_values = self.empty_computed_properties.clone();
     }
 
     pub(crate) fn has_active_animations(&self) -> bool {
@@ -594,47 +786,21 @@ impl NodeProperties {
             .filter_map(|t| t.iter().find(|a| a.state.needs_to_be_ticked()))
     }
 
-    // TODO: Change to impl Iterator<Item=..>
-    pub(crate) fn get_transition_properties(&self) -> Vec<(ComponentPropertyId, ReflectValue)> {
-        let mut transition_properties = Vec::new();
-
-        for (property_id, transition) in &self.transitions {
-            if transition.state == AnimationState::Running {
-                if let Some(value) = transition.sample_value() {
-                    transition_properties.push((*property_id, value))
-                }
-            } else if transition.state == AnimationState::Finished {
-                transition_properties.push((*property_id, transition.to.clone()))
-            }
-        }
-
-        transition_properties
-    }
-
-    pub(crate) fn get_animation_properties(
-        &self,
-    ) -> impl Iterator<Item = (ComponentPropertyId, ReflectValue)> + use<'_> {
-        self.animations
-            .iter()
-            .flat_map(|(property_id, animations)| {
-                animations
-                    .iter()
-                    .filter_map(|animation| {
-                        (animation.state == AnimationState::Running)
-                            .then(|| animation.sample_value())
-                            .flatten()
-                    })
-                    .map(move |value| (*property_id, value))
-            })
-    }
-
-    pub(crate) fn debug_pending_properties<'a>(
-        &'a self,
-        properties_registry: &'a PropertiesRegistry,
-    ) -> DebugPendingProperties<'a> {
-        DebugPendingProperties {
-            properties_registry,
-            pending_properties: &self.pending_properties,
+    pub(crate) fn pending_computed_values(&self) -> PendingComputedValues {
+        PendingComputedValues {
+            inner_iter: Box::new(
+                izip!(
+                    self.pending_computed_values.iter(),
+                    self.computed_values.iter_values()
+                )
+                .filter_map(|((property_id, pending), value)| {
+                    if pending != value {
+                        Some((property_id, pending))
+                    } else {
+                        None
+                    }
+                }),
+            ),
         }
     }
 }
@@ -645,27 +811,69 @@ impl SerializeWithRegistry for NodeProperties {
         S: Serializer,
     {
         let properties_registry = self.properties_registry.as_ref().unwrap();
-        let mut map = serializer.serialize_map(Some(self.applied_properties.len()))?;
+        let mut map = serializer.serialize_map(None)?;
 
-        for (id, value) in self.applied_properties.iter() {
-            map.serialize_key(&properties_registry.get_property(*id).canonical_name())?;
-            map.serialize_value(&TypedReflectSerializer::new(value, registry))?;
+        for (property_id, value) in self.computed_values.iter() {
+            if let ComputedValue::Value(value) = value {
+                map.serialize_key(
+                    &properties_registry
+                        .get_property(property_id)
+                        .canonical_name(),
+                )?;
+                map.serialize_value(&TypedReflectSerializer::new(value, registry))?;
+            }
         }
-
         map.end()
     }
 }
 
-pub(crate) struct DebugPendingProperties<'a> {
-    properties_registry: &'a PropertiesRegistry,
-    pending_properties: &'a [(ComponentPropertyId, ReflectValue)],
+pub(crate) struct PendingComputedValues<'a> {
+    inner_iter: Box<dyn Iterator<Item = (ComponentPropertyId, &'a ComputedValue)> + 'a>,
 }
 
-impl Debug for DebugPendingProperties<'_> {
+impl<'a> Iterator for PendingComputedValues<'a> {
+    type Item = (ComponentPropertyId, &'a ComputedValue);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner_iter.next()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner_iter.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.inner_iter.fold(init, f)
+    }
+}
+
+impl<'a> PendingComputedValues<'a> {
+    pub fn into_debug(
+        self,
+        properties_registry: &'a PropertiesRegistry,
+    ) -> PendingComputedPropertiesDebug<'a> {
+        PendingComputedPropertiesDebug {
+            properties_registry,
+            pending: RefCell::new(self),
+        }
+    }
+}
+
+pub(crate) struct PendingComputedPropertiesDebug<'a> {
+    properties_registry: &'a PropertiesRegistry,
+    pending: RefCell<PendingComputedValues<'a>>,
+}
+
+impl Debug for PendingComputedPropertiesDebug<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let iter = &mut self.pending.borrow_mut().inner_iter;
+
         let mut map = f.debug_map();
-        for (property_id, value) in self.pending_properties {
-            let property = self.properties_registry.get_property(*property_id);
+        for (property_id, value) in iter {
+            let property = self.properties_registry.get_property(property_id);
             map.entry(&property.canonical_name(), value);
         }
         map.finish()
@@ -770,7 +978,7 @@ impl FromStr for ClassList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy_flair_core::{ComponentProperty, ComponentPropertyRef};
+    use bevy_flair_core::{ComponentProperty, ComponentPropertyRef, PropertyValue};
     use std::sync::LazyLock;
 
     #[derive(Component, Reflect)]
@@ -778,25 +986,37 @@ mod tests {
         property_1: f32,
         property_2: f32,
         property_3: f32,
+
+        inherited_property: f32,
     }
 
     const PROPERTY_1: &str = "property1";
     const PROPERTY_2: &str = "property2";
     const PROPERTY_3: &str = "property3";
 
+    const INHERITED_PROPERTY: &str = "inherited-property";
+
     static PROPERTIES_REGISTRY: LazyLock<PropertiesRegistry> = LazyLock::new(|| {
         let mut registry = PropertiesRegistry::default();
         registry.register_with_css_name(
             PROPERTY_1,
             ComponentProperty::new::<TestComponent>("property_1"),
+            PropertyValue::None,
         );
         registry.register_with_css_name(
             PROPERTY_2,
             ComponentProperty::new::<TestComponent>("property_2"),
+            PropertyValue::None,
         );
         registry.register_with_css_name(
             PROPERTY_3,
             ComponentProperty::new::<TestComponent>("property_3"),
+            PropertyValue::None,
+        );
+        registry.register_with_css_name(
+            INHERITED_PROPERTY,
+            ComponentProperty::new::<TestComponent>("inherited_property"),
+            PropertyValue::Inherit,
         );
         registry
     });
@@ -824,196 +1044,408 @@ mod tests {
         }}
     }
 
-    macro_rules! sort_vec {
-        ($vec:expr) => {{
-            let mut v = $vec;
+    trait IntoReflectValue {
+        fn into_reflect_value(self) -> ReflectValue;
+    }
+
+    impl IntoReflectValue for ReflectValue {
+        fn into_reflect_value(self) -> ReflectValue {
+            self
+        }
+    }
+
+    impl IntoReflectValue for f32 {
+        fn into_reflect_value(self) -> ReflectValue {
+            ReflectValue::Float(self)
+        }
+    }
+
+    trait IntoPropertyValue {
+        fn into_property_value(self) -> PropertyValue;
+    }
+
+    impl IntoPropertyValue for PropertyValue {
+        fn into_property_value(self) -> PropertyValue {
+            self
+        }
+    }
+
+    impl<T: IntoReflectValue> IntoPropertyValue for T {
+        fn into_property_value(self) -> PropertyValue {
+            PropertyValue::Value(self.into_reflect_value())
+        }
+    }
+
+    macro_rules! values {
+        ($($k:expr => $v:expr),* $(,)?) => {{
+            Vec::from_iter(properties![$($k => $v.into_reflect_value(),)*])
+        }}
+    }
+
+    macro_rules! set_property_values {
+        ($properties:expr) => {{
+            assert!($properties.pending_property_values.is_empty());
+        }};
+        ($properties:expr, $($k:expr => $v:expr),* $(,)?) => {{
+            assert!($properties.pending_property_values.is_empty());
+            let mut pending_property_values = PROPERTIES_REGISTRY.get_default_values();
+
+            for (id, value) in properties![$($k => $v.into_property_value(),)*] {
+                pending_property_values[id] = value;
+            }
+
+            $properties.pending_property_values = pending_property_values;
+        }};
+    }
+
+    macro_rules! set_property_values_and_compute {
+        ($properties:expr) => {{
+            set_property_values!($properties);
+            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            assert!($properties.pending_property_values.is_empty());
+        }};
+        ($properties:expr, { $($rest:tt)* }) => {{
+            set_property_values!($properties, $($rest)*);
+            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            assert!($properties.pending_property_values.is_empty());
+        }};
+        ($properties:expr, $parent:expr) => {{
+            set_property_values!($properties);
+            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            assert!($properties.pending_property_values.is_empty());
+        }};
+        ($properties:expr, $parent:expr, { $($rest:tt)* }) => {{
+            set_property_values!($properties, $($rest)*);
+            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            assert!($properties.pending_property_values.is_empty());
+        }};
+    }
+
+    macro_rules! apply_computed_values {
+        ($properties:expr) => {{
+            let mut v = Vec::new();
+            $properties.apply_computed_properties(|property_id, value| {
+                v.push((property_id, value));
+            });
             v.sort_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap());
             v
         }};
     }
 
-    macro_rules! apply_properties {
-        ($properties:expr, $($k:expr => $v:expr),* $(,)?) => {{
-            let new_properties = PropertiesHashMap::from_iter(properties![$($k => &ReflectValue::Float($v),)*]);
-            $properties.apply_properties(new_properties, &TYPE_REGISTRY, &PROPERTIES_REGISTRY);
-            // We tick with duration zero so animations move into running
-            $properties.tick_animations(Duration::ZERO);
-        }};
+    fn default_node_properties() -> NodeProperties {
+        let mut properties = NodeProperties::default();
+        properties.properties_registry = Some(PROPERTIES_REGISTRY.clone());
+        properties.empty_computed_properties =
+            PROPERTIES_REGISTRY.create_properties_map(ComputedValue::None);
+        properties.computed_values = properties.empty_computed_properties.clone();
+        properties
     }
 
     #[test]
-    fn test_properties() {
-        let mut properties = NodeProperties::default();
-        assert!(!properties.has_active_animations());
-        assert_eq!(properties.take_pending_properties(), vec![]);
+    fn properties_calculates_computed_values() {
+        let mut properties = default_node_properties();
 
-        // Initial values
-        apply_properties!(properties, PROPERTY_1 => 1.0, PROPERTY_2 => 2.0);
+        // Nothing is set;
+        properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+        assert!(properties.pending_property_values.is_empty());
+
+        assert_eq!(apply_computed_values!(properties), vec![]);
+
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 1.0, PROPERTY_2 => 2.0 });
 
         assert_eq!(
-            sort_vec!(properties.take_pending_properties()),
-            vec_properties!(PROPERTY_1 => 1.0, PROPERTY_2 => 2.0)
+            apply_computed_values!(properties),
+            values![PROPERTY_1 => 1.0, PROPERTY_2 => 2.0]
         );
 
-        // Same values
-        apply_properties!(properties, PROPERTY_1 => 1.0);
-
-        assert_eq!(properties.take_pending_properties(), vec![]);
-
-        // Only property2 is different
-        apply_properties!(properties, PROPERTY_1 => 1.0, PROPERTY_2 => 3.0);
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 1.0, PROPERTY_2 => 12.0, PROPERTY_3 => 3.0 });
 
         assert_eq!(
-            properties.take_pending_properties(),
-            vec_properties!(PROPERTY_2 => 3.0)
+            apply_computed_values!(properties),
+            values![PROPERTY_2 => 12.0, PROPERTY_3 => 3.0]
         );
     }
 
-    const TRANSITION_OPTIONS_1_SECOND: TransitionOptions = TransitionOptions {
+    #[test]
+    fn properties_calculates_inherited_values() {
+        let mut root = default_node_properties();
+        let mut child = default_node_properties();
+        let mut grand_child = default_node_properties();
+
+        set_property_values_and_compute!(root, { PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, INHERITED_PROPERTY => 3.0 });
+        set_property_values_and_compute!(child, root, { PROPERTY_2 => PropertyValue::Inherit, PROPERTY_3 => PropertyValue::Inherit });
+        set_property_values_and_compute!(grand_child, child, { PROPERTY_2 => PropertyValue::Inherit });
+
+        assert_eq!(
+            apply_computed_values!(root),
+            values![PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, INHERITED_PROPERTY => 3.0]
+        );
+
+        assert_eq!(
+            apply_computed_values!(child),
+            values![PROPERTY_2 => 2.0, INHERITED_PROPERTY => 3.0]
+        );
+
+        assert_eq!(
+            apply_computed_values!(grand_child),
+            values![PROPERTY_2 => 2.0, INHERITED_PROPERTY => 3.0]
+        );
+    }
+
+    const TRANSITION_1_SECOND: TransitionOptions = TransitionOptions {
         initial_delay: Duration::ZERO,
         duration: Duration::from_secs(1),
         easing_function: crate::animations::EasingFunction::Linear,
     };
 
-    const TRANSITION_OPTIONS_5_SECONDS: TransitionOptions = TransitionOptions {
+    const TRANSITION_5_SECONDS: TransitionOptions = TransitionOptions {
         initial_delay: Duration::ZERO,
         duration: Duration::from_secs(5),
         easing_function: crate::animations::EasingFunction::Linear,
     };
 
-    const TRANSITION_OPTIONS_5_SECONDS_WITH_1_SEC_DELAY: TransitionOptions = TransitionOptions {
+    const TRANSITION_5_SECONDS_WITH_1_SEC_DELAY: TransitionOptions = TransitionOptions {
         initial_delay: Duration::from_secs(1),
         duration: Duration::from_secs(5),
         easing_function: crate::animations::EasingFunction::Linear,
     };
 
     #[test]
-    fn test_properties_with_transition() {
-        let mut properties = NodeProperties::default();
-        assert!(!properties.has_active_animations());
-        assert_eq!(properties.take_pending_properties(), vec![]);
+    fn computed_properties_with_transition() {
+        let mut properties = default_node_properties();
 
         let transition_options = PropertiesHashMap::from_iter(properties! {
-            PROPERTY_1 => TRANSITION_OPTIONS_5_SECONDS,
-            PROPERTY_3 => TRANSITION_OPTIONS_5_SECONDS_WITH_1_SEC_DELAY
+            PROPERTY_1 => TRANSITION_5_SECONDS,
+            PROPERTY_3 => TRANSITION_5_SECONDS_WITH_1_SEC_DELAY
         });
-        properties.change_transition_options(transition_options);
+        properties.set_transition_options(transition_options);
 
-        // Initial values
-        apply_properties!(properties, PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, PROPERTY_3 => 3.0);
-
+        // Initial values. No transitions are generated the first time since the initial values are None
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, PROPERTY_3 => 3.0 });
         assert_eq!(
-            sort_vec!(properties.take_pending_properties()),
-            vec_properties!(PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, PROPERTY_3 => 3.0)
+            apply_computed_values!(properties),
+            values![PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, PROPERTY_3 => 3.0]
         );
-
-        // No transitions are generated the first time
         assert_eq!(properties.running_transitions().count(), 0);
 
         // All properties are different, but property 1 and 3 should generate a transition
         // Property 3 should be a transition with delay
-        apply_properties!(properties, PROPERTY_1 => 6.0, PROPERTY_2 => 10.0, PROPERTY_3 => 8.0);
-
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 6.0, PROPERTY_2 => 10.0, PROPERTY_3 => 8.0 });
         assert_eq!(
-            properties.take_pending_properties(),
-            vec_properties!(PROPERTY_2 => 10.0)
+            apply_computed_values!(properties),
+            values![PROPERTY_2 => 10.0]
         );
 
+        // We simulate the next frame after 0s
+        properties.tick_animations(Duration::ZERO);
+        set_property_values_and_compute!(properties);
         assert_eq!(
-            properties.get_transition_properties(),
-            vec_properties![
+            apply_computed_values!(properties),
+            values![
                 PROPERTY_1 => 1.0
             ]
         );
 
         let running_transitions = properties.running_transitions().collect::<Vec<_>>();
         assert_eq!(running_transitions.len(), 1);
-
         let property_1_transition = running_transitions[0];
         assert_eq!(property_1_transition.from, ReflectValue::Float(1.0));
         assert_eq!(property_1_transition.to, ReflectValue::Float(6.0));
 
-        // Tick 1 second
+        // We simulate the next frame after 1s
         properties.tick_animations(Duration::from_secs(1));
-
-        assert_eq!(properties.take_pending_properties(), vec![]);
-
+        set_property_values_and_compute!(properties);
         assert_eq!(properties.running_transitions().count(), 2);
-
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
-            vec_properties![
+            apply_computed_values!(properties),
+            values![
                 PROPERTY_1 => 2.0, // property-1 goes [1.0-6.0] and it's at t=0.2
                 PROPERTY_3 => 3.0, // property-3 goes [3.0-8.0] and it's at t=0.0
             ]
         );
 
-        // Tick 4 second
+        // We tick 4s (5s since start)
         properties.tick_animations(Duration::from_secs(4));
-
+        set_property_values_and_compute!(properties);
         // Now property-1 should be finished
-        assert_eq!(properties.take_pending_properties(), vec![]);
-
         assert_eq!(properties.running_transitions().count(), 1);
-
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
-            vec_properties![
+            apply_computed_values!(properties),
+            values![
                 PROPERTY_1 => 6.0, // property-1 goes [1.0-6.0] and it's at t=1.0
                 PROPERTY_3 => 7.0, // property-3 goes [3.0-8.0] and it's at t=0.8
             ]
         );
-
         properties.clear_finished_and_cancelled_animations();
 
-        // Tick 2 seconds (which overshoots the property-3 transition)
+        // We tick 2s (7s since start) (which overshoots the property-3 transition)
         properties.tick_animations(Duration::from_secs(2));
-
+        set_property_values_and_compute!(properties);
         assert_eq!(properties.running_transitions().count(), 0);
-
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
-            vec_properties![
+            apply_computed_values!(properties),
+            values![
                 PROPERTY_3 => 8.0, // property-3 goes [3.0-8.0] and it's at t=1.2, but the final value is returned
             ]
         );
     }
 
     #[test]
-    fn test_properties_cancels_transitions() {
-        let mut properties = NodeProperties::default();
-        assert!(!properties.has_active_animations());
-        assert_eq!(properties.take_pending_properties(), vec![]);
+    fn inherited_properties_can_create_transitions() {
+        let mut root = default_node_properties();
+        let mut child = default_node_properties();
+        let mut grand_child = default_node_properties();
 
         let transition_options = PropertiesHashMap::from_iter(properties! {
-            PROPERTY_1 => TRANSITION_OPTIONS_1_SECOND,
-            PROPERTY_2 => TRANSITION_OPTIONS_1_SECOND,
+            PROPERTY_1 => TRANSITION_5_SECONDS,
+            PROPERTY_2 => TRANSITION_5_SECONDS,
+            INHERITED_PROPERTY => TRANSITION_5_SECONDS
         });
-        properties.change_transition_options(transition_options);
+        grand_child.set_transition_options(transition_options);
 
-        // Initial values
-        apply_properties!(properties, PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, PROPERTY_3 => 3.0);
+        set_property_values_and_compute!(root, { PROPERTY_1 => 0.0, PROPERTY_2 => 0.0, INHERITED_PROPERTY => 0.0 });
+        set_property_values_and_compute!(child, root, { PROPERTY_2 => PropertyValue::Inherit });
+        set_property_values_and_compute!(grand_child, child, { PROPERTY_2 => PropertyValue::Inherit });
 
-        let _ = properties.take_pending_properties();
-
-        // Both should create a transition
-        apply_properties!(properties, PROPERTY_1 => 10.0, PROPERTY_2 => 10.0);
-
-        assert_eq!(properties.take_pending_properties(), vec![]);
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
-            vec_properties![
-                PROPERTY_1 => 1.0,
-                PROPERTY_2 => 2.0,
-            ]
+            apply_computed_values!(root),
+            values![PROPERTY_1 => 0.0, PROPERTY_2 => 0.0, INHERITED_PROPERTY => 0.0]
         );
 
-        assert_eq!(properties.running_transitions().count(), 2);
+        assert_eq!(
+            apply_computed_values!(child),
+            values![PROPERTY_2 => 0.0, INHERITED_PROPERTY => 0.0]
+        );
 
-        let new_transition_options = PropertiesHashMap::from_iter(properties! {
-            PROPERTY_1 => TRANSITION_OPTIONS_5_SECONDS,
+        assert_eq!(
+            apply_computed_values!(grand_child),
+            values![PROPERTY_2 => 0.0, INHERITED_PROPERTY => 0.0]
+        );
+
+        // We modify on the root, but not on any of the children
+        set_property_values_and_compute!(root, { PROPERTY_1 => 5.0, PROPERTY_2 => 5.0, INHERITED_PROPERTY => 5.0 });
+        set_property_values_and_compute!(child, root);
+        set_property_values_and_compute!(grand_child, child);
+        assert_eq!(
+            apply_computed_values!(root),
+            values![PROPERTY_1 => 5.0, PROPERTY_2 => 5.0, INHERITED_PROPERTY => 5.0]
+        );
+        // Child does not have any transition, so the properties are applied directly
+        assert_eq!(
+            apply_computed_values!(child),
+            values![PROPERTY_2 => 5.0, INHERITED_PROPERTY => 5.0]
+        );
+        assert_eq!(apply_computed_values!(grand_child), values![]);
+
+        for p in [&mut root, &mut child, &mut grand_child] {
+            p.tick_animations(Duration::from_secs(2));
+        }
+
+        assert_eq!(root.running_transitions().count(), 0);
+        assert_eq!(child.running_transitions().count(), 0);
+        assert_eq!(grand_child.running_transitions().count(), 2);
+
+        set_property_values_and_compute!(root);
+        set_property_values_and_compute!(child, root);
+        set_property_values_and_compute!(grand_child, child);
+        assert_eq!(apply_computed_values!(root), values![]);
+        // Child does not have any transition, so the properties are applied directly
+        assert_eq!(apply_computed_values!(child), values![]);
+        assert_eq!(
+            apply_computed_values!(grand_child),
+            values![PROPERTY_2 => 2.0, INHERITED_PROPERTY => 2.0]
+        );
+    }
+
+    #[test]
+    fn transitions_on_parent_are_visible_on_children() {
+        let mut root = default_node_properties();
+        let mut child = default_node_properties();
+        let mut grand_child = default_node_properties();
+
+        let transition_options = PropertiesHashMap::from_iter(properties! {
+            INHERITED_PROPERTY => TRANSITION_5_SECONDS
         });
-        properties.change_transition_options(new_transition_options);
+        child.set_transition_options(transition_options);
+
+        set_property_values_and_compute!(root, {});
+        set_property_values_and_compute!(child, root, { INHERITED_PROPERTY => 0.0 });
+        set_property_values_and_compute!(grand_child, child, {});
+
+        assert_eq!(apply_computed_values!(root), values![]);
+
+        assert_eq!(
+            apply_computed_values!(child),
+            values![INHERITED_PROPERTY => 0.0]
+        );
+
+        assert_eq!(
+            apply_computed_values!(grand_child),
+            values![INHERITED_PROPERTY => 0.0]
+        );
+
+        // We modify on the child, but not on root or grand_child
+        set_property_values_and_compute!(root);
+        set_property_values_and_compute!(child, root, { INHERITED_PROPERTY => 5.0});
+        set_property_values_and_compute!(grand_child, child);
+        assert_eq!(apply_computed_values!(root), values![]);
+        assert_eq!(apply_computed_values!(child), values![]);
+        // TODO: This is not the ideal situation because visually first you see the target and then the animation.
+        assert_eq!(
+            apply_computed_values!(grand_child),
+            values![INHERITED_PROPERTY => 5.0]
+        );
+        // assert_eq!(apply_computed_values!(grand_child), values![]);
+
+        for p in [&mut root, &mut child, &mut grand_child] {
+            p.tick_animations(Duration::from_secs(2));
+        }
+
+        assert_eq!(root.running_transitions().count(), 0);
+        assert_eq!(child.running_transitions().count(), 1);
+        assert_eq!(grand_child.running_transitions().count(), 0);
+
+        set_property_values_and_compute!(root);
+        set_property_values_and_compute!(child, root);
+        set_property_values_and_compute!(grand_child, child);
+        assert_eq!(apply_computed_values!(root), values![]);
+        assert_eq!(
+            apply_computed_values!(child),
+            values![INHERITED_PROPERTY => 2.0]
+        );
+        assert_eq!(
+            apply_computed_values!(grand_child),
+            values![INHERITED_PROPERTY => 2.0]
+        );
+    }
+
+    #[test]
+    fn properties_cancels_transitions() {
+        let mut properties = default_node_properties();
+
+        let transition_options = PropertiesHashMap::from_iter(properties! {
+            PROPERTY_1 => TRANSITION_1_SECOND,
+            PROPERTY_2 => TRANSITION_1_SECOND,
+        });
+        properties.set_transition_options(transition_options);
+
+        // Initial values
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, PROPERTY_3 => 3.0 });
+        assert_eq!(
+            apply_computed_values!(properties),
+            values![ PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, PROPERTY_3 => 3.0 ]
+        );
+
+        // Property1 and Property2 should create a transition. PROPERTY_3 is not a change
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 10.0, PROPERTY_2 => 10.0, PROPERTY_3 => 3.0 });
+        assert_eq!(apply_computed_values!(properties), vec![]);
+        properties.tick_animations(Duration::ZERO);
+
+        assert_eq!(properties.running_transitions().count(), 2);
+        let new_transition_options = PropertiesHashMap::from_iter(properties! {
+            PROPERTY_1 => TRANSITION_5_SECONDS,
+        });
+        properties.set_transition_options(new_transition_options);
 
         // Now property-2 transition should be cancelled, but property-1 should remain as it was
         let running_transitions = properties.running_transitions().collect::<Vec<_>>();
@@ -1025,67 +1457,85 @@ mod tests {
         assert_eq!(property_1_transition.duration, 1.0);
 
         // Property 2 was converted into an assigned property
+        set_property_values_and_compute!(properties);
         assert_eq!(
-            properties.take_pending_properties(),
-            vec_properties!(PROPERTY_2 => 10.0)
+            apply_computed_values!(properties),
+            values![PROPERTY_1 => 1.0, PROPERTY_2 => 10.0]
         );
     }
 
     #[test]
-    fn test_properties_reversed_transitions() {
-        let mut properties = NodeProperties::default();
-        assert!(!properties.has_active_animations());
-        assert_eq!(properties.take_pending_properties(), vec![]);
-
+    fn properties_reversed_transitions() {
+        let mut properties = default_node_properties();
         let transition_options = PropertiesHashMap::from_iter(properties! {
-            PROPERTY_1 => TRANSITION_OPTIONS_5_SECONDS,
-            PROPERTY_2 => TRANSITION_OPTIONS_5_SECONDS_WITH_1_SEC_DELAY,
+            PROPERTY_1 => TRANSITION_5_SECONDS,
         });
-        properties.change_transition_options(transition_options);
+        properties.set_transition_options(transition_options.clone());
+
         // Initial values
-        apply_properties!(properties, PROPERTY_1 => 0.0, PROPERTY_2 => 0.0);
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 0.0 });
+        assert_eq!(
+            apply_computed_values!(properties),
+            values![PROPERTY_1 => 0.0]
+        );
 
-        let _ = properties.take_pending_properties();
-
-        apply_properties!(properties, PROPERTY_1 => 5.0);
+        // Change on Property1, it will create an animation
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 5.0 });
+        assert_eq!(apply_computed_values!(properties), values![]);
 
         // Tick 4 seconds
         properties.tick_animations(Duration::from_secs(4));
-
-        assert_eq!(properties.take_pending_properties(), vec![]);
-
+        set_property_values_and_compute!(properties);
         assert_eq!(properties.running_transitions().count(), 1);
-
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
-            vec_properties![
+            apply_computed_values!(properties),
+            values![
                 PROPERTY_1 => 4.0, // property-1 goes [0.0-5.0] and it's at t=0.8,
             ]
         );
 
         // Reversed transition
-        apply_properties!(properties, PROPERTY_1 => 0.0);
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 0.0 });
+        assert_eq!(
+            apply_computed_values!(properties),
+            values![] // Transition is in pending state
+        );
+
+        properties.tick_animations(Duration::ZERO);
 
         let running_transitions = properties.running_transitions().collect::<Vec<_>>();
         assert_eq!(running_transitions.len(), 1);
-
         let property_1_transition = running_transitions[0];
         assert_eq!(property_1_transition.from, ReflectValue::Float(4.0));
         assert_eq!(property_1_transition.to, ReflectValue::Float(0.0));
         assert_eq!(property_1_transition.duration, 4.0);
 
+        set_property_values_and_compute!(properties);
+        assert_eq!(
+            apply_computed_values!(properties),
+            values![
+                PROPERTY_1 => 4.0, // Same as before it should not have changed,
+            ]
+        );
+
         // Tick 2 seconds back
         properties.tick_animations(Duration::from_secs(2));
-
+        set_property_values_and_compute!(properties);
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
+            apply_computed_values!(properties),
             vec_properties![
                 PROPERTY_1 => 2.0, // property-1 behaves as it's at t=0.2,
             ]
         );
 
         // Reversed the reversed transition
-        apply_properties!(properties, PROPERTY_1 => 5.0);
+        set_property_values_and_compute!(properties, { PROPERTY_1 => 5.0 });
+        assert_eq!(
+            apply_computed_values!(properties),
+            values![] // Transition is in pending state
+        );
+
+        properties.tick_animations(Duration::ZERO);
 
         let running_transitions = properties.running_transitions().collect::<Vec<_>>();
         assert_eq!(running_transitions.len(), 1);
@@ -1100,23 +1550,43 @@ mod tests {
 
         assert_eq!(properties.running_transitions().count(), 0);
         properties.clear_finished_and_cancelled_animations();
+    }
+    #[test]
+    fn properties_reversed_transitions_with_delay() {
+        let mut properties = default_node_properties();
+        let transition_options = PropertiesHashMap::from_iter(properties! {
+            PROPERTY_2 => TRANSITION_5_SECONDS_WITH_1_SEC_DELAY,
+        });
+        properties.set_transition_options(transition_options.clone());
 
-        // Now we do the same thing with property2 that it has a delay
-        apply_properties!(properties, PROPERTY_2 => 5.0);
+        // Initial properties
+        set_property_values_and_compute!(properties, { PROPERTY_2 => 0.0 });
+        assert_eq!(
+            apply_computed_values!(properties),
+            values![PROPERTY_2 => 0.0]
+        );
+
+        // Creates the initial transition
+        set_property_values_and_compute!(properties, { PROPERTY_2 => 5.0 });
+        assert_eq!(apply_computed_values!(properties), values![]);
 
         // Tick 5 seconds (1 sec delay + 4 seconds)
         properties.tick_animations(Duration::from_secs(5));
-
         assert_eq!(properties.running_transitions().count(), 1);
+        set_property_values_and_compute!(properties);
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
-            vec_properties![
-                PROPERTY_2 => 4.0, // property-1 goes [0.0-5.0] and it's at t=0.8,
-            ]
+            apply_computed_values!(properties),
+            values![PROPERTY_2 => 4.0] // property-2 goes [0.0-5.0] and it's at t=0.8,
         );
 
         // Reversed transition
-        apply_properties!(properties, PROPERTY_2 => 0.0);
+        set_property_values_and_compute!(properties, { PROPERTY_2 => 0.0 });
+        assert_eq!(
+            apply_computed_values!(properties),
+            values![] // Transition is in pending state
+        );
+
+        properties.tick_animations(Duration::ZERO);
 
         // Since there is an original delay, now it's not running anymore, it's pending
         assert_eq!(properties.running_transitions().count(), 0);
@@ -1132,8 +1602,9 @@ mod tests {
         assert_eq!(property_2_transition.to, ReflectValue::Float(0.0));
         assert_eq!(property_2_transition.duration, 4.0);
 
+        set_property_values_and_compute!(properties);
         assert_eq!(
-            sort_vec!(properties.get_transition_properties()),
+            apply_computed_values!(properties),
             vec_properties![
                 PROPERTY_2 => 2.0, // property-2 behaves as it's at t=0.2,
             ]

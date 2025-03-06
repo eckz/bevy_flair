@@ -4,16 +4,14 @@ use crate::components::{
 };
 use crate::{css_selector, StyleSheet};
 use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
-use bevy::ecs::system::SystemState;
-use bevy::log::Level;
+
 use bevy::prelude::*;
 
 use bevy::input_focus::{InputFocus, InputFocusVisible};
-use bevy::platform_support::collections::HashSet;
-use bevy_flair_core::{ComponentPropertyId, NewComponentsQueue, PropertiesRegistry, ReflectValue};
+use bevy_flair_core::*;
+use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use std::sync::atomic;
-use tracing::enabled;
 
 pub(crate) fn sync_siblings_system(
     mut siblings_param_set: ParamSet<(
@@ -28,13 +26,13 @@ pub(crate) fn sync_siblings_system(
 
     mut entities_recalculated: Local<EntityHashSet>,
 ) {
-    for (entity, mut siblings, parent) in &mut siblings_param_set.p0() {
+    for (entity, mut siblings, child_of) in &mut siblings_param_set.p0() {
         entities_recalculated.insert(entity);
 
         siblings.recalculate_with(
             entity,
             children_query
-                .get(parent.get())
+                .get(child_of.parent)
                 .expect("Found a parent without children"),
         );
     }
@@ -196,16 +194,20 @@ pub(crate) fn sync_input_focus(
     let Some(input_focus) = input_focus else {
         return;
     };
-    if !input_focus.is_changed() {
-        return;
-    }
-    if input_focus.0 == previous_focus.0 {
-        return;
-    }
 
     let focus_visible = input_focus_visible
         .as_deref()
-        .map_or(false, |visible| visible.0);
+        .is_some_and(|visible| visible.0);
+
+    if !input_focus.is_changed() || input_focus.0 == previous_focus.0 {
+        if input_focus_visible.is_some_and(|v| v.is_changed()) {
+            if let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok())
+            {
+                style_data.get_pseudo_state_mut().focused_and_visible = focus_visible;
+            }
+        }
+        return;
+    }
 
     if let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok()) {
         style_data.get_pseudo_state_mut().focused = false;
@@ -239,7 +241,7 @@ pub(crate) fn mark_nodes_for_recalculation(
 ) {
     let nodes_changed_query = queries.p0();
 
-    for (entity, match_data, marker, parent) in &nodes_changed_query {
+    for (entity, match_data, marker, child_of) in &nodes_changed_query {
         if !match_data.is_changed() && !marker.needs_recalculation() {
             continue;
         }
@@ -254,8 +256,8 @@ pub(crate) fn mark_nodes_for_recalculation(
                 .load(atomic::Ordering::Relaxed),
         );
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS) {
-            if let Some(parent) = parent {
-                to_be_marked.extend(children_query.get(parent.get()).unwrap().iter());
+            if let Some(&ChildOf { parent }) = child_of {
+                to_be_marked.extend(children_query.get(parent).unwrap().iter());
             }
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
@@ -289,7 +291,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         &mut NodeProperties,
     )>,
 ) {
-    let mut modified_stylesheets = HashSet::new();
+    let mut modified_stylesheets = FxHashSet::default();
 
     for event in asset_events_reader.read() {
         if let AssetEvent::Modified { id } = event {
@@ -307,7 +309,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
             *style_data.selector_flags.get_mut() = Default::default();
             *style_data.recalculation_flags.get_mut() = Default::default();
 
-            properties.clear();
+            properties.reset();
             marker.mark_for_recalculation();
         }
     }
@@ -344,23 +346,17 @@ pub(crate) fn calculate_style(
             let element_ref =
                 css_selector::ElementRef::new(name_or_entity.entity, &element_ref_system_param);
 
-            let new_rules = style_sheet.get_ruleset_ids_for_entity(&element_ref);
+            let new_rules = style_sheet.get_matching_ruleset_ids_for_element(&element_ref);
 
-            properties.change_transition_options(style_sheet.get_transition_options(&new_rules));
+            properties.set_transition_options(style_sheet.get_transition_options(&new_rules));
 
             let type_registry = type_registry_arc.read();
 
-            properties.apply_properties(
-                style_sheet.get_property_values(&new_rules),
-                &type_registry,
-                &properties_registry,
-            );
+            let mut property_values = properties_registry.get_default_values();
+            style_sheet.get_property_values(&new_rules, &mut property_values);
 
-            // Debugging
-            if enabled!(Level::TRACE) && properties.has_pending_changes() {
-                let debug_properties = properties.debug_pending_properties(&properties_registry);
-                trace!("Entity {name_or_entity} new properties:\n{debug_properties:#?}");
-            }
+            debug_assert!(properties.pending_property_values.is_empty());
+            properties.pending_property_values = property_values;
 
             // Apply animations
             properties.change_animations(
@@ -372,6 +368,66 @@ pub(crate) fn calculate_style(
             marker.clear_marker();
         },
     );
+}
+
+// TODO: In grid tracy this method shows as 1.26 ms on average
+pub(crate) fn compute_property_values(
+    root_entities: Query<Entity, (Without<ChildOf>, With<NodeProperties>)>,
+    parent_query: Query<&ChildOf>,
+    children_query: Query<&Children, With<NodeProperties>>,
+    #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
+    mut node_properties_query: Query<&mut NodeProperties>,
+    app_type_registry: Res<AppTypeRegistry>,
+    properties_registry: Res<PropertiesRegistry>,
+) {
+    let type_registry = app_type_registry.0.read();
+
+    #[cfg(debug_assertions)]
+    let trace_new_properties = |entity: Entity, properties: &NodeProperties| {
+        use tracing::{enabled, Level};
+        let name_or_entity = name_or_entity_query.get(entity).unwrap();
+
+        // Debugging
+        if enabled!(Level::TRACE)
+            && !properties
+                .pending_computed_values
+                .ptr_eq(&properties.computed_values)
+        {
+            let debug_properties = properties
+                .pending_computed_values()
+                .into_debug(&properties_registry);
+            trace!("Applying properties on '{name_or_entity}':\n{debug_properties:#?}");
+        }
+    };
+    #[cfg(not(debug_assertions))]
+    let trace_new_properties = |_: Entity, _: &NodeProperties| {};
+
+    for root in &root_entities {
+        let mut root_properties = node_properties_query.get_mut(root).unwrap();
+        root_properties
+            .compute_pending_property_values_for_root(&type_registry, &properties_registry);
+
+        trace_new_properties(root, &root_properties);
+
+        for entity in children_query.iter_descendants(root) {
+            if !node_properties_query.contains(entity) {
+                continue;
+            }
+
+            let parent = parent_query.get(entity).unwrap().parent;
+            let [parent_properties, mut properties] = node_properties_query
+                .get_many_mut([parent, entity])
+                .unwrap();
+
+            properties.compute_pending_property_values_with_parent(
+                &parent_properties,
+                &type_registry,
+                &properties_registry,
+            );
+
+            trace_new_properties(entity, &properties);
+        }
+    }
 }
 
 pub(crate) fn tick_animations(time: Res<Time>, mut properties_query: Query<&mut NodeProperties>) {
@@ -387,47 +443,35 @@ pub(crate) fn tick_animations(time: Res<Time>, mut properties_query: Query<&mut 
 
 pub(crate) fn apply_properties(
     world: &mut World,
-    properties_query_state: &mut SystemState<Query<(Entity, &mut NodeProperties)>>,
+    properties_query_state: &mut QueryState<(Entity, &mut NodeProperties)>,
     mut properties_registry_local: Local<Option<PropertiesRegistry>>,
-    mut pending_changes: Local<Vec<(Entity, ComponentPropertyId, ReflectValue)>>,
     mut modified_entities: Local<EntityHashSet>,
+    mut pending_changes: Local<Vec<(Entity, ComponentPropertyId, ReflectValue)>>,
     mut component_queues: Local<EntityHashMap<NewComponentsQueue>>,
-) {
-    pending_changes.clear();
-    modified_entities.clear();
-    component_queues.clear();
-
-    let mut properties_query = properties_query_state.get_mut(world);
-    for (entity, mut properties) in &mut properties_query {
-        if !properties.has_pending_changes() {
-            continue;
-        }
-        modified_entities.insert(entity);
-
-        for (property_id, value) in properties.take_pending_properties() {
-            pending_changes.push((entity, property_id, value));
-        }
-
-        for (property_id, value) in properties.get_transition_properties() {
-            pending_changes.push((entity, property_id, value));
-        }
-
-        for (property_id, value) in properties.get_animation_properties() {
-            pending_changes.push((entity, property_id, value));
-        }
-    }
-
+) -> Result {
     let properties_registry = properties_registry_local
         .get_or_insert_with(|| world.resource::<PropertiesRegistry>().clone());
 
+    modified_entities.clear();
+    debug_assert!(pending_changes.is_empty());
+    debug_assert!(component_queues.is_empty());
+
+    let mut properties_query = properties_query_state.query_mut(world);
+    for (entity, mut properties) in &mut properties_query {
+        let mut entity_modified = false;
+
+        properties.apply_computed_properties(|property_id, value| {
+            entity_modified = true;
+            pending_changes.push((entity, property_id, value));
+        });
+
+        if entity_modified {
+            modified_entities.insert(entity);
+        }
+    }
+
     {
-        let mut entities_map = match world.get_entity_mut(&*modified_entities) {
-            Ok(entities) => entities,
-            Err(err) => {
-                error!("Error fetching entities to be modified: {err}");
-                return;
-            }
-        };
+        let mut entities_map = world.get_entity_mut(&*modified_entities)?;
 
         for (entity, property_id, value) in pending_changes.drain(..) {
             let entity_mut = entities_map.get_mut(&entity).unwrap();
@@ -448,11 +492,13 @@ pub(crate) fn apply_properties(
     }
 
     let mut commands = world.commands();
-    for (_, components_queue) in component_queues.drain() {
-        if !components_queue.is_empty() {
-            commands.queue(components_queue);
+    for (_, component_queue) in component_queues.drain() {
+        if !component_queue.is_empty() {
+            commands.queue(component_queue);
         }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]

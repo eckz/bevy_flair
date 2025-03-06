@@ -46,7 +46,9 @@ Scene(
     ),
     4294967297: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(
+          parent: 4294967296,
+        ),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -79,7 +81,9 @@ Scene(
     ),
     4294967298: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(
+          parent: 4294967296,
+        ),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -112,7 +116,9 @@ Scene(
     ),
     4294967299: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(
+          parent: 4294967296,
+        ),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",

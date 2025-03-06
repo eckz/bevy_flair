@@ -1,10 +1,10 @@
 use crate::component_property::ComponentProperty;
 use crate::sub_properties::ReflectCreateSubProperties;
-use crate::{PropertiesHashMap, ReflectValue};
+use crate::{PropertiesMap, PropertyValue};
+use bevy::prelude::*;
 use bevy::reflect::{TypeRegistry, Typed};
-use bevy::{platform_support::collections::hash_map::HashMap, prelude::*};
+use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
-use std::any::TypeId;
 use std::borrow::Cow;
 use std::sync::Arc;
 use thiserror::Error;
@@ -82,7 +82,7 @@ impl From<ComponentPropertyId> for ComponentPropertyRef {
 
 /// Opaque identifier for a component property.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct ComponentPropertyId(u32);
+pub struct ComponentPropertyId(pub(crate) u32);
 
 impl From<ComponentPropertyId> for usize {
     fn from(value: ComponentPropertyId) -> Self {
@@ -93,9 +93,9 @@ impl From<ComponentPropertyId> for usize {
 #[derive(Debug, Default)]
 struct PropertiesRegistryInner {
     properties: Vec<ComponentProperty>,
-    default_values: PropertiesHashMap<ReflectValue>,
-    css_names: HashMap<Cow<'static, str>, ComponentPropertyId>,
-    canonical_names: HashMap<String, ComponentPropertyId>,
+    default_values: Vec<PropertyValue>,
+    css_names: FxHashMap<Cow<'static, str>, ComponentPropertyId>,
+    canonical_names: FxHashMap<String, ComponentPropertyId>,
 }
 
 /// Error when trying to resolve a property that is not registered.
@@ -113,7 +113,7 @@ pub struct ResolvePropertyError(String);
 /// # use bevy::prelude::*;
 /// # use bevy_flair_core::*;
 /// let mut properties_registry = PropertiesRegistry::default();
-/// properties_registry.register(ComponentProperty::new::<Node>(".width"));
+/// properties_registry.register(ComponentProperty::new::<Node>(".width"), PropertyValue::None);
 /// let property_id = properties_registry.resolve(&Node::property_ref("width")).unwrap();
 /// let property = properties_registry.get_property(property_id);
 ///
@@ -158,9 +158,23 @@ impl PropertiesRegistry {
         self.inner.css_names.get(css_name).copied()
     }
 
+    /// Creates a filled [`PropertiesMap`] with the same value.
+    pub fn create_properties_map<T: Clone>(&self, default_value: T) -> PropertiesMap<T> {
+        let mut new_map = Vec::with_capacity(self.inner.properties.len());
+        new_map.resize(self.inner.properties.len(), default_value);
+        PropertiesMap(new_map.into())
+    }
+
     /// Get the default value for a given property, if it exists.
-    pub fn get_default_value(&self, property_id: ComponentPropertyId) -> Option<ReflectValue> {
-        self.inner.default_values.get(&property_id).cloned()
+    pub fn get_default_values(&self) -> PropertiesMap<PropertyValue> {
+        PropertiesMap(FromIterator::from_iter(
+            self.inner.default_values.iter().cloned(),
+        ))
+    }
+
+    /// Get the default value for a given property, if it exists.
+    pub fn get_default_value(&self, property_id: ComponentPropertyId) -> PropertyValue {
+        self.inner.default_values[property_id.0 as usize].clone()
     }
 
     fn inner_mut(&mut self) -> &mut PropertiesRegistryInner {
@@ -171,10 +185,24 @@ impl PropertiesRegistry {
     /// Registers a property without registering a css name for it.
     ///  - Panics if a property with the same canonical name is already registered.
     ///  - Panics if the registry has been previously cloned.
-    pub fn register(&mut self, property: ComponentProperty) -> ComponentPropertyId {
+    pub fn register(
+        &mut self,
+        property: ComponentProperty,
+        default_value: PropertyValue,
+    ) -> ComponentPropertyId {
         let inner = self.inner_mut();
         let canonical_name = property.canonical_name();
         let id = ComponentPropertyId(inner.properties.len() as u32);
+
+        debug_assert_eq!(inner.properties.len(), inner.default_values.len());
+
+        assert!(
+            matches!(
+                default_value,
+                PropertyValue::None | PropertyValue::Inherit | PropertyValue::Value(_)
+            ),
+            "Invalid default value for '{canonical_name}'"
+        );
 
         if let Some(other_id) = inner.canonical_names.get(&canonical_name) {
             let other_property = &inner.properties[other_id.0 as usize];
@@ -186,6 +214,7 @@ impl PropertiesRegistry {
         debug!("Registered property: {property}");
 
         inner.properties.push(property);
+        inner.default_values.push(default_value);
 
         id
     }
@@ -198,6 +227,7 @@ impl PropertiesRegistry {
         &mut self,
         css_name: impl Into<Cow<'static, str>>,
         property: ComponentProperty,
+        default_value: PropertyValue,
     ) -> ComponentPropertyId {
         let css_name = css_name.into();
 
@@ -206,7 +236,7 @@ impl PropertiesRegistry {
             panic!("Cannot add property, because another property ('{other_property}') was already registered the css name '{css_name}'.");
         }
 
-        let id = self.register(property);
+        let id = self.register(property, default_value);
         let inner = self.inner_mut();
         inner.css_names.insert(css_name, id);
 
@@ -233,6 +263,7 @@ impl PropertiesRegistry {
     /// properties_registry.register_recursively_with_css_name(
     ///         "margin",
     ///         ComponentProperty::new::<Node>(".margin"),
+    ///         PropertyValue::None,
     ///         &type_registry,
     /// );
     /// let property_id = properties_registry.resolve(
@@ -246,10 +277,11 @@ impl PropertiesRegistry {
         &mut self,
         css_name: impl Into<Cow<'static, str>>,
         property: ComponentProperty,
+        default_value: PropertyValue,
         type_registry: &TypeRegistry,
     ) -> ComponentPropertyId {
         let css_name = css_name.into();
-        let id = self.register_with_css_name(css_name.clone(), property);
+        let id = self.register_with_css_name(css_name.clone(), property, default_value.clone());
 
         let property = &self.inner.properties[id.0 as usize];
 
@@ -275,6 +307,7 @@ impl PropertiesRegistry {
             self.register_recursively_with_css_name(
                 sub_property_css_name,
                 sub_property,
+                default_value.clone(),
                 type_registry,
             );
         }
@@ -282,76 +315,13 @@ impl PropertiesRegistry {
         id
     }
 
-    /// For a given component type, it registers the default values for all its registered properties.
-    /// You should call this method after registering all the properties for a component type.
-    ///
-    /// It's only useful if you plan to call [`PropertiesRegistry::get_default_value`] later.
-    ///
-    /// # Example
-    /// ```
-    /// # use bevy::prelude::*;
-    /// # use bevy_flair_core::*;
-    /// # let mut type_registry = bevy::reflect::TypeRegistry::new();
-    /// # type_registry.register::<Node>();
-    /// let mut properties_registry = PropertiesRegistry::default();
-    /// let property_id = properties_registry.register(
-    ///         ComponentProperty::new::<Node>(".flex_shrink"),
-    /// );
-    /// properties_registry.register_default_values_for_component::<Node>(&type_registry);
-    /// let default_value = properties_registry.get_default_value(property_id).unwrap();
-    /// assert_eq!(default_value, ReflectValue::new(1.0f32));
-    /// ```
+    /// DEPRECATED!
+    #[deprecated(since = "0.2.0")]
     pub fn register_default_values_for_component<T: Reflect + Component + Default>(
         &mut self,
-        type_registry: &TypeRegistry,
+        _type_registry: &TypeRegistry,
     ) {
-        let inner = self.inner_mut();
-
-        let properties = inner
-            .properties
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.component_type_info().type_id() == TypeId::of::<T>())
-            .map(|(id, property)| (ComponentPropertyId(id as u32), property));
-
-        let default_component_value = T::default();
-
-        for (id, property) in properties {
-            let value_type_id = property.value_type_info().type_id();
-
-            let default_value = match type_registry
-                .get_type_data::<ReflectFromReflect>(value_type_id)
-            {
-                Some(reflect_from_reflect) => {
-                    let default_value_partial = property.get_value(&default_component_value);
-
-                    reflect_from_reflect
-                        .from_reflect(default_value_partial)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Cannot get reflect value using FromReflect for type '{}'. Value: {default_value_partial:?}",
-                                property.value_type_info().type_path(),
-                            );
-                        })
-                }
-                None => {
-                    let Some(reflect_default) =
-                        type_registry.get_type_data::<ReflectDefault>(value_type_id)
-                    else {
-                        debug!(
-                            "Type '{}' does not register ReflectFromReflect nor ReflectDefault",
-                            property.value_type_info().type_path()
-                        );
-                        continue;
-                    };
-                    reflect_default.default()
-                }
-            };
-
-            inner
-                .default_values
-                .insert(id, ReflectValue::new_from_box(default_value));
-        }
+        panic!("Not implemented, stop calling this.");
     }
 }
 
@@ -376,12 +346,13 @@ pub trait RegisterPropertiesExt {
     ///  }
     /// # let mut app = App::new();
     /// # app.init_resource::<PropertiesRegistry>();
-    /// app.register_property_recursively_with_css_name("my-component", ComponentProperty::new::<MyComponent>(".property"));
+    /// app.register_property_recursively_with_css_name("my-component", ComponentProperty::new::<MyComponent>(".property"), PropertyValue::None);
     /// ```
     fn register_property_recursively_with_css_name(
         &mut self,
         css_name: &'static str,
         property: ComponentProperty,
+        default_value: PropertyValue,
     ) -> &mut Self;
 }
 
@@ -390,6 +361,7 @@ impl RegisterPropertiesExt for App {
         &mut self,
         css_name: &'static str,
         property: ComponentProperty,
+        default_value: PropertyValue,
     ) -> &mut Self {
         let registry_arc = self.world().resource::<AppTypeRegistry>().0.clone();
         let registry = registry_arc.read();
@@ -399,7 +371,12 @@ impl RegisterPropertiesExt for App {
             .get_resource_mut::<PropertiesRegistry>()
             .expect("Cannot register properties before adding FlairPlugin");
 
-        properties_registry.register_recursively_with_css_name(css_name, property, &registry);
+        properties_registry.register_recursively_with_css_name(
+            css_name,
+            property,
+            default_value,
+            &registry,
+        );
         self
     }
 }
@@ -430,6 +407,7 @@ mod tests {
         properties_registry.register_recursively_with_css_name(
             "property",
             ComponentProperty::new::<TestComponent>(".property"),
+            PropertyValue::None,
             &type_registry,
         );
 

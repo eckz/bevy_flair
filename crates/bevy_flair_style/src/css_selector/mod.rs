@@ -11,6 +11,7 @@ pub use error::{SelectorError, SelectorErrorKind};
 use crate::NodePseudoStateSelector;
 use cssparser::{match_ignore_ascii_case, CowRcStr, ParseError, SourceLocation, ToCss};
 pub(crate) use element::{ElementRef, ElementRefSystemParam};
+use rustc_hash::FxBuildHasher;
 use selectors::context::{
     MatchingContext, MatchingForInvalidation, MatchingMode, NeedsSelectorFlags, QuirksMode,
     SelectorCaches,
@@ -117,7 +118,7 @@ macro_rules! unconstructable {
 }
 
 fn hash_32<T: Hash>(value: T) -> u32 {
-    bevy::platform_support::hash::FixedHasher.hash_one(value) as u32
+    FxBuildHasher.hash_one(value) as u32
 }
 
 macro_rules! str_wrapper {
@@ -317,7 +318,8 @@ impl<'i> TryFrom<&'i str> for CssSelector {
     }
 }
 
-#[cfg(test)]
+// These test fail under miri because some `css_selector` internals
+#[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
     use crate::components::NodeStyleData;

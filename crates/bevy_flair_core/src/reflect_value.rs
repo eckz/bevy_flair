@@ -181,6 +181,18 @@ impl SerializeWithRegistry for ReflectValue {
     }
 }
 
+impl From<Val> for ReflectValue {
+    fn from(value: Val) -> Self {
+        ReflectValue::Val(value)
+    }
+}
+
+impl From<Color> for ReflectValue {
+    fn from(value: Color) -> Self {
+        ReflectValue::Color(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

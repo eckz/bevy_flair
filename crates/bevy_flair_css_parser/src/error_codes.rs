@@ -63,3 +63,8 @@ define_errors!(ui => {
     UNEXPECTED_F32_TOKEN(61, "Unexpected token for a f32 type"),
     INVALID_NUMBER_OF_SHADOW_VALS(62, "Invalid number of values for BoxShadow"),
 });
+
+define_errors!(vars => {
+    INVALID_TOKEN(70, "Invalid token"),
+    INVALID_VAR_NAME(71, "Var names should start with --"),
+});

@@ -6,18 +6,19 @@ use cssparser::*;
 use crate::error::CssError;
 use crate::error_codes;
 use crate::reflect::{ParseFn, ReflectParseCss, ReflectParseCssEnum};
+use crate::utils::parse_property_value_with;
 use crate::{CssParseResult, ParserExt};
 use bevy::math::Vec2;
-use bevy::platform_support::collections::HashSet;
 use bevy::reflect::TypeRegistry;
 use bevy_flair_core::{
-    ComponentPropertyId, PropertiesRegistry, ReflectBreakIntoSubProperties, ReflectValue,
+    ComponentPropertyId, PropertiesRegistry, PropertyValue, ReflectBreakIntoSubProperties,
 };
 use bevy_flair_style::animations::{
     AnimationDirection, AnimationOptions, EasingFunction, IterationCount, StepPosition,
     TransitionOptions,
 };
 use either::Either;
+use rustc_hash::FxHashSet;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -37,7 +38,7 @@ pub struct CssAnimation {
 
 #[derive(Clone, Debug)]
 pub enum CssRulesetProperty {
-    SingleProperty(ComponentPropertyId, ReflectValue),
+    SingleProperty(ComponentPropertyId, PropertyValue),
     Transitions(Vec<CssParseResult<CssTransitionProperty>>),
     Animations(Vec<CssParseResult<CssAnimation>>),
     Error(CssError),
@@ -448,7 +449,7 @@ fn parse_animation_options(parser: &mut Parser) -> Result<AnimationOptions, CssE
 
 fn parse_single_animation(
     parser: &mut Parser,
-    declared_animations: &HashSet<CowRcStr<'_>>,
+    declared_animations: &FxHashSet<CowRcStr<'_>>,
 ) -> Result<CssAnimation, CssError> {
     let options = parse_animation_options(parser)?;
     let name = parser.expect_located_ident()?;
@@ -469,7 +470,7 @@ fn parse_single_animation(
 
 #[derive(Clone)]
 struct CssParserContext<'a, 'i> {
-    pub declared_animations: Rc<RefCell<HashSet<CowRcStr<'i>>>>,
+    pub declared_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
     pub type_registry: &'a TypeRegistry,
     pub properties_registry: &'a PropertiesRegistry,
 }
@@ -604,8 +605,9 @@ impl CssParserContext<'_, '_> {
             );
         };
 
-        let result = parser
-            .parse_entirely(|parser| parse_fn(parser).map_err(|error| error.into_parse_error()));
+        let result = parser.parse_entirely(|parser| {
+            parse_property_value_with(parser, parse_fn).map_err(|error| error.into_parse_error())
+        });
 
         match result {
             Ok(dv) => CssRulesetProperty::SingleProperty(property_id, dv),
@@ -1052,7 +1054,7 @@ mod tests {
     use super::*;
     use bevy::prelude::Component;
     use bevy::reflect::*;
-    use bevy_flair_core::{ComponentProperty, PropertiesRegistry};
+    use bevy_flair_core::*;
     use indoc::indoc;
     use std::sync::LazyLock;
 
@@ -1091,12 +1093,20 @@ mod tests {
 
     fn properties_registry() -> PropertiesRegistry {
         let mut registry = PropertiesRegistry::default();
-        registry.register_with_css_name("width", ComponentProperty::new::<TestComponent>("width"));
-        registry
-            .register_with_css_name("height", ComponentProperty::new::<TestComponent>("height"));
+        registry.register_with_css_name(
+            "width",
+            ComponentProperty::new::<TestComponent>("width"),
+            PropertyValue::None,
+        );
+        registry.register_with_css_name(
+            "height",
+            ComponentProperty::new::<TestComponent>("height"),
+            PropertyValue::None,
+        );
         registry.register_with_css_name(
             "property-enum",
             ComponentProperty::new::<TestComponent>("property_enum"),
+            PropertyValue::None,
         );
         registry
     }
@@ -1258,10 +1268,28 @@ mod tests {
     }
 
     macro_rules! assert_single_property {
+        ($properties:expr, $property_name:literal, inherit) => {{
+            let property = $properties.expect_one();
+            let value = expect_property_name!(property, $property_name);
+            assert_eq!(value, PropertyValue::Inherit);
+        }};
+        ($properties:expr, $property_name:literal, unset) => {{
+            let property = $properties.expect_one();
+            let value = expect_property_name!(property, $property_name);
+            assert_eq!(value, PropertyValue::Unset);
+        }};
+        ($properties:expr, $property_name:literal, var($var_name:literal)) => {{
+            let property = $properties.expect_one();
+            let value = expect_property_name!(property, $property_name);
+            assert_eq!(value, PropertyValue::Var($var_name.into()));
+        }};
         ($properties:expr, $property_name:literal, $expected:literal) => {{
             let property = $properties.expect_one();
             let value = expect_property_name!(property, $property_name);
-            assert_eq!(value, ReflectValue::new($expected as i32));
+            assert_eq!(
+                value,
+                PropertyValue::Value(ReflectValue::new($expected as i32))
+            );
         }};
     }
 
@@ -1301,6 +1329,39 @@ mod tests {
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
         assert_single_property!(ruleset.properties, "height", 18);
+    }
+
+    #[test]
+    fn special_property_values() {
+        let contents = r#"
+            .rule1 { height: inherit; }
+        "#;
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        assert_single_class_selector!(ruleset, "rule1");
+        assert_single_property!(ruleset.properties, "height", inherit);
+
+        let contents = r#"
+            .rule1 { height: unset; }
+        "#;
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        assert_single_class_selector!(ruleset, "rule1");
+        assert_single_property!(ruleset.properties, "height", unset);
+    }
+
+    #[test]
+    fn property_access_var() {
+        let contents = r#"
+            .rule1 { width: var(--some-var); }
+        "#;
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        assert_single_class_selector!(ruleset, "rule1");
+        assert_single_property!(ruleset.properties, "width", var("some-var"));
     }
 
     #[test]
@@ -1722,7 +1783,7 @@ mod tests {
 
         // height is still parsed correctly
         let height = expect_property_name!(property_height, "height");
-        assert_eq!(height, ReflectValue::new(88i32));
+        assert_eq!(height, PropertyValue::Value(ReflectValue::new(88i32)));
     }
 
     #[test]
@@ -1759,7 +1820,7 @@ mod tests {
 
         // height is still parsed correctly
         let height = expect_property_name!(property_height, "height");
-        assert_eq!(height, ReflectValue::new(88i32));
+        assert_eq!(height, PropertyValue::Value(ReflectValue::new(88i32)));
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! # Bevy Flair Core
 //! Adds
 mod component_property;
+pub mod properties_map;
+mod property_value;
 mod reflect_value;
 mod registry;
 mod static_type_info;
@@ -9,6 +11,8 @@ mod sub_properties;
 use bevy::prelude::*;
 
 pub use component_property::*;
+pub use properties_map::PropertiesMap;
+pub use property_value::*;
 pub use reflect_value::*;
 pub use registry::*;
 
@@ -21,10 +25,21 @@ macro_rules! default_properties {
     (@impl_property insert_if_missing: $ty:ty[$path:literal] ) => {
         ComponentProperty::new_insert_if_missing::<$ty>($path)
     };
-    ($($css:literal { $($tt:tt)* },)*) => {
+    (@default_value) => {
+        PropertyValue::None
+    };
+    (@default_value inherit) => {
+        PropertyValue::Inherit
+    };
+    ($($css:literal $($default_value:ident)? { $($tt:tt)* },)*) => {
         pub(crate) fn register_bevy_ui_properties(registry: &mut PropertiesRegistry, type_registry: &bevy::reflect::TypeRegistry) {
             $(
-                registry.register_recursively_with_css_name($css, default_properties!(@impl_property $($tt)*), type_registry);
+                registry.register_recursively_with_css_name(
+                    $css,
+                    default_properties!(@impl_property $($tt)*),
+                    default_properties!(@default_value $($default_value)*),
+                    type_registry
+                );
             )*
         }
     };
@@ -82,9 +97,9 @@ default_properties! {
     "z-index" { insert_if_missing: ZIndex[""] },
 
     // Text fields
-    "color" { TextColor[".0"] },
-    "font-family" { TextFont[".font"] },
-    "font-size" { TextFont[".font_size"] },
+    "color" inherit { TextColor[".0"] },
+    "font-family" inherit { TextFont[".font"] },
+    "font-size" inherit { TextFont[".font_size"] },
 
     // UiImage properties. Note: These css properties do not exist
     "image-color" { insert_if_missing: ImageNode[".color"] },
@@ -103,14 +118,6 @@ macro_rules! register_sub_properties {
             $app.register_type::<$ty>();
             $app.register_type_data::<$ty, ReflectCreateSubProperties>();
             $app.register_type_data::<$ty, ReflectBreakIntoSubProperties>();
-        )*
-    };
-}
-
-macro_rules! register_default_values {
-    ($properties:expr, $type_registry:expr => { $($ty:path,)* }) => {
-        $(
-            $properties.register_default_values_for_component::<$ty>(&$type_registry);
         )*
     };
 }
@@ -136,19 +143,6 @@ impl Plugin for BevyUiPropertiesPlugin {
             .unwrap();
 
         register_bevy_ui_properties(&mut properties_registry, &registry);
-
-        register_default_values!(properties_registry, registry => {
-            Node,
-            BorderColor,
-            BackgroundColor,
-            BorderRadius,
-            Outline,
-            BoxShadow,
-            ZIndex,
-            TextColor,
-            TextFont,
-            ImageNode,
-        });
     }
 }
 

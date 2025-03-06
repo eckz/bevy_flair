@@ -16,6 +16,7 @@ mod parser;
 mod error_codes;
 mod loader;
 mod reflect;
+mod utils;
 
 /// Wrapper for a value that has a location in a byte range
 #[derive(Clone, Deref)]

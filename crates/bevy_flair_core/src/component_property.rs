@@ -2,13 +2,12 @@ use crate::static_type_info::static_type_info;
 use crate::{ComponentPropertyId, ComponentPropertyRef};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::world::FilteredEntityRef;
-use bevy::platform_support::collections;
 use bevy::prelude::*;
 use bevy::reflect::*;
 use bevy::utils::TypeIdMap;
 use std::fmt;
 use std::fmt::{Debug, Display};
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasherDefault, Hash, Hasher};
 
 type GetValueFn =
     for<'a> fn(&'a dyn PartialReflect, parsed_path: &ParsedPath) -> &'a dyn PartialReflect;
@@ -500,11 +499,40 @@ impl PartialEq for ComponentProperty {
 
 impl Eq for ComponentProperty {}
 
-/// A [`HashMap`](hashbrown::HashMap) for [`ComponentPropertyId`] as key.
-pub type PropertiesHashMap<V> = collections::hash_map::HashMap<ComponentPropertyId, V>;
+/// No-op Hasher to be used with [`ComponentPropertyId`];
+#[derive(Default)]
+pub struct ComponentPropertyIdHasher {
+    hash: u32,
+}
 
-/// A [`HashSet`](hashbrown::HashSet) for [`ComponentPropertyId`] as key.
-pub type PropertiesHashSet = collections::hash_set::HashSet<ComponentPropertyId>;
+const INVALID_HASHER_USE_MESSAGE: &str =
+    "Cannot use ComponentPropertyIdHasher with anything other than ComponentPropertyId";
+
+impl Hasher for ComponentPropertyIdHasher {
+    fn finish(&self) -> u64 {
+        self.hash as u64
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!("{}", INVALID_HASHER_USE_MESSAGE);
+    }
+
+    fn write_u32(&mut self, i: u32) {
+        debug_assert_eq!(self.hash, 0, "{}", INVALID_HASHER_USE_MESSAGE);
+        self.hash = i;
+    }
+}
+
+/// A [`HashMap`](std::collections::HashMap) for [`ComponentPropertyId`] as key.
+pub type PropertiesHashMap<V> = std::collections::HashMap<
+    ComponentPropertyId,
+    V,
+    BuildHasherDefault<ComponentPropertyIdHasher>,
+>;
+
+/// A [`HashSet`](std::collections::HashSet) for [`ComponentPropertyId`] as key.
+pub type PropertiesHashSet =
+    std::collections::HashSet<ComponentPropertyId, BuildHasherDefault<ComponentPropertyIdHasher>>;
 
 #[cfg(test)]
 mod tests {

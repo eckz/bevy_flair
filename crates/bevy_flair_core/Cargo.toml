@@ -14,8 +14,9 @@ unsafe_code = "allow"
 missing_docs = "warn"
 
 [dependencies]
-thiserror = { version = "2.0" }
-serde = { version = "1.0" }
+thiserror = "2.0"
+serde = "1.0"
+rustc-hash = "2.1"
 
 # Same version as bevy so it implements reflect
 smol_str = "0.2"

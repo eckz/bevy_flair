@@ -101,6 +101,9 @@ pub enum StyleSystemSets {
     /// Calculates new properties, transitions and animations for nodes that are marked for recalculation
     CalculateStyle,
 
+    /// Converts properties set in `CalculateStyle` into computed properties. Also calculates inherited properties.
+    ComputeProperties,
+
     /// Effectively applies changes from animations and style changes into the Components.
     ApplyProperties,
 }
@@ -135,19 +138,21 @@ impl Plugin for FlairStylePlugin {
                         StyleSystemSets::SetStyleData,
                         StyleSystemSets::MarkNodesForRecalculation,
                         StyleSystemSets::CalculateStyle,
+                        StyleSystemSets::ComputeProperties,
                         StyleSystemSets::ApplyProperties.before(bevy::ui::UiSystem::Prepare),
                     )
                         .chain(),
                     StyleSystemSets::TickAnimations.before(StyleSystemSets::CalculateStyle),
                 ),
             )
+            .add_systems(PreStartup, |mut commands: Commands| {
+                commands.init_resource::<EmptyComputedProperties>()
+            })
             .add_systems(PreUpdate, systems::mark_as_changed_on_style_sheet_change)
             .add_systems(
                 PostUpdate,
                 (
                     (
-                        // systems::add_styled_node_on_hierarchy_events,
-                        // systems::on_root_added,
                         systems::calculate_effective_style_sheet,
                         systems::sync_siblings_system,
                     )
@@ -165,6 +170,7 @@ impl Plugin for FlairStylePlugin {
                         .in_set(StyleSystemSets::MarkNodesForRecalculation),
                     systems::tick_animations.in_set(StyleSystemSets::TickAnimations),
                     systems::calculate_style.in_set(StyleSystemSets::CalculateStyle),
+                    systems::compute_property_values.in_set(StyleSystemSets::ComputeProperties),
                     systems::apply_properties.in_set(StyleSystemSets::ApplyProperties),
                 ),
             );
@@ -220,7 +226,7 @@ impl<C: Component + TypePath> Plugin for TrackTypeNameComponentPlugin<C> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
     use bevy::app::App;
@@ -312,6 +318,8 @@ mod tests {
         app.register_type_data::<std::collections::BinaryHeap<TypeNameWithPriority>, ReflectSerialize>();
 
         app.finish();
+
+        app.init_resource::<EmptyComputedProperties>();
 
         app
     }
@@ -494,7 +502,7 @@ mod tests {
         {
             app.world_mut()
                 .run_system_once(|mut query: Query<&mut NodeStyleMarker, Without<ChildOf>>| {
-                    query.single_mut().mark_for_recalculation();
+                    query.single_mut().unwrap().mark_for_recalculation();
                 })
                 .unwrap();
 
@@ -511,7 +519,7 @@ mod tests {
             app.world_mut()
                 .run_system_once(
                     |mut query: Query<(&NodeStyleData, &mut NodeStyleMarker), With<FirstChild>>| {
-                        let (data, mut marker) = query.single_mut();
+                        let (data, mut marker) = query.single_mut().unwrap();
                         marker.mark_for_recalculation();
                         data.recalculation_flags.fetch_or(
                             RecalculateOnChangeFlags::RECALCULATE_SIBLINGS.bits(),
@@ -533,7 +541,7 @@ mod tests {
             app.world_mut()
                 .run_system_once(
                     |mut query: Query<(&NodeStyleData, &mut NodeStyleMarker), Without<ChildOf>>| {
-                        let (data, mut marker) = query.single_mut();
+                        let (data, mut marker) = query.single_mut().unwrap();
                         marker.mark_for_recalculation();
                         data.recalculation_flags.fetch_or(
                             RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS.bits(),
