@@ -27,7 +27,7 @@ Scene(
               name: "Node",
             ),
           ],
-          pseudo_state: NodeState(
+          pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
             focused: false,
@@ -63,7 +63,7 @@ Scene(
               name: "Node",
             ),
           ],
-          pseudo_state: NodeState(
+          pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
             focused: false,
@@ -98,7 +98,7 @@ Scene(
               name: "Node",
             ),
           ],
-          pseudo_state: NodeState(
+          pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
             focused: false,
@@ -129,7 +129,7 @@ Scene(
               name: "Node",
             ),
           ],
-          pseudo_state: NodeState(
+          pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
             focused: false,
@@ -160,7 +160,7 @@ Scene(
               name: "Node",
             ),
           ],
-          pseudo_state: NodeState(
+          pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
             focused: false,
@@ -191,7 +191,7 @@ Scene(
               name: "Node",
             ),
           ],
-          pseudo_state: NodeState(
+          pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
             focused: false,
@@ -222,7 +222,7 @@ Scene(
               name: "Node",
             ),
           ],
-          pseudo_state: NodeState(
+          pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
             focused: false,

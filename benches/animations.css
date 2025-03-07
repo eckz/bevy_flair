@@ -1,0 +1,26 @@
+@keyframes animation {
+    from {
+        width: 20px;
+    }
+
+    to {
+        width: 300px;
+    }
+}
+
+:root {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+}
+
+:root > * {
+    width: 20px;
+    height: 20px;
+    background-color: black;
+}
+
+.animated {
+    animation: 0.2s ease infinite alternate animation;
+}

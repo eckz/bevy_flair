@@ -2,7 +2,7 @@ use crate::components::{
     ClassList, NodeProperties, NodeStyleData, NodeStyleMarker, NodeStyleSheet,
     RecalculateOnChangeFlags, Siblings,
 };
-use crate::{css_selector, StyleSheet};
+use crate::{css_selector, GlobalChangeDetection, StyleSheet};
 use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
 
 use bevy::prelude::*;
@@ -147,20 +147,10 @@ pub(crate) fn calculate_is_root(
 }
 
 pub(crate) fn apply_classes(
-    mut classes_query: Query<(&mut ClassList, &mut NodeStyleData), Changed<ClassList>>,
+    mut classes_query: Query<(&ClassList, &mut NodeStyleData), Changed<ClassList>>,
 ) {
-    for (mut classes, mut computed_style) in &mut classes_query {
-        let ClassList { added, removed } = classes.take();
-
-        let active_classes = &mut computed_style.classes;
-
-        for c in added {
-            if !active_classes.contains(&c) {
-                active_classes.push(c);
-            }
-        }
-
-        active_classes.retain(|c| !removed.contains(c));
+    for (classes, mut style_data) in &mut classes_query {
+        style_data.classes.clone_from(&classes.0);
     }
 }
 
@@ -220,6 +210,13 @@ pub(crate) fn sync_input_focus(
     }
 
     *previous_focus = (*input_focus).clone()
+}
+
+pub(crate) fn clear_global_change_detection(
+    mut global_change_detection: ResMut<GlobalChangeDetection>,
+) {
+    global_change_detection.any_animation_active = false;
+    global_change_detection.any_property_value_changed = false;
 }
 
 pub(crate) fn mark_nodes_for_recalculation(
@@ -326,11 +323,14 @@ pub(crate) fn calculate_style(
     element_ref_system_param: css_selector::ElementRefSystemParam,
     app_type_registry: Res<AppTypeRegistry>,
     properties_registry: Res<PropertiesRegistry>,
+    mut global_change_detection: ResMut<GlobalChangeDetection>,
+    mut any_change_parallel: Local<bevy::utils::Parallel<bool>>,
 ) {
     let type_registry_arc = app_type_registry.0.clone();
 
-    styled_entities_query.par_iter_mut().for_each(
-        |(name_or_entity, data, mut marker, mut properties)| {
+    styled_entities_query.par_iter_mut().for_each_init(
+        || any_change_parallel.borrow_local_mut(),
+        |any_change, (name_or_entity, data, mut marker, mut properties)| {
             if !marker.needs_recalculation() {
                 return;
             }
@@ -356,6 +356,8 @@ pub(crate) fn calculate_style(
             style_sheet.get_property_values(&new_rules, &mut property_values);
 
             debug_assert!(properties.pending_property_values.is_empty());
+            **any_change = properties.pending_property_values != property_values;
+
             properties.pending_property_values = property_values;
 
             // Apply animations
@@ -368,18 +370,82 @@ pub(crate) fn calculate_style(
             marker.clear_marker();
         },
     );
+
+    global_change_detection.any_property_value_changed =
+        any_change_parallel.iter_mut().any(std::mem::take);
+}
+
+mod custom_descendants_iter {
+    use bevy::ecs::query::{QueryData, QueryFilter};
+    use bevy::prelude::*;
+
+    /// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
+    ///
+    /// Traverses the hierarchy depth-first.
+    pub struct DescendantDepthFirstIter<'w, 's, D: QueryData, F: QueryFilter>
+    where
+        D::ReadOnly: QueryData<Item<'w> = &'w Children>,
+    {
+        children_query: &'w Query<'w, 's, D, F>,
+        stack: Vec<(Entity, Entity)>,
+    }
+
+    impl<'w, 's, D: QueryData, F: QueryFilter> DescendantDepthFirstIter<'w, 's, D, F>
+    where
+        D::ReadOnly: QueryData<Item<'w> = &'w Children>,
+    {
+        /// Returns a new [`DescendantDepthFirstIter`].
+        pub fn new(children_query: &'w Query<'w, 's, D, F>, entity: Entity) -> Self {
+            DescendantDepthFirstIter {
+                children_query,
+                stack: children_query.get(entity).map_or(Vec::new(), |children| {
+                    children.iter().rev().map(|e| (entity, e)).collect()
+                }),
+            }
+        }
+    }
+
+    impl<'w, D: QueryData, F: QueryFilter> Iterator for DescendantDepthFirstIter<'w, '_, D, F>
+    where
+        D::ReadOnly: QueryData<Item<'w> = &'w Children>,
+    {
+        type Item = (Entity, Entity);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let (parent, entity) = self.stack.pop()?;
+
+            if let Ok(children) = self.children_query.get(entity) {
+                self.stack
+                    .extend(children.iter().rev().map(|e| (entity, e)));
+            }
+
+            Some((parent, entity))
+        }
+    }
 }
 
 // TODO: In grid tracy this method shows as 1.26 ms on average
 pub(crate) fn compute_property_values(
     root_entities: Query<Entity, (Without<ChildOf>, With<NodeProperties>)>,
-    parent_query: Query<&ChildOf>,
     children_query: Query<&Children, With<NodeProperties>>,
     #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
     mut node_properties_query: Query<&mut NodeProperties>,
     app_type_registry: Res<AppTypeRegistry>,
     properties_registry: Res<PropertiesRegistry>,
+    global_change_detection: Res<GlobalChangeDetection>,
 ) {
+    if !global_change_detection.any_change() {
+        return;
+    }
+
+    if !global_change_detection.any_property_value_changed {
+        // Only animations
+        for mut properties in &mut node_properties_query {
+            properties.just_compute_transitions_and_animations();
+        }
+        return;
+    }
+
     let type_registry = app_type_registry.0.read();
 
     #[cfg(debug_assertions)]
@@ -409,15 +475,14 @@ pub(crate) fn compute_property_values(
 
         trace_new_properties(root, &root_properties);
 
-        for entity in children_query.iter_descendants(root) {
-            if !node_properties_query.contains(entity) {
+        for (parent, entity) in
+            custom_descendants_iter::DescendantDepthFirstIter::new(&children_query, root)
+        {
+            let Ok([parent_properties, mut properties]) =
+                node_properties_query.get_many_mut([parent, entity])
+            else {
                 continue;
-            }
-
-            let parent = parent_query.get(entity).unwrap().parent;
-            let [parent_properties, mut properties] = node_properties_query
-                .get_many_mut([parent, entity])
-                .unwrap();
+            };
 
             properties.compute_pending_property_values_with_parent(
                 &parent_properties,
@@ -430,11 +495,17 @@ pub(crate) fn compute_property_values(
     }
 }
 
-pub(crate) fn tick_animations(time: Res<Time>, mut properties_query: Query<&mut NodeProperties>) {
+pub(crate) fn tick_animations(
+    time: Res<Time>,
+    mut properties_query: Query<&mut NodeProperties>,
+    mut global_change_detection: ResMut<GlobalChangeDetection>,
+) {
     let delta = time.delta();
 
     for mut properties in &mut properties_query {
         if properties.has_active_animations() {
+            global_change_detection.any_animation_active = true;
+
             properties.tick_animations(delta);
             properties.clear_finished_and_cancelled_animations();
         }
@@ -455,6 +526,10 @@ pub(crate) fn apply_properties(
     modified_entities.clear();
     debug_assert!(pending_changes.is_empty());
     debug_assert!(component_queues.is_empty());
+
+    if !world.resource::<GlobalChangeDetection>().any_change() {
+        return Ok(());
+    }
 
     let mut properties_query = properties_query_state.query_mut(world);
     for (entity, mut properties) in &mut properties_query {
@@ -544,7 +619,7 @@ mod tests {
             .entity_mut(entity)
             .get_mut::<ClassList>()
             .unwrap()
-            .add_class("test");
+            .add("test");
         app.update();
 
         let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
@@ -555,8 +630,8 @@ mod tests {
             .entity_mut(entity)
             .into_mut::<ClassList>()
             .unwrap();
-        class.add_class("test2");
-        class.remove_class("test");
+        class.add("test2");
+        class.remove("test");
         app.update();
 
         assert!(is_data_changed());

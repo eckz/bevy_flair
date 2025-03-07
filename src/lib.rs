@@ -16,7 +16,7 @@ pub mod prelude {
 
     #[doc(hidden)]
     pub use bevy_flair_style::{
-        animations::*, components::*, NodeState, StyleSheet, StyleSheetBuilder,
+        animations::*, components::*, NodePseudoState, StyleSheet, StyleSheetBuilder,
     };
 }
 
@@ -52,15 +52,12 @@ impl Plugin for FlairPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PropertiesRegistry>();
         app.preregister_asset_loader::<CssStyleLoader>(CssStyleLoader::EXTENSIONS);
-
         app.add_plugins((BevyUiPropertiesPlugin, FlairStylePlugin, ReflectParsePlugin));
     }
 
     fn finish(&self, app: &mut App) {
         let type_registry_arc = app.world().resource::<AppTypeRegistry>().0.clone();
-
         let properties_registry = app.world().resource::<PropertiesRegistry>().clone();
-
         app.register_asset_loader(CssStyleLoader::new(type_registry_arc, properties_registry));
     }
 }

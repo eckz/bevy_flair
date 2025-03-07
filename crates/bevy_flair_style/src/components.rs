@@ -3,9 +3,10 @@
 use crate::animations::{
     Animation, AnimationState, ReflectAnimatable, Transition, TransitionOptions,
 };
-use std::cell::RefCell;
 
-use crate::{ClassName, IdName, NodePseudoStateSelector, NodeState, ResolvedAnimation, StyleSheet};
+use crate::{
+    ClassName, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation, StyleSheet,
+};
 
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistry;
@@ -18,14 +19,13 @@ use bitflags::bitflags;
 use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
 use std::convert::Infallible;
-use std::fmt::{Debug, Formatter};
 
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::reflect::serde::{
     ReflectSerializeWithRegistry, SerializeWithRegistry, TypedReflectSerializer,
 };
-use itertools::izip;
+use itertools::{izip, Itertools};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -128,7 +128,7 @@ pub struct NodeStyleData {
 
     // Contains type names with their priority, so the one with the highest priority defines this node.
     type_names: BinaryHeap<TypeNameWithPriority>,
-    pub(crate) pseudo_state: NodeState,
+    pub(crate) pseudo_state: NodePseudoState,
 }
 
 // We need to implement clone manually because of the Atomics
@@ -209,21 +209,21 @@ impl NodeStyleData {
             .push(TypeNameWithPriority { priority, name });
     }
 
-    /// If the current entity matches the given [`NodeState`].
+    /// If the current entity matches the given [`NodePseudoState`].
     #[inline]
     pub fn matches_pseudo_state(&self, selector: NodePseudoStateSelector) -> bool {
         self.pseudo_state.matches(selector)
     }
 
-    /// Gets the entity's current  [`NodeState`].
+    /// Gets the entity's current  [`NodePseudoState`].
     #[inline]
-    pub fn get_pseudo_state(&self) -> NodeState {
+    pub fn get_pseudo_state(&self) -> NodePseudoState {
         self.pseudo_state
     }
 
-    /// Mutates the current [`NodeState`].
+    /// Mutates the current [`NodePseudoState`].
     #[inline]
-    pub fn get_pseudo_state_mut(&mut self) -> &mut NodeState {
+    pub fn get_pseudo_state_mut(&mut self) -> &mut NodePseudoState {
         &mut self.pseudo_state
     }
 }
@@ -352,23 +352,17 @@ impl NodeProperties {
         type_registry: &TypeRegistry,
         properties_registry: &PropertiesRegistry,
     ) {
-        debug_assert!(self.pending_computed_values.is_empty(),);
+        debug_assert!(self.pending_computed_values.is_empty());
         debug_assert!(self.pending_animation_values.is_empty());
 
         let mut pending_computed_values;
 
         if self.pending_property_values.is_empty() {
-            debug_assert!(
-                !self.computed_values.is_empty(),
-                "computed_values should not be empty"
-            );
+            debug_assert!(!self.computed_values.is_empty());
             // We are the root and nothing can change even for inherited properties
             pending_computed_values = self.computed_values.clone();
         } else {
-            debug_assert!(
-                !self.empty_computed_properties.is_empty(),
-                "empty_computed_properties should not be empty"
-            );
+            debug_assert!(!self.empty_computed_properties.is_empty());
 
             pending_computed_values = self.empty_computed_properties.clone();
             let pending_property_values = mem::take(&mut self.pending_property_values);
@@ -395,62 +389,44 @@ impl NodeProperties {
     ) {
         debug_assert!(self.pending_computed_values.is_empty());
         debug_assert!(self.pending_animation_values.is_empty());
-        debug_assert!(
-            !parent.pending_computed_values.is_empty(),
-            "Parent does not have pending_computed_values calculated"
-        );
-        debug_assert!(
-            !parent.pending_animation_values.is_empty(),
-            "Parent does not have pending_animation_values calculated"
-        );
-
+        debug_assert!(!parent.pending_computed_values.is_empty());
         let mut pending_computed_values;
-        let mut pending_animation_values = self.empty_computed_properties.clone();
 
         if self.pending_property_values.is_empty() {
             // Calculate only inherited properties
             pending_computed_values = self.computed_values.clone();
 
-            for (property_value, parent, parent_animated, mut new_computed, mut new_animated) in izip!(
-                self.property_values.iter_values(),
-                parent.pending_computed_values.iter_values(),
-                parent.pending_animation_values.iter_values(),
-                pending_computed_values.iter_values_mut(),
-                pending_animation_values.iter_values_mut()
-            ) {
-                if property_value.inherits() {
-                    new_computed.set_if_neq(property_value.compute_with_parent(parent));
-                    if *property_value == PropertyValue::Inherit {
-                        new_animated
-                            .set_if_neq(property_value.compute_with_parent(parent_animated));
+            // If nothing has changed in the parent, nothing could change here
+            if !parent
+                .pending_computed_values
+                .ptr_eq(&parent.computed_values)
+            {
+                for (property_id, property_value) in self.property_values.iter() {
+                    if property_value.inherits() {
+                        let parent = &parent.pending_computed_values[property_id];
+                        pending_computed_values
+                            .set_if_neq(property_id, property_value.compute_with_parent(parent));
                     }
                 }
             }
         } else {
-            debug_assert!(
-                !self.empty_computed_properties.is_empty(),
-                "empty_computed_properties should not be empty"
-            );
+            debug_assert!(!self.empty_computed_properties.is_empty());
+
             pending_computed_values = self.empty_computed_properties.clone();
             let pending_property_values = mem::take(&mut self.pending_property_values);
 
-            for (property_value, parent, parent_animated, mut new_computed, mut new_animated) in izip!(
+            for (property_value, parent, mut new_computed) in izip!(
                 pending_property_values.iter_values(),
                 parent.pending_computed_values.iter_values(),
-                parent.pending_animation_values.iter_values(),
                 pending_computed_values.iter_values_mut(),
-                pending_animation_values.iter_values_mut()
             ) {
                 new_computed.set_if_neq(property_value.compute_with_parent(parent));
-                if *property_value == PropertyValue::Inherit {
-                    new_animated.set_if_neq(property_value.compute_with_parent(parent_animated));
-                }
             }
             self.property_values = pending_property_values;
         }
 
         self.pending_computed_values = pending_computed_values;
-        self.pending_animation_values = pending_animation_values;
+        self.pending_animation_values = self.empty_computed_properties.clone();
         self.create_transitions(type_registry, properties_registry);
         self.apply_transitions_and_animations();
     }
@@ -462,19 +438,16 @@ impl NodeProperties {
         type_registry: &TypeRegistry,
         properties_registry: &PropertiesRegistry,
     ) {
-        for ((property_id, to_value), mut computed_value_mut) in izip!(
-            self.pending_computed_values.iter(),
-            self.computed_values.iter_values_mut(),
-        ) {
-            let Some(options) = self.transitions_options.get(&property_id) else {
-                continue;
-            };
-            if to_value == &*computed_value_mut {
+        for (&property_id, options) in self.transitions_options.iter() {
+            let from_value = &self.computed_values[property_id];
+            let to_value = &self.pending_computed_values[property_id];
+
+            if from_value == to_value {
                 // Equal values, do nothing
                 continue;
             }
 
-            let (from_value, to_value) = match (computed_value_mut.clone(), to_value.clone()) {
+            let (from_value, to_value) = match (from_value.clone(), to_value.clone()) {
                 (ComputedValue::Value(from_value), ComputedValue::Value(to_value)) => {
                     (from_value, to_value)
                 }
@@ -497,7 +470,8 @@ impl NodeProperties {
             };
 
             // Set the value so it looks applied, but it will be modified through transition.
-            computed_value_mut.set_if_neq(ComputedValue::Value(to_value.clone()));
+            self.computed_values
+                .set_if_neq(property_id, ComputedValue::Value(to_value.clone()));
 
             match self.transitions.entry(property_id) {
                 Entry::Occupied(mut occupied) => {
@@ -525,16 +499,19 @@ impl NodeProperties {
         }
     }
 
+    // Similar effect as compute_pending_property_values but when it's known there are not property values changes
+    pub(crate) fn just_compute_transitions_and_animations(&mut self) {
+        debug_assert!(self.pending_computed_values.is_empty(),);
+        debug_assert!(self.pending_animation_values.is_empty());
+
+        self.pending_computed_values = self.computed_values.clone();
+        self.pending_animation_values = self.empty_computed_properties.clone();
+        self.apply_transitions_and_animations();
+    }
+
     // Sets pending_animation_values with transitions and animations
     fn apply_transitions_and_animations(&mut self) {
-        debug_assert!(
-            !self.pending_computed_values.is_empty(),
-            "pending_animation_values should not be empty"
-        );
-        debug_assert!(
-            !self.pending_animation_values.is_empty(),
-            "pending_animation_values should not be empty"
-        );
+        debug_assert!(!self.pending_animation_values.is_empty(),);
 
         for (&property_id, transition) in &self.transitions {
             match transition.state {
@@ -786,8 +763,9 @@ impl NodeProperties {
             .filter_map(|t| t.iter().find(|a| a.state.needs_to_be_ticked()))
     }
 
-    pub(crate) fn pending_computed_values(&self) -> PendingComputedValues {
-        PendingComputedValues {
+    #[cfg(debug_assertions)]
+    pub(crate) fn pending_computed_values(&self) -> debug::PendingComputedValues {
+        debug::PendingComputedValues {
             inner_iter: Box::new(
                 izip!(
                     self.pending_computed_values.iter(),
@@ -827,56 +805,64 @@ impl SerializeWithRegistry for NodeProperties {
     }
 }
 
-pub(crate) struct PendingComputedValues<'a> {
-    inner_iter: Box<dyn Iterator<Item = (ComponentPropertyId, &'a ComputedValue)> + 'a>,
-}
+#[cfg(debug_assertions)]
+mod debug {
+    use super::*;
+    use std::cell::RefCell;
+    use std::fmt::{Debug, Formatter};
 
-impl<'a> Iterator for PendingComputedValues<'a> {
-    type Item = (ComponentPropertyId, &'a ComputedValue);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner_iter.next()
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner_iter.size_hint()
+    pub(crate) struct PendingComputedValues<'a> {
+        pub(super) inner_iter:
+            Box<dyn Iterator<Item = (ComponentPropertyId, &'a ComputedValue)> + 'a>,
     }
 
-    fn fold<B, F>(self, init: B, f: F) -> B
-    where
-        Self: Sized,
-        F: FnMut(B, Self::Item) -> B,
-    {
-        self.inner_iter.fold(init, f)
-    }
-}
+    impl<'a> Iterator for PendingComputedValues<'a> {
+        type Item = (ComponentPropertyId, &'a ComputedValue);
 
-impl<'a> PendingComputedValues<'a> {
-    pub fn into_debug(
-        self,
+        fn next(&mut self) -> Option<Self::Item> {
+            self.inner_iter.next()
+        }
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            self.inner_iter.size_hint()
+        }
+
+        fn fold<B, F>(self, init: B, f: F) -> B
+        where
+            Self: Sized,
+            F: FnMut(B, Self::Item) -> B,
+        {
+            self.inner_iter.fold(init, f)
+        }
+    }
+
+    impl<'a> PendingComputedValues<'a> {
+        pub fn into_debug(
+            self,
+            properties_registry: &'a PropertiesRegistry,
+        ) -> PendingComputedPropertiesDebug<'a> {
+            PendingComputedPropertiesDebug {
+                properties_registry,
+                pending: RefCell::new(self),
+            }
+        }
+    }
+
+    pub(crate) struct PendingComputedPropertiesDebug<'a> {
         properties_registry: &'a PropertiesRegistry,
-    ) -> PendingComputedPropertiesDebug<'a> {
-        PendingComputedPropertiesDebug {
-            properties_registry,
-            pending: RefCell::new(self),
-        }
+        pending: RefCell<PendingComputedValues<'a>>,
     }
-}
 
-pub(crate) struct PendingComputedPropertiesDebug<'a> {
-    properties_registry: &'a PropertiesRegistry,
-    pending: RefCell<PendingComputedValues<'a>>,
-}
+    impl Debug for PendingComputedPropertiesDebug<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            let iter = &mut self.pending.borrow_mut().inner_iter;
 
-impl Debug for PendingComputedPropertiesDebug<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let iter = &mut self.pending.borrow_mut().inner_iter;
-
-        let mut map = f.debug_map();
-        for (property_id, value) in iter {
-            let property = self.properties_registry.get_property(property_id);
-            map.entry(&property.canonical_name(), value);
+            let mut map = f.debug_map();
+            for (property_id, value) in iter {
+                let property = self.properties_registry.get_property(property_id);
+                map.entry(&property.canonical_name(), value);
+            }
+            map.finish()
         }
-        map.finish()
     }
 }
 
@@ -886,10 +872,7 @@ impl Debug for PendingComputedPropertiesDebug<'_> {
 /// [`classList`](https://developer.mozilla.org/en-US/docs/Web/API/Element/classList)
 #[derive(Clone, Debug, Default, PartialEq, Component, Reflect)]
 #[reflect(Debug, Default, Component)]
-pub struct ClassList {
-    pub(crate) added: Vec<ClassName>,
-    pub(crate) removed: Vec<ClassName>,
-}
+pub struct ClassList(pub(crate) Vec<ClassName>);
 
 impl ClassList {
     /// Creates a new empty ClassList.
@@ -903,8 +886,8 @@ impl ClassList {
     /// # use bevy_flair_style::components::ClassList;
     /// let parsed = ClassList::parse("class1 class2");
     /// let mut custom = ClassList::new();
-    /// custom.add_class("class1");
-    /// custom.add_class("class2");
+    /// custom.add("class1");
+    /// custom.add("class2");
     ///
     /// assert_eq!(parsed, custom);
     /// ```
@@ -926,7 +909,7 @@ impl ClassList {
     {
         let mut new = Self::new();
         for class in classes {
-            new.add_class(class);
+            new.add(class);
         }
         new
     }
@@ -939,30 +922,58 @@ impl ClassList {
     /// ```
     pub fn new_with_class(class: impl Into<ClassName>) -> Self {
         let mut new = Self::new();
-        new.add_class(class);
+        new.add(class);
         new
     }
 
-    /// Adds the given class to the list of classes.
-    pub fn add_class(&mut self, class: impl Into<ClassName>) {
+    /// Returns true if the provided class is applied.
+    pub fn contains(&self, class: impl Into<ClassName>) -> bool {
         let class = class.into();
-        if !self.added.contains(&class) {
-            self.added.push(class);
+        self.0.contains(&class)
+    }
+
+    /// Toggles the provided class, if it's applied, it gets removed, if it's not there, it gets added.
+    ///
+    /// # Example
+    /// ```
+    /// # use bevy_flair_style::components::ClassList;
+    /// let mut class_list = ClassList::parse("class1 class2");
+    /// class_list.toggle("class2");
+    /// assert!(!class_list.contains("class2"));
+    /// class_list.toggle("class2");
+    /// assert!(class_list.contains("class2"));
+    /// ```
+    pub fn toggle(&mut self, class: impl Into<ClassName>) {
+        let class = class.into();
+        if let Some(index) = self.0.iter().position(|c| c == &class) {
+            self.0.remove(index);
+        } else {
+            self.0.push(class);
+        }
+    }
+
+    /// Adds the given class to the list of classes.
+    pub fn add(&mut self, class: impl Into<ClassName>) {
+        let class = class.into();
+        if !self.0.contains(&class) {
+            self.0.push(class);
         }
     }
 
     /// Removes the given class from the list of classes.
-    pub fn remove_class(&mut self, class: impl Into<ClassName>) {
-        let class = class.into();
-        if !self.removed.contains(&class) {
-            self.removed.push(class);
-        }
-    }
-
-    pub(crate) fn take(&mut self) -> ClassList {
-        ClassList {
-            added: mem::take(&mut self.added),
-            removed: mem::take(&mut self.removed),
+    ///
+    /// # Example
+    /// ```
+    /// # use bevy_flair_style::components::ClassList;
+    /// let mut class_list = ClassList::parse("class1 class2");
+    /// assert!(class_list.contains("class1"));
+    /// class_list.remove("class1");
+    /// assert!(!class_list.contains("class1"));
+    /// ```
+    pub fn remove(&mut self, class_to_remove: impl Into<ClassName>) {
+        let class_to_remove = class_to_remove.into();
+        if let Some(index) = self.0.iter().position(|c| c == &class_to_remove) {
+            self.0.remove(index);
         }
     }
 }
@@ -972,6 +983,12 @@ impl FromStr for ClassList {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(ClassList::new_with_classes(s.split_whitespace()))
+    }
+}
+
+impl std::fmt::Display for ClassList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.iter().join(" ").fmt(f)
     }
 }
 
@@ -1357,8 +1374,10 @@ mod tests {
         );
     }
 
+    // This test shows the current behavior that transitions and animations
+    // On parents are not inherited, which is not ideal (Chrome & Firefox behave differently)
     #[test]
-    fn transitions_on_parent_are_visible_on_children() {
+    fn transitions_on_parent_are_not_visible_on_children() {
         let mut root = default_node_properties();
         let mut child = default_node_properties();
         let mut grand_child = default_node_properties();
@@ -1390,12 +1409,12 @@ mod tests {
         set_property_values_and_compute!(grand_child, child);
         assert_eq!(apply_computed_values!(root), values![]);
         assert_eq!(apply_computed_values!(child), values![]);
-        // TODO: This is not the ideal situation because visually first you see the target and then the animation.
+
+        // Grand child sees the change as if there not any animation
         assert_eq!(
             apply_computed_values!(grand_child),
             values![INHERITED_PROPERTY => 5.0]
         );
-        // assert_eq!(apply_computed_values!(grand_child), values![]);
 
         for p in [&mut root, &mut child, &mut grand_child] {
             p.tick_animations(Duration::from_secs(2));
@@ -1413,10 +1432,8 @@ mod tests {
             apply_computed_values!(child),
             values![INHERITED_PROPERTY => 2.0]
         );
-        assert_eq!(
-            apply_computed_values!(grand_child),
-            values![INHERITED_PROPERTY => 2.0]
-        );
+        // Grand child sees no change
+        assert_eq!(apply_computed_values!(grand_child), values![]);
     }
 
     #[test]

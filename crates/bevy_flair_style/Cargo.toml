@@ -24,7 +24,11 @@ rustc-hash = "2.1"
 itertools = "0.14"
 smol_str = "0.2"
 
-bevy = { workspace = true, features = ["bevy_image"] }
+bevy = { workspace = true, features = [
+    "bevy_log",
+    "bevy_image",
+    "bevy_input_focus"
+] }
 tracing = "0.1"
 bevy_flair_core = { workspace = true }
 

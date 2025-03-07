@@ -9,12 +9,16 @@ keywords = ["style", "animations", "bevy", "css"]
 repository = "https://github.com/eckz/bevy_flair"
 rust-version = "1.80.0"
 
+[lib]
+bench = false
+
 [workspace]
 members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
 bevy = { version = "0.16.0-dev", git = "https://github.com/bevyengine/bevy.git", default-features = false, features = [
+    "std",
     "bevy_ui"
 ] }
 bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.1.0" }
@@ -28,6 +32,7 @@ bevy_flair_style = { workspace = true }
 bevy_flair_css_parser = { workspace = true }
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 bevy = { workspace = true, features = [
     "bevy_ui",
     "bevy_text",
@@ -43,6 +48,10 @@ bevy = { workspace = true, features = [
 
 [features]
 default = []
+
+[[bench]]
+name = "flair_benches"
+harness = false
 
 [profile.dev.package."*"]
 opt-level = 1

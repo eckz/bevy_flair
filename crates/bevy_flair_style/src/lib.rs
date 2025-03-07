@@ -32,10 +32,10 @@ pub(crate) type IdName = smol_str::SmolStr;
 pub(crate) type ClassName = smol_str::SmolStr;
 pub(crate) type TypeName = smol_str::SmolStr;
 
-/// Represents the current state of an entity.
+/// Represents the current pseudo state of an entity.
 /// By default, it supports only the basic pseudo classes like `:hover`, `:active`, and `:focus`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect, Serialize, Deserialize)]
-pub struct NodeState {
+pub struct NodePseudoState {
     /// If the entity is pressed
     pub pressed: bool,
     /// If the entity is hovered
@@ -46,9 +46,9 @@ pub struct NodeState {
     pub focused_and_visible: bool,
 }
 
-impl NodeState {
+impl NodePseudoState {
     /// Empty StylePseudoState.
-    pub const EMPTY: NodeState = NodeState {
+    pub const EMPTY: NodePseudoState = NodePseudoState {
         pressed: false,
         hovered: false,
         focused: false,
@@ -83,6 +83,18 @@ pub enum NodePseudoStateSelector {
     FocusedAndVisible,
 }
 
+#[derive(Resource, Default, Debug)]
+pub(crate) struct GlobalChangeDetection {
+    pub any_property_value_changed: bool,
+    pub any_animation_active: bool,
+}
+
+impl GlobalChangeDetection {
+    pub fn any_change(&self) -> bool {
+        self.any_property_value_changed || self.any_animation_active
+    }
+}
+
 /// System sets for the [`FlairStylePlugin`] plugin.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, SystemSet)]
 pub enum StyleSystemSets {
@@ -114,6 +126,7 @@ pub struct FlairStylePlugin;
 impl Plugin for FlairStylePlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<StyleSheet>()
+            .init_resource::<GlobalChangeDetection>()
             .register_type::<(
                 NodeStyleSheet,
                 NodeStyleData,
@@ -148,7 +161,13 @@ impl Plugin for FlairStylePlugin {
             .add_systems(PreStartup, |mut commands: Commands| {
                 commands.init_resource::<EmptyComputedProperties>()
             })
-            .add_systems(PreUpdate, systems::mark_as_changed_on_style_sheet_change)
+            .add_systems(
+                PreUpdate,
+                (
+                    systems::mark_as_changed_on_style_sheet_change,
+                    systems::clear_global_change_detection,
+                ),
+            )
             .add_systems(
                 PostUpdate,
                 (
