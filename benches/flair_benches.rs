@@ -218,7 +218,7 @@ fn benchmarks(c: &mut criterion::Criterion) {
                             .run_system_once(spawn_root_with_n_buttons(
                                 "animations.css",
                                 n_buttons,
-                                || (default_button(), ClassList::parse("animated")),
+                                || (default_button(), ClassList::new("animated")),
                             ))
                             .expect("Error on initial spawn");
                         app

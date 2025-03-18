@@ -505,7 +505,7 @@ mod tests {
         assert_eq!(
             report,
             "[01] Warning: Unexpected token
-   ,-[test.css:1:7]
+   ,-[ test.css:1:7 ]
    |
  1 | #hash 12345
    |       |^^^^\x20\x20
@@ -529,7 +529,7 @@ mod tests {
         assert_eq!(
             report,
             "[01] Warning: Unexpected token
-   ,-[test.css:2:5]
+   ,-[ test.css:2:5 ]
    |
  2 | #💣💣 ßè🥳ñ
    |       |^^^^\x20\x20

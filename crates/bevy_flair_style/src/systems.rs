@@ -215,8 +215,7 @@ pub(crate) fn sync_input_focus(
 pub(crate) fn clear_global_change_detection(
     mut global_change_detection: ResMut<GlobalChangeDetection>,
 ) {
-    global_change_detection.any_animation_active = false;
-    global_change_detection.any_property_value_changed = false;
+    *global_change_detection = GlobalChangeDetection::default();
 }
 
 pub(crate) fn mark_nodes_for_recalculation(
@@ -233,9 +232,8 @@ pub(crate) fn mark_nodes_for_recalculation(
         Query<&mut NodeStyleMarker>,
     )>,
     children_query: Query<&Children, With<NodeStyleData>>,
-
     mut to_be_marked: Local<EntityHashSet>,
-) {
+) -> Result {
     let nodes_changed_query = queries.p0();
 
     for (entity, match_data, marker, child_of) in &nodes_changed_query {
@@ -254,7 +252,7 @@ pub(crate) fn mark_nodes_for_recalculation(
         );
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS) {
             if let Some(&ChildOf { parent }) = child_of {
-                to_be_marked.extend(children_query.get(parent).unwrap().iter());
+                to_be_marked.extend(children_query.get(parent)?.iter());
             }
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
@@ -268,6 +266,7 @@ pub(crate) fn mark_nodes_for_recalculation(
             marker.mark_for_recalculation();
         }
     }
+    Ok(())
 }
 
 pub(crate) fn interaction_system(
@@ -326,7 +325,7 @@ pub(crate) fn calculate_style(
     mut global_change_detection: ResMut<GlobalChangeDetection>,
     mut any_change_parallel: Local<bevy::utils::Parallel<bool>>,
 ) {
-    let type_registry_arc = app_type_registry.0.clone();
+    let type_registry = app_type_registry.read();
 
     styled_entities_query.par_iter_mut().for_each_init(
         || any_change_parallel.borrow_local_mut(),
@@ -349,8 +348,6 @@ pub(crate) fn calculate_style(
             let new_rules = style_sheet.get_matching_ruleset_ids_for_element(&element_ref);
 
             properties.set_transition_options(style_sheet.get_transition_options(&new_rules));
-
-            let type_registry = type_registry_arc.read();
 
             let mut property_values = properties_registry.get_default_values();
             style_sheet.get_property_values(&new_rules, &mut property_values);
@@ -424,7 +421,6 @@ mod custom_descendants_iter {
     }
 }
 
-// TODO: In grid tracy this method shows as 1.26 ms on average
 pub(crate) fn compute_property_values(
     root_entities: Query<Entity, (Without<ChildOf>, With<NodeProperties>)>,
     children_query: Query<&Children, With<NodeProperties>>,
@@ -433,9 +429,9 @@ pub(crate) fn compute_property_values(
     app_type_registry: Res<AppTypeRegistry>,
     properties_registry: Res<PropertiesRegistry>,
     global_change_detection: Res<GlobalChangeDetection>,
-) {
+) -> Result {
     if !global_change_detection.any_change() {
-        return;
+        return Ok(());
     }
 
     if !global_change_detection.any_property_value_changed {
@@ -443,7 +439,7 @@ pub(crate) fn compute_property_values(
         for mut properties in &mut node_properties_query {
             properties.just_compute_transitions_and_animations();
         }
-        return;
+        return Ok(());
     }
 
     let type_registry = app_type_registry.0.read();
@@ -451,7 +447,6 @@ pub(crate) fn compute_property_values(
     #[cfg(debug_assertions)]
     let trace_new_properties = |entity: Entity, properties: &NodeProperties| {
         use tracing::{enabled, Level};
-        let name_or_entity = name_or_entity_query.get(entity).unwrap();
 
         // Debugging
         if enabled!(Level::TRACE)
@@ -459,6 +454,10 @@ pub(crate) fn compute_property_values(
                 .pending_computed_values
                 .ptr_eq(&properties.computed_values)
         {
+            let Ok(name_or_entity) = name_or_entity_query.get(entity) else {
+                return;
+            };
+
             let debug_properties = properties
                 .pending_computed_values()
                 .into_debug(&properties_registry);
@@ -469,7 +468,7 @@ pub(crate) fn compute_property_values(
     let trace_new_properties = |_: Entity, _: &NodeProperties| {};
 
     for root in &root_entities {
-        let mut root_properties = node_properties_query.get_mut(root).unwrap();
+        let mut root_properties = node_properties_query.get_mut(root)?;
         root_properties
             .compute_pending_property_values_for_root(&type_registry, &properties_registry);
 
@@ -493,6 +492,7 @@ pub(crate) fn compute_property_values(
             trace_new_properties(entity, &properties);
         }
     }
+    Ok(())
 }
 
 pub(crate) fn tick_animations(
@@ -589,7 +589,7 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn((ClassList::new_with_class("test"), NodeStyleData::default()))
+            .spawn((ClassList::new("test"), NodeStyleData::default()))
             .id();
 
         let was_data_changed_arc: Arc<Mutex<bool>> = Default::default();

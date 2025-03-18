@@ -1525,7 +1525,7 @@ mod tests {
         assert_eq!(
             error_report,
             "[10] Warning: Invalid duration
-   ,-[test.css:3:33]
+   ,-[ test.css:3:33 ]
    |
  3 |               transition: width invalid-token .5s, height 4s linear;
    |                                 |^^^^^^^^^^^^\x20\x20
@@ -1772,7 +1772,7 @@ mod tests {
         assert_eq!(
             error_report,
             "[01] Warning: Unexpected token
-   ,-[test.css:2:10]
+   ,-[ test.css:2:10 ]
    |
  2 |     width 33;
    |          |^\x20\x20
@@ -1810,7 +1810,7 @@ mod tests {
         assert_eq!(
             error_report,
             "[05] Warning: Property not recognized
-   ,-[test.css:2:5]
+   ,-[ test.css:2:5 ]
    |
  2 |     not-existing-property: 33;
    |     |^^^^^^^^^^^^^^^^^^^^^^^^^\x20\x20
@@ -1839,7 +1839,7 @@ mod tests {
         assert_eq!(
             error_report,
             "[04] Warning: Invalid selector
-   ,-[test.css:1:2]
+   ,-[ test.css:1:2 ]
    |
  1 | .#not-valid {
    |  |^^^^^^^^^\x20\x20

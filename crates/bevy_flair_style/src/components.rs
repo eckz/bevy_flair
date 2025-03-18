@@ -876,22 +876,22 @@ pub struct ClassList(pub(crate) Vec<ClassName>);
 
 impl ClassList {
     /// Creates a new empty ClassList.
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn empty() -> Self {
+        Self(Vec::new())
     }
 
     /// Creates a new [`ClassList`] from a whitespace separated list of classes
     /// # Example
     /// ```
     /// # use bevy_flair_style::components::ClassList;
-    /// let parsed = ClassList::parse("class1 class2");
-    /// let mut custom = ClassList::new();
+    /// let parsed = ClassList::new("class1 class2");
+    /// let mut custom = ClassList::empty();
     /// custom.add("class1");
     /// custom.add("class2");
     ///
     /// assert_eq!(parsed, custom);
     /// ```
-    pub fn parse(s: &str) -> Self {
+    pub fn new(s: &str) -> Self {
         Self::new_with_classes(s.split_whitespace())
     }
 
@@ -907,22 +907,10 @@ impl ClassList {
         I: IntoIterator<Item = T>,
         T: Into<ClassName>,
     {
-        let mut new = Self::new();
+        let mut new = Self::empty();
         for class in classes {
             new.add(class);
         }
-        new
-    }
-
-    /// Creates a new ClassList with the given class.
-    /// # Example
-    /// ```
-    /// # use bevy_flair_style::components::ClassList;
-    /// let class_list = ClassList::new_with_class("my-class1");
-    /// ```
-    pub fn new_with_class(class: impl Into<ClassName>) -> Self {
-        let mut new = Self::new();
-        new.add(class);
         new
     }
 
@@ -937,7 +925,7 @@ impl ClassList {
     /// # Example
     /// ```
     /// # use bevy_flair_style::components::ClassList;
-    /// let mut class_list = ClassList::parse("class1 class2");
+    /// let mut class_list = ClassList::new("class1 class2");
     /// class_list.toggle("class2");
     /// assert!(!class_list.contains("class2"));
     /// class_list.toggle("class2");
@@ -965,7 +953,7 @@ impl ClassList {
     /// # Example
     /// ```
     /// # use bevy_flair_style::components::ClassList;
-    /// let mut class_list = ClassList::parse("class1 class2");
+    /// let mut class_list = ClassList::new("class1 class2");
     /// assert!(class_list.contains("class1"));
     /// class_list.remove("class1");
     /// assert!(!class_list.contains("class1"));

@@ -17,10 +17,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Node::default(),
         NodeStyleSheet::new(asset_server.load("animations.css")),
         children![
-            (ClassList::parse("box animated"), Node::default()),
-            (ClassList::parse("box animated"), Node::default()),
-            (ClassList::parse("box animated"), Node::default()),
-            (ClassList::parse("box animated"), Node::default()),
+            (ClassList::new("box animated"), Node::default()),
+            (ClassList::new("box animated"), Node::default()),
+            (ClassList::new("box animated"), Node::default()),
+            (ClassList::new("box animated"), Node::default()),
         ],
     ));
 }

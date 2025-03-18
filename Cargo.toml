@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flair"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Bevy UI styling using CSS"
 license = "MIT OR Apache-2.0"
@@ -21,9 +21,9 @@ bevy = { version = "0.16.0-dev", git = "https://github.com/bevyengine/bevy.git",
     "std",
     "bevy_ui"
 ] }
-bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.1.0" }
-bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.1.0" }
-bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.1.0" }
+bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.2.0" }
+bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.2.0" }
+bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.2.0" }
 
 [dependencies]
 bevy = { workspace = true }
