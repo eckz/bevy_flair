@@ -1,0 +1,34 @@
+:root {
+    background-color: white;
+}
+
+:root > * {
+    background-color: darkorange;
+}
+
+.child {
+    background-color: aqua;
+    .grandchild {
+        background-color: lightgray;
+
+        &:last-child {
+            background-color: snow;
+        }
+    }
+
+    &:focus {
+        background-color: green;
+    }
+}
+
+.child:is(:focus) .grandchild {
+    background-color: blue;
+}
+
+.child:not(:has(.grandchild)) {
+    background-color: purple;
+}
+
+:root > *:has(.grandchild:hover) {
+    background-color: red;
+}

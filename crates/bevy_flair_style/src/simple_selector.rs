@@ -2,6 +2,7 @@ use crate::{
     components::NodeStyleData, ClassName, IdName, NodePseudoStateSelector, SelectorSpecificity,
     TypeName,
 };
+use std::fmt::Write;
 
 /// Simples implementation of a selector that can be used to match nodes
 #[derive(Debug)]
@@ -107,6 +108,22 @@ impl SimpleSelector {
             Self::MatchesPseudoState(selector) => style_data.matches_pseudo_state(*selector),
             Self::HasTypeName(type_name) => style_data.has_type_name(type_name),
             Self::And(and_rules) => and_rules.iter().all(|r| r.matches(style_data)),
+        }
+    }
+}
+
+impl crate::ToCss for SimpleSelector {
+    fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
+        match self {
+            #[cfg(test)]
+            Self::Empty => dest.write_str(""),
+            Self::AnyType => dest.write_str("*"),
+            Self::IsRoot => dest.write_str(":root"),
+            Self::HasId(name) => write!(dest, "#{name}"),
+            Self::HasClassName(class_name) => write!(dest, ".{class_name}"),
+            Self::MatchesPseudoState(selector) => crate::ToCss::to_css(selector, dest),
+            Self::HasTypeName(type_name) => write!(dest, "{type_name}"),
+            Self::And(and_rules) => and_rules.iter().try_for_each(|r| r.to_css(dest)),
         }
     }
 }

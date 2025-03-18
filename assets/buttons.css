@@ -1,5 +1,3 @@
-
-
 @font-face {
     font-family: "Poppins-Regular";
     src: url("fonts/Poppins-Regular.ttf");
@@ -34,29 +32,27 @@ Button {
     transition: border-radius 0.6s ease-in-out, border-color 0.3s, background-color 0.3s, outline-color 0.3s;
 
     outline: 3px transparent;
-}
 
-Button:hover {
-    background-color: rgb(25.0%, 25.0%, 25.0%);
-    border-color: red;
+    &:hover {
+        background-color: rgb(25.0%, 25.0%, 25.0%);
+        border-color: red;
+        border-radius: 10px;
+    }
 
-    border-radius: 10px;
-}
+    &:active {
+        background-color: rgb(35.0%, 75.0%, 35.0%);
+        border-color: white;
+        border-radius: 30px;
+    }
+    &:hover, &:active {
+        color: rgb(90% 90% 90%);
+    }
 
-Button:active {
-    background-color: rgb(35.0%, 75.0%, 35.0%);
-    border-color: white;
-    border-radius: 30px;
-}
+    &:focus-visible {
+        outline: 3px red;
+    }
 
-Button:focus-visible {
-    outline: 3px red;
-}
-
-Button Text {
-    transition: color 0.6s;
-}
-
-Button:hover, Button:active {
-    color: rgb(90% 90% 90%);
+    Text {
+        transition: color 0.6s;
+    }
 }

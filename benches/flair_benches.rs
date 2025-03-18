@@ -1,6 +1,5 @@
 use bevy::asset::io::memory::Dir;
 use bevy::prelude::*;
-use std::hint::black_box;
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::time::common_conditions::on_timer;
@@ -53,7 +52,6 @@ fn run_n_frames(num_frames: usize) -> impl Fn(App) {
     move |mut app: App| {
         for _ in 0..num_frames {
             app.update();
-            black_box(());
         }
     }
 }

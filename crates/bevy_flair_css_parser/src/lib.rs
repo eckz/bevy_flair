@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 
 pub use error::*;
-pub use loader::{CssStyleLoader, CssStyleLoaderError};
+pub use loader::*;
 pub use reflect::*;
 
 mod error;

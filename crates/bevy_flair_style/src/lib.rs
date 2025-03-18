@@ -2,9 +2,12 @@
 //! Bevy Flair Style is a styling system for Bevy UI. It allows you to style your UI using CSS-like syntax.
 //!
 //! This crate contains all the necessary components, systems and plugins to style your UI.
+
 use bevy::prelude::*;
 use bevy_flair_core::*;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::Write;
 
 mod builder;
 pub mod components;
@@ -31,6 +34,22 @@ pub use style_sheet::*;
 pub(crate) type IdName = smol_str::SmolStr;
 pub(crate) type ClassName = smol_str::SmolStr;
 pub(crate) type TypeName = smol_str::SmolStr;
+
+/// Trait for things the can serialize themselves in CSS syntax.
+pub trait ToCss {
+    /// Serialize `self` in CSS syntax, writing to `dest`.
+    fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result;
+
+    /// Serialize `self` in CSS syntax and return a string.
+    ///
+    /// (This is a convenience wrapper for `to_css` and probably should not be overridden.)
+    #[inline]
+    fn to_css_string(&self) -> String {
+        let mut s = String::new();
+        self.to_css(&mut s).unwrap();
+        s
+    }
+}
 
 /// Represents the current pseudo state of an entity.
 /// By default, it supports only the basic pseudo classes like `:hover`, `:active`, and `:focus`.
@@ -81,6 +100,17 @@ pub enum NodePseudoStateSelector {
     Focused,
     /// If the entity is focused and the focus indicator is visible
     FocusedAndVisible,
+}
+
+impl ToCss for NodePseudoStateSelector {
+    fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result {
+        match self {
+            NodePseudoStateSelector::Pressed => dest.write_str(":active"),
+            NodePseudoStateSelector::Hovered => dest.write_str(":hover"),
+            NodePseudoStateSelector::Focused => dest.write_str(":focus"),
+            NodePseudoStateSelector::FocusedAndVisible => dest.write_str(":focus-visible"),
+        }
+    }
 }
 
 #[derive(Resource, Default, Debug)]

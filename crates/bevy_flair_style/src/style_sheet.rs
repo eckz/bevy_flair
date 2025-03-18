@@ -4,7 +4,7 @@ use bevy_flair_core::*;
 use std::borrow::Borrow;
 use std::cmp;
 use std::cmp::PartialEq;
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 use crate::animations::{AnimationOptions, EasingFunction};
 use crate::components::NodeStyleData;
@@ -325,6 +325,16 @@ impl StyleSheetSelector {
             StyleSheetSelector::SimpleSelector(s) => s.matches(element.borrow()),
             #[cfg(feature = "css_selectors")]
             StyleSheetSelector::CssSelector(s) => s.matches(element),
+        }
+    }
+}
+
+impl crate::ToCss for StyleSheetSelector {
+    fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
+        match self {
+            StyleSheetSelector::SimpleSelector(selector) => crate::ToCss::to_css(selector, dest),
+            #[cfg(feature = "css_selectors")]
+            StyleSheetSelector::CssSelector(selector) => crate::ToCss::to_css(selector, dest),
         }
     }
 }

@@ -41,6 +41,7 @@ pub enum CssRulesetProperty {
     SingleProperty(ComponentPropertyId, PropertyValue),
     Transitions(Vec<CssParseResult<CssTransitionProperty>>),
     Animations(Vec<CssParseResult<CssAnimation>>),
+    NestedRuleset(CssRuleset),
     Error(CssError),
 }
 
@@ -671,16 +672,7 @@ struct CssRulesetBodyParser<'a, 'i> {
     inner: CssParserContext<'a, 'i>,
     parse_transition: bool,
     parse_animation: bool,
-}
-
-impl<'a, 'i> CssRulesetBodyParser<'a, 'i> {
-    fn new(inner: CssParserContext<'a, 'i>) -> Self {
-        Self {
-            inner,
-            parse_transition: false,
-            parse_animation: false,
-        }
-    }
+    parse_nested: bool,
 }
 
 impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
@@ -690,9 +682,44 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
 }
 
 impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
-    type Prelude = ();
+    type Prelude = CssParseResult<Vec<CssSelector>>;
     type QualifiedRule = CssRulesetProperty;
     type Error = CssError;
+
+    fn parse_prelude<'t>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self::Prelude, ParseError<'i, Self::Error>> {
+        Ok(
+            CssSelector::parse_comma_separated_for_nested(input)
+                .map_err(CssError::from_parse_error),
+        )
+    }
+
+    fn parse_block<'t>(
+        &mut self,
+        selectors: Self::Prelude,
+        _start: &ParserState,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
+        let mut ruleset_body_parser = CssRulesetBodyParser {
+            parse_transition: true,
+            parse_animation: true,
+            parse_nested: true,
+            inner: self.inner.clone(),
+        };
+        let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
+        let properties = collect_parser(body_parser);
+
+        let properties = self
+            .inner
+            .break_ruleset_properties_into_sub_properties(properties);
+
+        Ok(CssRulesetProperty::NestedRuleset(CssRuleset {
+            selectors,
+            properties,
+        }))
+    }
 }
 
 impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
@@ -748,7 +775,7 @@ impl<'i> RuleBodyItemParser<'i, CssRulesetProperty, CssError> for CssRulesetBody
     }
 
     fn parse_qualified(&self) -> bool {
-        false
+        self.parse_nested
     }
 }
 
@@ -845,7 +872,12 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
         _: &ParserState,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
-        let mut ruleset_body_parser = CssRulesetBodyParser::new(self.inner.clone());
+        let mut ruleset_body_parser = CssRulesetBodyParser {
+            parse_transition: false,
+            parse_animation: false,
+            parse_nested: false,
+            inner: self.inner.clone(),
+        };
 
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
         let properties = collect_parser(body_parser);
@@ -874,7 +906,6 @@ impl<'i> RuleBodyItemParser<'i, AnimationKeyFrame, CssError> for CssKeyframesBod
 }
 
 /// Top level CSS parser.
-/// Can parse TODO
 struct CssStyleSheetParser<'a, 'i> {
     inner: CssParserContext<'a, 'i>,
 }
@@ -1002,6 +1033,7 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
             parse_transition: true,
             parse_animation: true,
+            parse_nested: true,
             inner: self.inner.clone(),
         };
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -1228,7 +1260,18 @@ mod tests {
         ($selector:expr, $class_name:literal) => {{
             assert!(
                 $selector.is_single_class_selector($class_name),
-                "'{}' does not match {}",
+                "'{}' does not match .{}",
+                $selector,
+                $class_name
+            );
+        }};
+    }
+
+    macro_rules! assert_selector_is_relative_class_selector {
+        ($selector:expr, $class_name:literal) => {{
+            assert!(
+                $selector.is_relative_single_class_selector($class_name),
+                "'{}' does not match &.{}",
                 $selector,
                 $class_name
             );
@@ -1850,6 +1893,86 @@ mod tests {
 
         // Contents are still parsed
         assert_single_property!(ruleset.properties, "width", 999);
+    }
+
+    #[test]
+    fn nested() {
+        let contents = r#"
+            .parent {
+                width: 2;
+                .child {
+                    width: 8;
+                }
+            }
+        "#;
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+
+        let selectors = ruleset.selectors.expect("Error while parsing selectors");
+        assert_eq!(selectors.len(), 1);
+        assert_selector_is_class_selector!(selectors[0], "parent");
+
+        let mut properties = ruleset.properties;
+        assert_eq!(properties.len(), 2);
+
+        assert!(matches!(
+            properties[0],
+            CssRulesetProperty::SingleProperty(_, _)
+        ));
+        assert!(matches!(
+            properties[1],
+            CssRulesetProperty::NestedRuleset(_)
+        ));
+
+        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(1) else {
+            panic!("Expected nested ruleset")
+        };
+
+        let nested_selector = nested_ruleset
+            .selectors
+            .expect("Error while parsing nested selector");
+        assert_eq!(nested_selector.len(), 1);
+        assert_selector_is_class_selector!(nested_selector[0], "child");
+    }
+
+    #[test]
+    fn nested_with_parent_reference() {
+        let contents = r#"
+            .parent {
+                width: 2;
+                &.child {
+                    width: 8;
+                }
+            }
+        "#;
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+
+        let selectors = ruleset.selectors.expect("Error while parsing selectors");
+        assert_eq!(selectors.len(), 1);
+        assert_selector_is_class_selector!(selectors[0], "parent");
+
+        let mut properties = ruleset.properties;
+        assert_eq!(properties.len(), 2);
+
+        assert!(matches!(
+            properties[0],
+            CssRulesetProperty::SingleProperty(_, _)
+        ));
+        assert!(matches!(
+            properties[1],
+            CssRulesetProperty::NestedRuleset(_)
+        ));
+
+        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(1) else {
+            panic!("Expected nested ruleset")
+        };
+
+        let nested_selector = nested_ruleset
+            .selectors
+            .expect("Error while parsing selectors");
+        assert_eq!(nested_selector.len(), 1);
+        assert_selector_is_relative_class_selector!(nested_selector[0], "child");
     }
 
     #[test]

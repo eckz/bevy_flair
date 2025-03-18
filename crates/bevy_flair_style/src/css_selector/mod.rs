@@ -9,7 +9,7 @@ pub(crate) mod testing;
 pub use error::{SelectorError, SelectorErrorKind};
 
 use crate::NodePseudoStateSelector;
-use cssparser::{match_ignore_ascii_case, CowRcStr, ParseError, SourceLocation, ToCss};
+use cssparser::{match_ignore_ascii_case, CowRcStr, ParseError, SourceLocation};
 pub(crate) use element::{ElementRef, ElementRefSystemParam};
 use rustc_hash::FxBuildHasher;
 use selectors::context::{
@@ -52,34 +52,31 @@ impl NonTSPseudoClass for InternalPseudoStateSelector {
     type Impl = CssSelectorImpl;
 
     fn is_active_or_hover(&self) -> bool {
-        true
+        matches!(
+            self,
+            InternalPseudoStateSelector::Pressed | InternalPseudoStateSelector::Hovered
+        )
     }
 
     fn is_user_action_state(&self) -> bool {
-        true
+        matches!(
+            self,
+            InternalPseudoStateSelector::Pressed
+                | InternalPseudoStateSelector::Hovered
+                | InternalPseudoStateSelector::Focused
+                | InternalPseudoStateSelector::FocusedAndVisible
+        )
     }
 }
 
-impl ToCss for InternalPseudoStateSelector {
-    fn to_css<W>(&self, dest: &mut W) -> std::fmt::Result
-    where
-        W: Write,
-    {
-        match *self {
-            InternalPseudoStateSelector::Pressed => {
-                write!(dest, ":active")?;
-            }
-            InternalPseudoStateSelector::Hovered => {
-                write!(dest, ":hover")?;
-            }
-            InternalPseudoStateSelector::Focused => {
-                write!(dest, ":focus")?;
-            }
-            InternalPseudoStateSelector::FocusedAndVisible => {
-                write!(dest, ":focus-visible")?;
-            }
+impl cssparser::ToCss for InternalPseudoStateSelector {
+    fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
+        match self {
+            InternalPseudoStateSelector::Pressed => dest.write_str(":active"),
+            InternalPseudoStateSelector::Hovered => dest.write_str(":hover"),
+            InternalPseudoStateSelector::Focused => dest.write_str(":focus"),
+            InternalPseudoStateSelector::FocusedAndVisible => dest.write_str(":focus-visible"),
         }
-        Ok(())
     }
 }
 
@@ -101,7 +98,7 @@ macro_rules! unconstructable {
                 }
             }
 
-            impl ToCss for $id {
+            impl cssparser::ToCss for $id {
                 fn to_css<W: Write>(&self, _dest: &mut W) -> std::fmt::Result {
                     unreachable!(stringify!($id))
                 }
@@ -151,7 +148,7 @@ macro_rules! str_wrapper {
                 }
             }
 
-            impl ToCss for $id {
+            impl cssparser::ToCss for $id {
                 fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
                     dest.write_str(self.0.as_str())
                 }
@@ -194,7 +191,9 @@ impl SelectorImpl for CssSelectorImpl {
 
 /// An implementation of `Parser` for `selectors`
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CssSelectorParser;
+pub(crate) struct CssSelectorParser {
+    nested_selector: bool,
+}
 
 impl<'i> selectors::Parser<'i> for CssSelectorParser {
     type Impl = CssSelectorImpl;
@@ -202,6 +201,18 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
 
     fn parse_nth_child_of(&self) -> bool {
         true
+    }
+
+    fn parse_is_and_where(&self) -> bool {
+        true
+    }
+
+    fn parse_has(&self) -> bool {
+        true
+    }
+
+    fn parse_parent_selector(&self) -> bool {
+        self.nested_selector
     }
 
     fn parse_non_ts_pseudo_class(
@@ -249,7 +260,31 @@ impl CssSelector {
     pub fn parse_comma_separated<'a>(
         parser: &mut cssparser::Parser<'a, '_>,
     ) -> Result<Vec<Self>, ParseError<'a, SelectorParseErrorKind<'a>>> {
-        SelectorList::parse(&CssSelectorParser, parser, ParseRelative::No).map(|selectors| {
+        let css_selector_parser = CssSelectorParser {
+            nested_selector: false,
+        };
+        Self::parse_comma_separated_inner(parser, &css_selector_parser, ParseRelative::No)
+    }
+
+    /// Parse a comma-separated list of Selectors when is a nested selector.
+    /// <https://drafts.csswg.org/selectors/#grouping>
+    /// <https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_nesting/Using_CSS_nesting>
+    /// Return the list of [`CssSelector`] or Err if there is an invalid selector.
+    pub fn parse_comma_separated_for_nested<'a>(
+        parser: &mut cssparser::Parser<'a, '_>,
+    ) -> Result<Vec<Self>, ParseError<'a, SelectorParseErrorKind<'a>>> {
+        let css_selector_parser = CssSelectorParser {
+            nested_selector: true,
+        };
+        Self::parse_comma_separated_inner(parser, &css_selector_parser, ParseRelative::ForNesting)
+    }
+
+    fn parse_comma_separated_inner<'a>(
+        parser: &mut cssparser::Parser<'a, '_>,
+        css_selector_parser: &CssSelectorParser,
+        parse_relative: ParseRelative,
+    ) -> Result<Vec<Self>, ParseError<'a, SelectorParseErrorKind<'a>>> {
+        SelectorList::parse(css_selector_parser, parser, parse_relative).map(|selectors| {
             selectors
                 .slice()
                 .iter()
@@ -264,7 +299,11 @@ impl CssSelector {
         let mut parser_input = cssparser::ParserInput::new(selector);
         let mut parser = cssparser::Parser::new(&mut parser_input);
 
-        Selector::parse(&CssSelectorParser, &mut parser)
+        let css_selector_parser = CssSelectorParser {
+            nested_selector: false,
+        };
+
+        Selector::parse(&css_selector_parser, &mut parser)
             .map(|selector| Self { selector })
             .map_err(SelectorError::from)
     }
@@ -277,6 +316,29 @@ impl CssSelector {
                 matches!(single_component, selectors::parser::Component::Class(cls) if cls.0.as_str() == class_name)
             }
             _ => false,
+        }
+    }
+
+    /// Returns true if the selector is a single class selector with the given class name.
+    pub fn is_relative_single_class_selector(&self, class_name: &str) -> bool {
+        let components = self.selector.iter().collect::<Vec<_>>();
+        match components.as_slice() {
+            &[relative, single_component] => {
+                matches!(relative, selectors::parser::Component::ParentSelector)
+                    && matches!(single_component, selectors::parser::Component::Class(cls) if cls.0.as_str() == class_name)
+            }
+            _ => false,
+        }
+    }
+
+    /// Replaces the parent selector when the selector has been parsed with [`Self::parse_comma_separated_for_nested`].
+    pub fn replace_parent_selector(self, parent_selectors: &[CssSelector]) -> CssSelector {
+        let parent_selectors_list =
+            SelectorList::from_iter(parent_selectors.iter().map(|s| s.selector.clone()));
+        CssSelector {
+            selector: self
+                .selector
+                .replace_parent_selector(&parent_selectors_list),
         }
     }
 
@@ -304,9 +366,15 @@ impl CssSelector {
     }
 }
 
+impl crate::ToCss for CssSelector {
+    fn to_css<W: Write>(&self, dest: &mut W) -> Result<(), std::fmt::Error> {
+        cssparser::ToCss::to_css(&self.selector, dest)
+    }
+}
+
 impl Display for CssSelector {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.selector.to_css(f)
+        crate::ToCss::to_css(self, f)
     }
 }
 
@@ -379,6 +447,24 @@ mod tests {
     #[test]
     fn type_selector() {
         let selector = selector! { "sometype.testclass" };
+
+        let tree = tree!(entity!(#elem sometype .testclass));
+
+        assert_eq!(id_matches!(selector, tree), vec!["elem"]);
+    }
+
+    #[test]
+    fn is_selector() {
+        let selector = selector! { ":is(.testclass,.otherclass, :unsupported)" };
+
+        let tree = tree!(entity!(#elem sometype .testclass));
+
+        assert_eq!(id_matches!(selector, tree), vec!["elem"]);
+    }
+
+    #[test]
+    fn where_selector() {
+        let selector = selector! { ":where(.testclass, .otherclass)" };
 
         let tree = tree!(entity!(#elem sometype .testclass));
 
@@ -537,5 +623,27 @@ mod tests {
             id_matches!(selector, tree),
             vec!["childA2", "childB2", "childB3", "childB4"]
         );
+    }
+
+    #[test]
+    fn has_selector() {
+        let selector = selector! { ".parent:has( #childB2.child )" };
+
+        let tree = tree!(
+            entity!(:root) => {
+                entity!(#parentA.parent) => {
+                    entity!(#childA1.child),
+                    entity!(#childA2.child),
+                },
+                entity!(#parentB.parent) => {
+                    entity!(#childB1.child),
+                    entity!(#childB2.child),
+                    entity!(#childB3.child),
+                    entity!(#childB4.child)
+                }
+            }
+        );
+
+        assert_eq!(id_matches!(selector, tree), vec!["parentB"]);
     }
 }

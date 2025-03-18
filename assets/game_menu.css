@@ -61,14 +61,13 @@ Button {
 
     font-size: 20px;
     color: rgb(20, 20, 21);
-}
+    &:focus {
+        color: #E6E6E6;
+    }
 
-Button Text {
-    transition: color 0.6s;
-}
-
-Button:focus {
-    color: #E6E6E6;
+    Text {
+        transition: color 0.6s;
+    }
 }
 
 Button, #floating_borders {
