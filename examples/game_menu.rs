@@ -10,7 +10,7 @@
 use bevy::{
     ecs::spawn::SpawnWith,
     input::InputSystem,
-    input_focus::{directional_navigation::*, AutoFocus, InputDispatchPlugin, InputFocus},
+    input_focus::{AutoFocus, InputDispatchPlugin, InputFocus, directional_navigation::*},
     math::CompassOctant,
     prelude::*,
 };

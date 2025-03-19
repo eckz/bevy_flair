@@ -1,9 +1,9 @@
 use crate::animations::AnimationOptions;
 use crate::animations::TransitionOptions;
 use crate::{
+    AnimationKeyframes, StyleSheetSelector,
     simple_selector::SimpleSelector,
     style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
-    AnimationKeyframes, StyleSheetSelector,
 };
 use bevy::log::warn;
 use bevy::prelude::{Component, FromReflect};
@@ -30,7 +30,9 @@ pub enum StyleSheetBuilderError {
     #[error(transparent)]
     PropertyNotRegistered(#[from] ResolvePropertyError),
     /// A property has a value of a different type than the one from the property.
-    #[error("Expected property {property:?} to have a value of type '{expected_value_type_path}', but found a type '{found_value_type_path}'")]
+    #[error(
+        "Expected property {property:?} to have a value of type '{expected_value_type_path}', but found a type '{found_value_type_path}'"
+    )]
     InvalidProperty {
         /// Name of the property
         property: String,
@@ -40,7 +42,9 @@ pub enum StyleSheetBuilderError {
         found_value_type_path: &'static str,
     },
     /// A property has a value of a different type than the one from the property inside an animation keyframe.
-    #[error("Property {property:?} points to the animation '{animation_name}' with contains a keyframe of type '{found_value_type_path}', but '{expected_value_type_path}' was expected")]
+    #[error(
+        "Property {property:?} points to the animation '{animation_name}' with contains a keyframe of type '{found_value_type_path}', but '{expected_value_type_path}' was expected"
+    )]
     InvalidPropertyInAnimationKeyframes {
         /// Name of the animation
         animation_name: Arc<str>,

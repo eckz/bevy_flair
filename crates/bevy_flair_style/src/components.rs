@@ -16,8 +16,8 @@ use bevy_flair_core::{
 };
 use bitflags::bitflags;
 
-use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
+use std::collections::hash_map::Entry;
 use std::convert::Infallible;
 
 use bevy::ecs::component::HookContext;
@@ -25,7 +25,7 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::reflect::serde::{
     ReflectSerializeWithRegistry, SerializeWithRegistry, TypedReflectSerializer,
 };
-use itertools::{izip, Itertools};
+use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -455,7 +455,9 @@ impl NodeProperties {
                     let canonical_name = properties_registry
                         .get_property(property_id)
                         .canonical_name();
-                    warn!("Cannot create a transition '{canonical_name}' from '{from_value:?}' to None. You should avoid this by setting a baseline style that set the default values.");
+                    warn!(
+                        "Cannot create a transition '{canonical_name}' from '{from_value:?}' to None. You should avoid this by setting a baseline style that set the default values."
+                    );
                     continue;
                 }
                 _ => {
@@ -583,7 +585,9 @@ impl NodeProperties {
                         .get_property(property_id)
                         .canonical_name();
 
-                    warn!("Cannot set property '{canonical_name}' to None. You should avoid this by setting a baseline style that set the default values.")
+                    warn!(
+                        "Cannot set property '{canonical_name}' to None. You should avoid this by setting a baseline style that set the default values."
+                    )
                 }
             }
         }

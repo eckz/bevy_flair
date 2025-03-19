@@ -2,8 +2,8 @@
 //! interaction state.
 
 use bevy::{
-    input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
     input_focus::InputDispatchPlugin,
+    input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
     prelude::*,
 };
 use bevy_flair::prelude::*;

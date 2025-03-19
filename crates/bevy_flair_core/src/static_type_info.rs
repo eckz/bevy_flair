@@ -38,24 +38,22 @@ impl Display for TypeAccessError<'_> {
         write!(f, ": ")?;
 
         match kind {
-            TypeAccessErrorKind::MissingType(type_accessed) => {
-                match access {
-                    Access::Field(_) => write!(
-                        f,
-                        "The {type_accessed} accessed `{}` field doesn't have a type defined",
-                        access.display_value()
-                    ),
-                    Access::FieldIndex(_) => write!(
-                        f,
-                        "The {type_accessed} accessed field index `{}` doesn't have a type defined",
-                        access.display_value(),
-                    ),
-                    Access::TupleIndex(_) | Access::ListIndex(_) => write!(
-                        f,
-                        "The {type_accessed} accessed index `{}`  doesn't have a type defined",
-                        access.display_value()
-                    )
-                }
+            TypeAccessErrorKind::MissingType(type_accessed) => match access {
+                Access::Field(_) => write!(
+                    f,
+                    "The {type_accessed} accessed `{}` field doesn't have a type defined",
+                    access.display_value()
+                ),
+                Access::FieldIndex(_) => write!(
+                    f,
+                    "The {type_accessed} accessed field index `{}` doesn't have a type defined",
+                    access.display_value(),
+                ),
+                Access::TupleIndex(_) | Access::ListIndex(_) => write!(
+                    f,
+                    "The {type_accessed} accessed index `{}`  doesn't have a type defined",
+                    access.display_value()
+                ),
             },
             TypeAccessErrorKind::AccessKind(AccessErrorKind::MissingField(type_accessed)) => {
                 match access {
@@ -78,15 +76,21 @@ impl Display for TypeAccessError<'_> {
                         f,
                         "The {type_accessed} accessed doesn't have index `{}`",
                         access.display_value()
-                    )
+                    ),
                 }
             }
-            TypeAccessErrorKind::AccessKind(AccessErrorKind::IncompatibleTypes { expected, actual }) => write!(
+            TypeAccessErrorKind::AccessKind(AccessErrorKind::IncompatibleTypes {
+                expected,
+                actual,
+            }) => write!(
                 f,
                 "Expected {} access to access a {expected}, found a {actual} instead.",
                 access_kind(access)
             ),
-            TypeAccessErrorKind::AccessKind(AccessErrorKind::IncompatibleEnumVariantTypes { expected, actual }) => write!(
+            TypeAccessErrorKind::AccessKind(AccessErrorKind::IncompatibleEnumVariantTypes {
+                expected,
+                actual,
+            }) => write!(
                 f,
                 "Expected variant {} access to access a {expected:?} variant, found a {actual:?} variant instead.",
                 access_kind(access)

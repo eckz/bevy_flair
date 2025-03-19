@@ -1,11 +1,11 @@
 use bevy::reflect::FromType;
 use bevy::sprite::{BorderRect, TextureSlicer};
 
+use crate::ParserExt;
 use crate::error::CssError;
 use crate::error_codes::image as error_codes;
-use crate::reflect::ui::{parse_f32, parse_four_values};
 use crate::reflect::ReflectParseCss;
-use crate::ParserExt;
+use crate::reflect::ui::{parse_f32, parse_four_values};
 use bevy::ui::widget::NodeImageMode;
 use bevy_flair_core::ReflectValue;
 use cssparser::{Parser, Token};

@@ -1,6 +1,6 @@
 use bevy::math::{
-    curve::{Interval, UnevenSampleAutoCurve},
     Curve, Vec2,
+    curve::{Interval, UnevenSampleAutoCurve},
 };
 
 use bevy::reflect::Reflect;

@@ -206,7 +206,9 @@ impl PropertiesRegistry {
 
         if let Some(other_id) = inner.canonical_names.get(&canonical_name) {
             let other_property = &inner.properties[other_id.0 as usize];
-            panic!("Cannot add property, because another property ('{other_property}') was already registered with the same canonical name.");
+            panic!(
+                "Cannot add property, because another property ('{other_property}') was already registered with the same canonical name."
+            );
         }
 
         inner.canonical_names.insert(canonical_name, id);
@@ -233,7 +235,9 @@ impl PropertiesRegistry {
 
         if let Some(other_id) = self.inner.css_names.get(&css_name) {
             let other_property = &self.inner.properties[other_id.0 as usize];
-            panic!("Cannot add property, because another property ('{other_property}') was already registered the css name '{css_name}'.");
+            panic!(
+                "Cannot add property, because another property ('{other_property}') was already registered the css name '{css_name}'."
+            );
         }
 
         let id = self.register(property, default_value);

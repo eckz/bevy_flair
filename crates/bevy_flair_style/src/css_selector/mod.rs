@@ -9,7 +9,7 @@ pub(crate) mod testing;
 pub use error::{SelectorError, SelectorErrorKind};
 
 use crate::NodePseudoStateSelector;
-use cssparser::{match_ignore_ascii_case, CowRcStr, ParseError, SourceLocation};
+use cssparser::{CowRcStr, ParseError, SourceLocation, match_ignore_ascii_case};
 pub(crate) use element::{ElementRef, ElementRefSystemParam};
 use rustc_hash::FxBuildHasher;
 use selectors::context::{

@@ -2,8 +2,8 @@ use bevy::asset::io::memory::Dir;
 use bevy::prelude::*;
 
 use bevy::ecs::system::RunSystemOnce;
-use bevy::time::common_conditions::on_timer;
 use bevy::time::TimeUpdateStrategy;
+use bevy::time::common_conditions::on_timer;
 use bevy_flair::prelude::*;
 use std::sync::LazyLock;
 use std::time::Duration;

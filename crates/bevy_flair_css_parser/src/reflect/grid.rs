@@ -8,7 +8,7 @@ use bevy::ui::{
     GridPlacement, GridTrack, GridTrackRepetition, MaxTrackSizingFunction, RepeatedGridTrack,
 };
 use bevy_flair_core::ReflectValue;
-use cssparser::{match_ignore_ascii_case, Parser, Token};
+use cssparser::{Parser, Token, match_ignore_ascii_case};
 
 trait GridTrackType: TypePath + Sized {
     fn px(px: f32) -> Self;
@@ -202,7 +202,7 @@ fn parse_grid_track(token: Located<Token>, parser: &mut Parser) -> Result<GridTr
                             error_codes::INVALID_FIT_CONTENT_TOKEN,
                             "Expected a percentage, a number, or a number with pixels",
                         )
-                        .into_parse_error())
+                        .into_parse_error());
                     }
                 })
             })?,
@@ -260,7 +260,7 @@ fn parse_repeat_function_args(parser: &mut Parser) -> Result<RepeatedGridTrack, 
                 &repeat_token,
                 error_codes::INVALID_REPETITION_TOKEN,
                 "This expression is not recognized as a valid repeat value token",
-            ))
+            ));
         }
     };
 

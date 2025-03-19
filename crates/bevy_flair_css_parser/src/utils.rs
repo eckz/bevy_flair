@@ -1,6 +1,6 @@
-use crate::{error_codes::vars as error_codes, CssError, ParserExt};
+use crate::{CssError, ParserExt, error_codes::vars as error_codes};
 use bevy_flair_core::PropertyValue;
-use cssparser::{match_ignore_ascii_case, Parser, Token};
+use cssparser::{Parser, Token, match_ignore_ascii_case};
 
 fn parse_property_value_ident<T>(parser: &mut Parser) -> Result<PropertyValue<T>, CssError> {
     let next = parser.expect_located_ident()?;

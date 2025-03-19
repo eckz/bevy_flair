@@ -254,7 +254,7 @@ impl<C: Component + TypePath> TrackTypeNameComponentPlugin<C> {
     #[allow(clippy::type_complexity)]
     fn on_added(
         &self,
-    ) -> impl FnMut(Query<&mut NodeStyleData, Or<(Added<C>, (With<C>, Added<NodeStyleData>))>>)
+    ) -> impl FnMut(Query<&mut NodeStyleData, Or<(Added<C>, (With<C>, Added<NodeStyleData>))>>) + 'static
     {
         let priority = self.priority;
         let name = self.name.unwrap_or(C::short_type_path());

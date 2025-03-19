@@ -1,6 +1,6 @@
 use crate::{
-    components::NodeStyleData, ClassName, IdName, NodePseudoStateSelector, SelectorSpecificity,
-    TypeName,
+    ClassName, IdName, NodePseudoStateSelector, SelectorSpecificity, TypeName,
+    components::NodeStyleData,
 };
 use std::fmt::Write;
 

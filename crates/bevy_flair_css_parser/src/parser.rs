@@ -310,22 +310,20 @@ fn parse_easing_function(parser: &mut Parser) -> Result<EasingFunction, CssError
     let next = parser.located_next()?;
 
     match &*next {
-        Token::Ident(easing_name) => {
-            Ok(match_ignore_ascii_case! { &easing_name,
-                "linear" => EasingFunction::Linear,
-                "ease" => EasingFunction::Ease,
-                "ease-in" => EasingFunction::EaseIn,
-                "ease-out" => EasingFunction::EaseOut,
-                "ease-in-out" => EasingFunction::EaseInOut,
-                _ =>
-                    return Err(CssError::new_located(
-                        &next,
-                        crate::error_codes::animations::INVALID_EASING_FUNCTION_KEYWORD,
-                        "Expected a valid easing function. Valid values are: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'",
-                    )),
+        Token::Ident(easing_name) => Ok(match_ignore_ascii_case! { &easing_name,
+            "linear" => EasingFunction::Linear,
+            "ease" => EasingFunction::Ease,
+            "ease-in" => EasingFunction::EaseIn,
+            "ease-out" => EasingFunction::EaseOut,
+            "ease-in-out" => EasingFunction::EaseInOut,
+            _ =>
+                return Err(CssError::new_located(
+                    &next,
+                    crate::error_codes::animations::INVALID_EASING_FUNCTION_KEYWORD,
+                    "Expected a valid easing function. Valid values are: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'",
+                )),
 
-            })
-        },
+        }),
         Token::Function(function_name) => {
             match_ignore_ascii_case! { &function_name,
                 "linear" => Ok(
@@ -349,7 +347,11 @@ fn parse_easing_function(parser: &mut Parser) -> Result<EasingFunction, CssError
                     )),
             }
         }
-        _ => Err(CssError::new_located(&next, error_codes::animations::INVALID_EASING_FUNCTION_TOKEN, "Expected a valid easing function token. Valid values are: 'linear' | 'ease' | 'steps(..)'"))
+        _ => Err(CssError::new_located(
+            &next,
+            error_codes::animations::INVALID_EASING_FUNCTION_TOKEN,
+            "Expected a valid easing function token. Valid values are: 'linear' | 'ease' | 'steps(..)'",
+        )),
     }
 }
 
@@ -599,11 +601,12 @@ impl CssParserContext<'_, '_> {
         let value_type_path = property.value_type_info().type_path();
 
         let Some(parse_fn) = self.get_parse_fn(value_type_path) else {
-            return CssRulesetProperty::Error(
-                CssError::new_unlocated(error_codes::basic::NON_PARSEABLE_TYPE, format!(
+            return CssRulesetProperty::Error(CssError::new_unlocated(
+                error_codes::basic::NON_PARSEABLE_TYPE,
+                format!(
                     "Property {property_name} of type '{value_type_path}' does not have a configured way of parsing it. It should implement ReflectParseCss or ReflectParseCssEnum",
-                ),)
-            );
+                ),
+            ));
         };
 
         let result = parser.parse_entirely(|parser| {

@@ -243,7 +243,9 @@ impl ComponentProperty {
         let value_type_info = match static_type_info(component_type_info, &parsed_path.0) {
             Ok(type_info) => type_info,
             Err(err) => {
-                panic!("Failed to find type info for component {component_type_path}{parsed_path}: {err}");
+                panic!(
+                    "Failed to find type info for component {component_type_path}{parsed_path}: {err}"
+                );
             }
         };
 
@@ -279,7 +281,10 @@ impl ComponentProperty {
         let value_type_info = match static_type_info(self.component_type_info, &parsed_path.0) {
             Ok(type_info) => type_info,
             Err(err) => {
-                panic!("Failed to find type info for component {component_type_path}{parsed_path}: {err}", component_type_path = self.component_type_info.type_path());
+                panic!(
+                    "Failed to find type info for component {component_type_path}{parsed_path}: {err}",
+                    component_type_path = self.component_type_info.type_path()
+                );
             }
         };
 

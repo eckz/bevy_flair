@@ -16,7 +16,7 @@ pub mod prelude {
 
     #[doc(hidden)]
     pub use bevy_flair_style::{
-        animations::*, components::*, NodePseudoState, StyleSheet, StyleSheetBuilder,
+        NodePseudoState, StyleSheet, StyleSheetBuilder, animations::*, components::*,
     };
 }
 

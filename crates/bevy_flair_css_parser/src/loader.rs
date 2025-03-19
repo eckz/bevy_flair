@@ -1,7 +1,7 @@
 use crate::error::ErrorReportGenerator;
 use crate::parser::{
-    parse_css, AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
-    CssTransitionProperty,
+    AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
+    CssTransitionProperty, parse_css,
 };
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};

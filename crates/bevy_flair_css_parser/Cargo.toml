@@ -1,13 +1,13 @@
 [package]
 name = "bevy_flair_css_parser"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 description = "Bevy UI styling using CSS"
 license = "MIT OR Apache-2.0"
 categories = ["games", "game-development"]
 keywords = ["style", "animations", "bevy", "css"]
 repository = "https://github.com/eckz/bevy_flair"
-rust-version = "1.80.0"
+rust-version = "1.85.0"
 
 [lints.rust]
 unsafe_code = "forbid"

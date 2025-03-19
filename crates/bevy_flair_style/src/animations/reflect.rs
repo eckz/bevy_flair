@@ -3,8 +3,8 @@ use crate::ReflectValue;
 use bevy::prelude::*;
 use bevy::reflect::FromType;
 
-use crate::animations::curves::{LinearCurve, UnevenSampleEasedCurve};
 use crate::animations::EasingFunction;
+use crate::animations::curves::{LinearCurve, UnevenSampleEasedCurve};
 use std::any::type_name;
 use std::sync::Arc;
 
@@ -74,8 +74,8 @@ fn downcast_value<T: FromReflect>(value: ReflectValue) -> T {
         Err(value) => {
             panic!(
                 "Error downcasting value {value:?}. Expected type '{value_type_path}', found '{found_type_path}'",
-                value_type_path=type_name::<T>(),
-                found_type_path=value.value_type_info().type_path(),
+                value_type_path = type_name::<T>(),
+                found_type_path = value.value_type_info().type_path(),
             );
         }
         Ok(v) => v,

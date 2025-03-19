@@ -2,7 +2,7 @@ use crate::components::{
     ClassList, NodeProperties, NodeStyleData, NodeStyleMarker, NodeStyleSheet,
     RecalculateOnChangeFlags, Siblings,
 };
-use crate::{css_selector, GlobalChangeDetection, StyleSheet};
+use crate::{GlobalChangeDetection, StyleSheet, css_selector};
 use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
 
 use bevy::prelude::*;
@@ -446,7 +446,7 @@ pub(crate) fn compute_property_values(
 
     #[cfg(debug_assertions)]
     let trace_new_properties = |entity: Entity, properties: &NodeProperties| {
-        use tracing::{enabled, Level};
+        use tracing::{Level, enabled};
 
         // Debugging
         if enabled!(Level::TRACE)

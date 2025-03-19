@@ -2,12 +2,12 @@ use bevy::prelude::ShadowStyle;
 use bevy::reflect::FromType;
 use bevy::ui::{BorderRadius, BoxShadow, Outline, Overflow, OverflowAxis, UiRect, Val, ZIndex};
 
+use crate::ParserExt;
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::{ReflectParseCss, ReflectParseCssEnum};
-use crate::ParserExt;
 use bevy_flair_core::ReflectValue;
-use cssparser::{match_ignore_ascii_case, Parser, Token};
+use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
 
 pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
@@ -203,7 +203,7 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
             return Err(CssError::new_unlocated(
                 error_codes::INVALID_NUMBER_OF_SHADOW_VALS,
                 "Unexpected number of values. Between 2 and 4 values were expected",
-            ))
+            ));
         }
     };
 
