@@ -17,7 +17,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bevy = { version = "0.16.0-dev", git = "https://github.com/bevyengine/bevy.git", default-features = false, features = [
+bevy = { version = "0.16.0-rc.1", default-features = false, features = [
     "std",
     "bevy_ui"
 ] }

@@ -161,7 +161,6 @@ mod tests {
         app.add_plugins((
             UiPlugin {
                 enable_rendering: false,
-                ..default()
             },
             BevyUiPropertiesPlugin,
         ));
