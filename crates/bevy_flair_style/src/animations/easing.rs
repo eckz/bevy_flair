@@ -1,8 +1,10 @@
 use bevy::math::{
-    Curve, Vec2,
-    curve::{Interval, UnevenSampleAutoCurve},
+    Vec2,
+    curve::{
+        Curve, Interval, UnevenSampleAutoCurve,
+        easing::{EaseFunction as BevyEaseFunction, JumpAt},
+    },
 };
-
 use bevy::reflect::Reflect;
 
 use crate::animations::curves::CubicBezierEaseCurve;
@@ -28,52 +30,16 @@ pub enum StepPosition {
     End,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Reflect, Serialize, Deserialize)]
-pub(crate) struct EasingStepsCurve {
-    steps: i32,
-    pos: StepPosition,
-}
-
-impl Curve<f32> for EasingStepsCurve {
-    fn domain(&self) -> Interval {
-        Interval::UNIT
-    }
-
-    fn sample_unchecked(&self, t: f32) -> f32 {
-        let EasingStepsCurve { steps, pos } = *self;
-        // User specified values can cause overflow (bug 1706157). Increments/decrements
-        // should be gracefully handled.
-        let mut current_step = (t * (steps as f32)).floor() as i32;
-
-        // Increment current step if it is jump-start or start.
-        if pos == StepPosition::Start
-            || pos == StepPosition::JumpStart
-            || pos == StepPosition::JumpBoth
-        {
-            current_step = current_step.checked_add(1).unwrap_or(current_step);
+impl From<StepPosition> for JumpAt {
+    fn from(value: StepPosition) -> Self {
+        match value {
+            StepPosition::JumpStart => JumpAt::Start,
+            StepPosition::JumpEnd => JumpAt::End,
+            StepPosition::JumpNone => JumpAt::None,
+            StepPosition::JumpBoth => JumpAt::Both,
+            StepPosition::Start => JumpAt::Start,
+            StepPosition::End => JumpAt::End,
         }
-
-        // We should not produce a result outside [0, 1] unless we have an
-        // input outside that range. This takes care of steps that would otherwise
-        // occur at boundaries.
-        if t >= 0.0 && current_step < 0 {
-            current_step = 0;
-        }
-
-        // |jumps| should always be in [1, i32::MAX].
-        let jumps = if pos == StepPosition::JumpBoth {
-            steps.checked_add(1).unwrap_or(steps)
-        } else if pos == StepPosition::JumpNone {
-            steps.checked_sub(1).unwrap_or(steps)
-        } else {
-            steps
-        };
-
-        if t <= 1.0 && current_step > jumps {
-            current_step = jumps;
-        }
-
-        (current_step as f32) / (jumps as f32)
     }
 }
 
@@ -81,7 +47,7 @@ impl Curve<f32> for EasingStepsCurve {
 #[derive(Clone, Debug, Reflect)]
 pub(crate) enum EasingFunctionCurve {
     CubicBezier(CubicBezierEaseCurve),
-    Steps(EasingStepsCurve),
+    BevyEaseFunction(BevyEaseFunction),
     LinearPoints(UnevenSampleAutoCurve<f32>),
     SingleLinearPoint(f32),
     Linear,
@@ -102,7 +68,7 @@ impl Curve<f32> for EasingFunctionCurve {
     fn sample_clamped(&self, t: f32) -> f32 {
         match self {
             EasingFunctionCurve::CubicBezier(curve) => curve.sample_clamped(t),
-            EasingFunctionCurve::Steps(curve) => curve.sample_clamped(t),
+            EasingFunctionCurve::BevyEaseFunction(curve) => curve.sample_clamped(t),
             EasingFunctionCurve::LinearPoints(curve) => curve.sample_clamped(t),
             EasingFunctionCurve::SingleLinearPoint(point) => *point,
             EasingFunctionCurve::Linear => t.clamp(0.0, 1.0),
@@ -178,9 +144,9 @@ impl EasingFunction {
             EasingFunction::CubicBezier { p1, p2 } => {
                 EasingFunctionCurve::CubicBezier(CubicBezierEaseCurve::new(p1, p2))
             }
-            EasingFunction::Steps { steps, pos } => {
-                EasingFunctionCurve::Steps(EasingStepsCurve { steps, pos })
-            }
+            EasingFunction::Steps { steps, pos } => EasingFunctionCurve::BevyEaseFunction(
+                BevyEaseFunction::Steps(steps as usize, pos.into()),
+            ),
         }
     }
 }
