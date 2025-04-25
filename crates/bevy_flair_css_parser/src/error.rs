@@ -116,6 +116,12 @@ impl CssErrorLocation {
                     column_byte_offset += next.len_utf8();
                 }
 
+                let line_len = line.len();
+                if column_byte_offset >= line_len {
+                    return substr_range(contents, &line[line_len - 1..line_len])
+                        .expect("Invalid range generated");
+                }
+
                 substr_range(
                     contents,
                     &line[column_byte_offset..(column_byte_offset + len_offset)],

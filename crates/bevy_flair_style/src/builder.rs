@@ -192,6 +192,26 @@ pub enum StyleBuilderProperty {
     },
 }
 
+impl From<RulesetProperty> for StyleBuilderProperty {
+    fn from(value: RulesetProperty) -> Self {
+        match value {
+            RulesetProperty::Specific { property_id, value } => StyleBuilderProperty::Specific {
+                property_ref: ComponentPropertyRef::Id(property_id),
+                value,
+            },
+            RulesetProperty::Dynamic {
+                css_name,
+                parser,
+                tokens,
+            } => StyleBuilderProperty::Dynamic {
+                css_name,
+                parser,
+                tokens,
+            },
+        }
+    }
+}
+
 impl From<(ComponentPropertyRef, ReflectValue)> for StyleBuilderProperty {
     fn from((property_ref, value): (ComponentPropertyRef, ReflectValue)) -> Self {
         Self::Specific {
@@ -223,6 +243,20 @@ impl RulesetBuilder<'_> {
     #[cfg(test)]
     pub(crate) fn id(&self) -> StyleSheetRulesetId {
         self.ruleset_id
+    }
+
+    pub(crate) fn add_values_from_ruleset(&mut self, other: Ruleset) {
+        self.ruleset.vars.extend(other.vars);
+        self.ruleset
+            .properties
+            .extend(other.properties.into_iter().map(Into::into));
+        self.ruleset.property_transitions.extend(
+            other
+                .transitions
+                .into_iter()
+                .map(|(id, t)| (ComponentPropertyRef::Id(id), t)),
+        );
+        self.ruleset.animations.extend(other.animations);
     }
 
     /// Add a [`SimpleSelector`] for the current ruleset.
@@ -433,6 +467,50 @@ impl StyleSheetBuilder {
             font_family: font_family.into(),
             path: path.into(),
         })
+    }
+
+    /// Embeds all rules and animations from a different stylesheet
+    pub fn embed_style_sheet(&mut self, other: StyleSheet) {
+        for (id, ruleset) in other.rulesets.into_iter().enumerate() {
+            let other_id = StyleSheetRulesetId(id);
+
+            let mut new_rule_set = self.new_ruleset();
+
+            new_rule_set.add_values_from_ruleset(ruleset);
+
+            other
+                .selectors_to_rulesets
+                .iter()
+                .filter(|(_, id)| *id == other_id)
+                .for_each(|(selector, _)| {
+                    let selector = selector.clone();
+                    match selector {
+                        StyleSheetSelector::SimpleSelector(selector) => {
+                            new_rule_set.add_simple_selector(selector);
+                        }
+                        #[cfg(feature = "css_selectors")]
+                        StyleSheetSelector::CssSelector(selector) => {
+                            new_rule_set.add_css_selector(selector);
+                        }
+                    }
+                })
+        }
+
+        self.animation_keyframes
+            .extend(
+                other
+                    .animation_keyframes
+                    .into_iter()
+                    .map(|(name, animation_keyframes)| {
+                        (
+                            name,
+                            animation_keyframes
+                                .into_iter()
+                                .map(|(id, frames)| (ComponentPropertyRef::Id(id), frames))
+                                .collect(),
+                        )
+                    }),
+            );
     }
 
     fn validate_all_properties(

@@ -1,11 +1,12 @@
 use crate::ShorthandPropertyRegistry;
 use crate::error::ErrorReportGenerator;
+use crate::imports_parser::extract_imports;
 use crate::parser::{
     AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
     CssTransitionProperty, parse_css,
 };
 use bevy::asset::io::Reader;
-use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
+use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext, LoadDirectError};
 use bevy::log::{error, warn};
 use bevy::reflect::TypeRegistryArc;
 use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertyRegistry, PropertyValue};
@@ -14,6 +15,7 @@ use bevy_flair_style::{
     AnimationKeyframesBuilder, StyleBuilderProperty, StyleSheet, StyleSheetBuilder,
     StyleSheetBuilderError,
 };
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -23,6 +25,9 @@ pub enum CssStyleLoaderError {
     /// Error that could happen while reading the file.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    /// Error that could happen while reading one of the dependencies.
+    #[error(transparent)]
+    LoadDirect(#[from] LoadDirectError),
     /// Error that could happen while building the final StyleSheet.
     #[error(transparent)]
     StyleSheetBuilder(#[from] StyleSheetBuilderError),
@@ -92,6 +97,24 @@ impl AssetLoader for CssStyleLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut contents = String::new();
         reader.read_to_string(&mut contents).await?;
+
+        // First we try to extract all imports
+        let mut import_paths = Vec::new();
+
+        extract_imports(&contents, |item| {
+            import_paths.push(String::from(item.as_ref()));
+        });
+
+        let mut imports = FxHashMap::default();
+
+        for import_path in import_paths {
+            let loaded_asset = load_context
+                .loader()
+                .immediate()
+                .load::<StyleSheet>(&import_path)
+                .await?;
+            imports.insert(import_path, loaded_asset.take());
+        }
 
         let path_display = load_context.path().display().to_string();
         let type_registry = self.type_registry_arc.read();
@@ -227,8 +250,12 @@ impl AssetLoader for CssStyleLoader {
             &type_registry,
             &self.property_registry,
             &self.shorthand_property_registry,
+            &imports,
             &contents,
             |item| match item {
+                CssStyleSheetItem::EmbedStylesheet(style_sheet) => {
+                    builder.embed_style_sheet(style_sheet);
+                }
                 CssStyleSheetItem::RuleSet(ruleset) => {
                     process_ruleset_recursively(ruleset, None, &mut builder, &mut report_generator);
                 }

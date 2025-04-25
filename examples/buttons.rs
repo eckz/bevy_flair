@@ -1,7 +1,6 @@
 //! This examples illustrates how to create a button that changes color and text based on its
 //! interaction state.
 
-use bevy::input::common_conditions::input_just_pressed;
 use bevy::text::TextWriter;
 use bevy::{
     input_focus::InputDispatchPlugin,
@@ -19,10 +18,6 @@ fn main() {
             FlairPlugin,
         ))
         .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            switch_dark_mode.run_if(input_just_pressed(KeyCode::Space)),
-        )
         .run();
 }
 
@@ -75,16 +70,9 @@ fn dark_light_button_observer(
     mut text_writer: TextWriter<Text>,
 ) {
     root.toggle("dark-mode");
+    let is_dark_mode = root.contains("dark-mode");
 
     let mut text = text_writer.text(dark_light_button[0], 0);
     text.clear();
-    text.push_str(if root.contains("dark-mode") {
-        "Dark"
-    } else {
-        "Light"
-    });
-}
-
-fn switch_dark_mode(mut root: Single<&mut ClassList, With<Root>>) {
-    root.toggle("dark-mode");
+    text.push_str(if is_dark_mode { "Dark" } else { "Light" });
 }

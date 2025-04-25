@@ -75,6 +75,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Install ubunut deps
+        run: sudo apt-get install -y libudev-dev
       - name: Run cargo doc
         run: cargo doc --workspace --no-deps --examples --all-features --document-private-items
         env:
@@ -99,5 +101,7 @@ jobs:
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.toml') }}
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Install ubunut deps
+        run: sudo apt-get install -y libudev-dev
       - name: Run cargo test
         run: cargo test --workspace

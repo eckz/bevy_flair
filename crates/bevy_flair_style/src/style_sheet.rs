@@ -306,6 +306,7 @@ pub type DynamicParseVarTokens = Arc<
         + Sync,
 >;
 
+#[derive(derive_more::Debug, Clone)]
 pub(crate) enum RulesetProperty {
     Specific {
         property_id: ComponentPropertyId,
@@ -313,12 +314,13 @@ pub(crate) enum RulesetProperty {
     },
     Dynamic {
         css_name: Arc<str>,
+        #[debug(skip)]
         parser: DynamicParseVarTokens,
         tokens: VarTokens,
     },
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Ruleset {
     pub(super) vars: FxHashMap<Arc<str>, VarTokens>,
     pub(super) properties: Vec<RulesetProperty>,
@@ -339,7 +341,7 @@ impl Display for StyleSheetRulesetId {
 
 /// A selector that can be used to match elements in a [`StyleSheet`].
 /// It can be represented by a [`SimpleSelector`] or a [`CssSelector`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum StyleSheetSelector {
     SimpleSelector(SimpleSelector),
     #[cfg(feature = "css_selectors")]
@@ -394,7 +396,7 @@ impl crate::ToCss for StyleSheetSelector {
 
 /// Represents a collection of styles that can be applied to elements,
 /// storing rules for various style properties.
-#[derive(TypePath, Asset)]
+#[derive(Debug, Clone, TypePath, Asset)]
 pub struct StyleSheet {
     pub(super) rulesets: Vec<Ruleset>,
     pub(super) animation_keyframes:

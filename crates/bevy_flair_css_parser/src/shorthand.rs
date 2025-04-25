@@ -403,7 +403,7 @@ mod tests {
     use crate::testing::parse_content_with;
     use bevy::color::Color;
     use bevy::color::palettes::css;
-    
+
     use std::sync::LazyLock;
 
     static REGISTRY: LazyLock<ShorthandPropertyRegistry> = LazyLock::new(|| {

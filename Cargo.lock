@@ -588,6 +588,7 @@ dependencies = [
  "bevy_flair_core",
  "bitflags 2.9.0",
  "cssparser",
+ "derive_more 2.0.1",
  "ego-tree",
  "insta",
  "itertools 0.14.0",

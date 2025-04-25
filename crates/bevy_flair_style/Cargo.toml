@@ -19,6 +19,7 @@ type_complexity = "allow"
 [dependencies]
 thiserror = "2.0"
 serde = "1.0"
+derive_more = { version = "2.0", features = ["debug"] }
 bitflags = "2.8"
 rustc-hash = "2.1"
 itertools = "0.14"

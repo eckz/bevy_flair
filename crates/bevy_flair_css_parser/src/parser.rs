@@ -15,8 +15,8 @@ use bevy_flair_style::animations::{
     AnimationDirection, AnimationOptions, EasingFunction, IterationCount, StepPosition,
     TransitionOptions,
 };
-use bevy_flair_style::{DynamicParseVarTokens, VarTokens};
-use rustc_hash::FxHashSet;
+use bevy_flair_style::{DynamicParseVarTokens, StyleSheet, VarTokens};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -138,6 +138,7 @@ pub struct AnimationKeyFrames {
 
 #[derive(Debug)]
 pub enum CssStyleSheetItem {
+    EmbedStylesheet(StyleSheet),
     RuleSet(CssRuleset),
     FontFace(FontFace),
     AnimationKeyFrames(AnimationKeyFrames),
@@ -486,6 +487,7 @@ struct CssParserContext<'a, 'i> {
     pub type_registry: &'a TypeRegistry,
     pub property_registry: &'a PropertyRegistry,
     pub shorthand_property_registry: &'a ShorthandPropertyRegistry,
+    pub imports: &'a FxHashMap<String, StyleSheet>,
 }
 
 impl CssParserContext<'_, '_> {
@@ -928,6 +930,7 @@ struct CssStyleSheetParser<'a, 'i> {
 enum AtRuleType<'i> {
     FontFace,
     KeyFrames(CowRcStr<'i>),
+    Import(CowRcStr<'i>),
 }
 
 /// Parses top-level at-rules
@@ -945,9 +948,32 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
             "font-face" => Ok(AtRuleType::FontFace),
             "keyframes" => {
                 let name = input.expect_ident()?.clone();
+                input.expect_exhausted()?;
                 Ok(AtRuleType::KeyFrames(name))
             },
+            "import" =>  {
+                let url = input.expect_url_or_string()?;
+                input.expect_exhausted()?;
+                Ok(AtRuleType::Import(url))
+            },
             _ => Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
+        }
+    }
+
+    fn rule_without_block(
+        &mut self,
+        at_rule_type: AtRuleType<'i>,
+        _start: &ParserState,
+    ) -> Result<CssStyleSheetItem, ()> {
+        match at_rule_type {
+            AtRuleType::Import(url) => {
+                let style = self.inner.imports.get(url.as_ref()).unwrap_or_else(|| {
+                    panic!("Import '{url}' not found in imports. This should not happen");
+                });
+
+                Ok(CssStyleSheetItem::EmbedStylesheet(style.clone()))
+            }
+            _ => Err(()),
         }
     }
 
@@ -1023,6 +1049,11 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
                     keyframes,
                 }))
             }
+            AtRuleType::Import(_name) => Err(CssError::new_unlocated(
+                error_codes::basic::INVALID_AT_RULE,
+                "@import should be a block",
+            )
+            .into_parse_error()),
         }
     }
 }
@@ -1065,6 +1096,7 @@ pub fn parse_css<F>(
     type_registry: &TypeRegistry,
     property_registry: &PropertyRegistry,
     shorthand_property_registry: &ShorthandPropertyRegistry,
+    imports: &FxHashMap<String, StyleSheet>,
     contents: &str,
     mut processor: F,
 ) where
@@ -1079,6 +1111,7 @@ pub fn parse_css<F>(
             type_registry,
             property_registry,
             shorthand_property_registry,
+            imports,
         },
     };
 
@@ -1178,6 +1211,23 @@ mod tests {
         }};
     }
 
+    static DEPENDENCIES: LazyLock<FxHashMap<String, StyleSheet>> = LazyLock::new(|| {
+        FxHashMap::from_iter([
+            (
+                "dependency1.css".into(),
+                StyleSheet::builder()
+                    .build_without_loader(&PROPERTY_REGISTRY)
+                    .unwrap(),
+            ),
+            (
+                "dependency2.css".into(),
+                StyleSheet::builder()
+                    .build_without_loader(&PROPERTY_REGISTRY)
+                    .unwrap(),
+            ),
+        ])
+    });
+
     fn parse(contents: &str) -> Vec<CssStyleSheetItem> {
         let mut items = Vec::new();
         let type_registry = type_registry();
@@ -1186,6 +1236,7 @@ mod tests {
             &type_registry,
             &PROPERTY_REGISTRY,
             &SHORTHAND_PROPERTY_REGISTRY,
+            &DEPENDENCIES,
             contents,
             |item| {
                 let item = match item {
@@ -2123,5 +2174,19 @@ mod tests {
                 errors: Vec::new()
             }
         );
+    }
+
+    #[test]
+    fn imports() {
+        let contents = indoc! {r#"
+             @import "dependency1.css";
+             @import url("dependency2.css");
+         "#};
+
+        let items = parse(contents);
+        let [import1, import2] = items.expect_n();
+
+        assert!(matches!(import1, CssStyleSheetItem::EmbedStylesheet(_)));
+        assert!(matches!(import2, CssStyleSheetItem::EmbedStylesheet(_)));
     }
 }

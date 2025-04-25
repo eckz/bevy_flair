@@ -5,7 +5,7 @@ use crate::{
 use std::fmt::Write;
 
 /// Simples implementation of a selector that can be used to match nodes
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SimpleSelector {
     /// Default condition that does not match anything, but is not a valid condition
     #[cfg(test)]
