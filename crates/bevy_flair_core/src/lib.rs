@@ -125,7 +125,7 @@ default_properties! {
     // Note: The `image-` css properties are not standard.
     "background-image" { insert_if_missing: ImageNode[".image"] },
     "image-color" { insert_if_missing: ImageNode[".color"] },
-    "image-mode" { insert_if_missing: ImageNode[".image_mode"] },
+    "background-image-mode" { insert_if_missing: ImageNode[".image_mode"] },
 
     // TODO: text-shadow
 }

@@ -16,7 +16,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
   - All [`Node`] properties are supported.
   - Components [`BorderColor`], [`BackgroundColor`], [`BorderRadius`], [`Outline`], [`BoxShadow`] and [`ZIndex`] 
     are supported, and inserted automatically when the corresponding property is used (e.g. using `background-color: red` will automatically insert the [`BackgroundColor`] component )  
-- Use of non-standard css to support [`ImageNode`] (e.g: `image-texture: url("panel-border-030.png")`, `image-mode: sliced(20.0px)`).
+- Use of non-standard css to support [`ImageNode`] (e.g: `background-image: url("panel-border-030.png")`, `background-image-mode: sliced(20.0px)`).
 - Color parsing. (e.g. `red`,`#ff0000`,`rgb(255 0 0)`,`hsl(0 100% 50% / 50%)`,`oklch(40.1% 0.123 21.57)`)
 - Most common css selectors works by default (Thanks to [selectors] crate).
   - `:root` selector
@@ -30,6 +30,16 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
   - Child: `ul.my-things > li`.
   - Next sibling: `img + p`.
   - Subsequent-sibling: `img ~ p`.
+- Fancy selectors like `:not()`, `:has()`, `:is()` and `:where()`.
+- Nested selectors are supported.
+  - You can add `&:hover { .. }` inside a selector and it will work.
+- Import other stylesheets using `@import`.
+- Support for custom properties using [`var()`].
+  - Fallback is currently not supported
+- Basic support for calc expressions using [`calc()`].
+  - This is currently limited by Bevy support of mixing different types. For example, this cannot not work currently: `calc(100% - 20px)`.
+  - Currently, is valuable to do calculations using vars. For example: `calc(var(--spacing) * 2)`. 
+- Support for inherited properties (e.g. `color`, `font-family` are inherited by default).
 - Font loading support using [`@font-face`].
 - Animated property changes using [`transition`].
 - Custom animations using [`@keyframes`].
@@ -56,31 +66,28 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 [`transition`]: https://developer.mozilla.org/en-US/docs/Web/CSS/transition
 [`@keyframes`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@keyframes
 [`@font-face`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face
+[`calc()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/calc
+[`var()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/var
 
 ## Missing features and limitations
 
 - Multiple stylesheets at the same time. Right now it's restricted to a single stylesheet per entity.
-- Global stylesheets. It's not possible to define a stylesheet that is applied anywhere.
+  - This is partially mitigated by the use of `@imports`.
+- Global stylesheets. It's not possible to define a stylesheet that is applied everywhere.
 - Inline css. Right now it's not possible to define css directly in code. It has to be defined directly into an asset with the `.css` extension. 
-  I wouldn't be as easy as creating a simple macro for it, but it most definitely something to be considered.
-- Support for `@import` other stylesheets.
+  It wouldn't be as easy as creating a simple macro for it, but it most definitely something to be considered.
 - Support for `@media` queries. It could be interesting to see what features make sense to implement.
-- Inherited properties. This is challenging feature, but it's common in css to set a property in a parent, like `color`, or `font`
-  and all children will inherit that property. Right now you need to set properties to all children directly
-  with a rule.
 - Support for `!important`.
+  - I don't really know if it's something people use nowadays.
+    One possible first step would be detected the presence of an `!important` and ignore it (with a warning) instead of throwing a parse error.
+- Support for [`@layer`].
+  - Some modern frameworks like tailwind make use of this so it could be interesing to add support to.
 - Support for local fonts or support fallback fonts. Right now a single font is specified using `@font-face`. In bevy this should work for the majority of users.
-- Inline properties. There is no technical blocker for this, a new component would be required. Pull request are welcome.
-- Fancy selectors like `:has()`, `:is()` or `:where()`. It should be simple to add, but it has not been tested.
 - Advance color parsing like using `color-mix()` or relative colors like `lch(from blue calc(l + 20) c h)`.
-- Nested selectors. It should be possible to add, pull requests are welcome.
+  - This should be relatively easy to add.
 - Support for pre-processors like `sass`. It should be relatively simple to add crate that generates css from sass code.
-- Support for [`calc()`]. This is feature that would be needed to be supported by Bevy UI first. Otherwise, things like `calc(100% - 20px)` would be never be possible.
-- Support for [`var()`]. This is no small feat, it would require support for inheritance, and access to `calc()` to be somehow useful, see comment above.
 
-[`calc()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/calc
-[`var()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/var
-
+[`@layer`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@layer
 
 ## Showcase
 This example works by only using CSS (See [example](https://github.com/eckz/bevy_flair/blob/main/assets/game_menu.css))
@@ -126,36 +133,36 @@ Save your css file under `assets/my_stylesheet.css`:
 
 ```css
 :root {
-    display: flex;
-    width: 100%;
-    height: 100%;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
 }
 
 Button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 150px;
-    height: 65px;
-    background-color: rgb(15%, 15.0%, 15.0%);
-    border-radius: 30px;
-    transition: background-color 0.3s;
-}
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 150px;
+  height: 65px;
+  background-color: rgb(15%, 15.0%, 15.0%);
+  border-radius: 30px;
+  transition: background-color 0.3s;
 
-Button:hover {
+  &:hover {
     background-color: rgb(25.0%, 25.0%, 25.0%);
-}
+  }
 
-Button:active {
+  &:active {
     background-color: rgb(35.0%, 75.0%, 35.0%);
-}
+  }
 
-Button Text {
+  Text {
     font-size: 35px;
     color: rgb(30% 30% 30%);
+  }
 }
 ```
 
@@ -169,7 +176,7 @@ You can see more examples in the [examples folder](https://github.com/eckz/bevy_
   - When modifications are detected in the UI tree, just the minimum affected nodes should get their style reapplied.
 - Invalid css should be reported and discarded.
   - Any unrecognized property should be reported, not silently ignored.
-  - A badly written property, should not stop the parsing of the rest of the css file
+  - A badly written property should not stop the parsing of the rest of the css file
   - An invalid css select, should only affect its rule set, and not the rest of the css
   - No panics while parsing css.
 - Css that would make your application panic should be rejected and reported.

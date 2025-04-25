@@ -47,6 +47,9 @@ jobs:
         with:
           components: clippy
           targets: ${{ matrix.target }}
+      - name: Install ubuntu deps
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt-get install -y libudev-dev
       - name: Run cargo check
         run: cargo check --workspace --target ${{ matrix.target }}
       - name: Run clippy
@@ -75,7 +78,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Install ubunut deps
+      - name: Install ubuntu deps
         run: sudo apt-get install -y libudev-dev
       - name: Run cargo doc
         run: cargo doc --workspace --no-deps --examples --all-features --document-private-items
@@ -101,7 +104,7 @@ jobs:
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.toml') }}
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Install ubunut deps
+      - name: Install ubuntu deps
         run: sudo apt-get install -y libudev-dev
       - name: Run cargo test
         run: cargo test --workspace
