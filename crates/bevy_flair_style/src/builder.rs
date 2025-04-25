@@ -1,7 +1,7 @@
 use crate::animations::AnimationOptions;
 use crate::animations::TransitionOptions;
 use crate::{
-    AnimationKeyframes, StyleSheetSelector,
+    AnimationKeyframes, DynamicParseVarTokens, StyleSheetSelector, VarName, VarTokens,
     simple_selector::SimpleSelector,
     style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
 };
@@ -22,6 +22,7 @@ use thiserror::Error;
 
 #[cfg(feature = "css_selectors")]
 use crate::css_selector::CssSelector;
+use crate::style_sheet::RulesetProperty;
 
 /// Possible errors that could happen while trying to build a stylesheet.
 #[derive(Debug, Error)]
@@ -160,6 +161,55 @@ impl<A> AssetPathPlaceHolder<A> {
     }
 }
 
+/// Represents a property and its value inside a [`StyleSheetBuilder`].
+///
+/// `StyleBuilderProperty` encapsulates two types of style properties:
+///
+/// - `Specific`: A well-defined property reference paired with a strongly typed value. This is used when
+///   the property value is known at parse time and its value can be represented by a [`ReflectValue`].
+///
+/// - `Dynamic`: A more flexible representation for runtime-defined properties. It includes the
+///   raw CSS name, a parser for interpreting tokens dynamically, and the actual var token stream.
+///
+/// This enum allows the styling system to support both statically defined properties and dynamically
+/// parsed properties using variables.
+pub enum StyleBuilderProperty {
+    /// A statically typed style property.
+    Specific {
+        /// Reference to a specific component property.
+        property_ref: ComponentPropertyRef,
+        /// Value for the property.
+        value: PropertyValue,
+    },
+    /// A dynamically parsed CSS property.
+    Dynamic {
+        /// The raw name of the CSS property (e.g., "margin").
+        css_name: Arc<str>,
+        /// Parser function used to interpret the token stream at runtime.
+        parser: DynamicParseVarTokens,
+        /// The raw var tokens representing the property value.
+        tokens: VarTokens,
+    },
+}
+
+impl From<(ComponentPropertyRef, ReflectValue)> for StyleBuilderProperty {
+    fn from((property_ref, value): (ComponentPropertyRef, ReflectValue)) -> Self {
+        Self::Specific {
+            property_ref,
+            value: value.into(),
+        }
+    }
+}
+
+impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
+    fn from((property_ref, value): (ComponentPropertyRef, PropertyValue)) -> Self {
+        Self::Specific {
+            property_ref,
+            value,
+        }
+    }
+}
+
 /// Helper to build a single ruleset. Created using [`StyleSheetBuilder`].
 pub struct RulesetBuilder<'a> {
     ruleset_id: StyleSheetRulesetId,
@@ -224,6 +274,37 @@ impl RulesetBuilder<'_> {
         self
     }
 
+    /// Add properties to the current ruleset.
+    pub fn add_var<V>(&mut self, var_name: V, tokens: VarTokens)
+    where
+        V: Into<VarName>,
+    {
+        self.ruleset.vars.insert(var_name.into(), tokens);
+    }
+
+    /// Add properties to the current ruleset.
+    pub fn add_vars<V, I>(&mut self, values: I)
+    where
+        V: Into<VarName>,
+        I: IntoIterator<Item = (V, VarTokens)>,
+    {
+        self.ruleset.vars.extend(
+            values
+                .into_iter()
+                .map(|(name, tokens)| (name.into(), tokens)),
+        );
+    }
+
+    /// Add properties to the current ruleset.
+    pub fn with_vars<V, I>(mut self, values: I) -> Self
+    where
+        V: Into<VarName>,
+        I: IntoIterator<Item = (V, VarTokens)>,
+    {
+        self.add_vars(values);
+        self
+    }
+
     /// Add properties transitions options for the current ruleset.
     pub fn add_property_transitions<P: Into<ComponentPropertyRef>>(
         &mut self,
@@ -271,8 +352,9 @@ impl RulesetBuilder<'_> {
 }
 
 /// Representation of a ruleset in the [`StyleSheetBuilder`].
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct BuilderRuleset {
+    pub(super) vars: FxHashMap<VarName, VarTokens>,
     pub(super) properties: Vec<StyleBuilderProperty>,
     pub(super) property_transitions: FxHashMap<ComponentPropertyRef, TransitionOptions>,
     pub(super) animations: Vec<(Arc<str>, AnimationOptions)>,
@@ -281,27 +363,45 @@ struct BuilderRuleset {
 impl BuilderRuleset {
     fn resolve(
         self,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
     ) -> Result<Ruleset, ResolvePropertyError> {
         let properties = self
             .properties
             .into_iter()
-            .map(|StyleBuilderProperty(property_ref, value)| {
-                Ok((properties_registry.resolve(&property_ref)?, value))
+            .map(|property| {
+                Ok(match property {
+                    StyleBuilderProperty::Specific {
+                        property_ref,
+                        value,
+                    } => RulesetProperty::Specific {
+                        property_id: property_registry.resolve(&property_ref)?,
+                        value,
+                    },
+                    StyleBuilderProperty::Dynamic {
+                        css_name,
+                        parser,
+                        tokens,
+                    } => RulesetProperty::Dynamic {
+                        css_name,
+                        parser,
+                        tokens,
+                    },
+                })
             })
             .collect::<Result<_, ResolvePropertyError>>()?;
 
         let property_transitions = self
             .property_transitions
             .into_iter()
-            .map(|(property_ref, options)| {
-                Ok((properties_registry.resolve(&property_ref)?, options))
-            })
+            .map(|(property_ref, options)| Ok((property_registry.resolve(&property_ref)?, options)))
             .collect::<Result<_, ResolvePropertyError>>()?;
 
         let animations = self.animations;
 
+        let vars = self.vars;
+
         Ok(Ruleset {
+            vars,
             properties,
             animations,
             transitions: property_transitions,
@@ -311,7 +411,7 @@ impl BuilderRuleset {
 
 /// Builder for [`StyleSheet`].
 /// Make sure that style sheet does not have any issues.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct StyleSheetBuilder {
     font_faces: Vec<StyleFontFace>,
     rulesets: Vec<BuilderRuleset>,
@@ -336,7 +436,7 @@ impl StyleSheetBuilder {
     }
 
     fn validate_all_properties(
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
         animation_keyframes: &FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
         rulesets: &[Ruleset],
     ) -> Result<(), StyleSheetBuilderError> {
@@ -347,11 +447,11 @@ impl StyleSheetBuilder {
         }
 
         pub fn validate_value(
-            properties_registry: &PropertiesRegistry,
+            property_registry: &PropertyRegistry,
             property_id: ComponentPropertyId,
             value: &ReflectValue,
         ) -> Result<(), InvalidPropertyError> {
-            let property = properties_registry.get_property(property_id);
+            let property = property_registry.get_property(property_id);
             let expected_value_type_path = property.value_type_info().type_path();
             let found_value_type_path = value.value_type_info().type_path();
 
@@ -367,7 +467,7 @@ impl StyleSheetBuilder {
         }
 
         pub fn validate_property_value(
-            properties_registry: &PropertiesRegistry,
+            property_registry: &PropertyRegistry,
             property_id: ComponentPropertyId,
             property_value: &PropertyValue,
         ) -> Result<(), InvalidPropertyError> {
@@ -375,21 +475,23 @@ impl StyleSheetBuilder {
                 return Ok(());
             };
 
-            validate_value(properties_registry, property_id, value)
+            validate_value(property_registry, property_id, value)
         }
 
-        for (property_id, value) in rulesets.iter().flat_map(|a| a.properties.iter()) {
-            validate_property_value(properties_registry, *property_id, value).map_err(
-                |InvalidPropertyError {
-                     property,
-                     expected_value_type_path,
-                     found_value_type_path,
-                 }| StyleSheetBuilderError::InvalidProperty {
-                    property,
-                    expected_value_type_path,
-                    found_value_type_path,
-                },
-            )?;
+        for property in rulesets.iter().flat_map(|a| a.properties.iter()) {
+            if let RulesetProperty::Specific { property_id, value } = property {
+                validate_property_value(property_registry, *property_id, value).map_err(
+                    |InvalidPropertyError {
+                         property,
+                         expected_value_type_path,
+                         found_value_type_path,
+                     }| StyleSheetBuilderError::InvalidProperty {
+                        property,
+                        expected_value_type_path,
+                        found_value_type_path,
+                    },
+                )?;
+            }
         }
 
         for (animation_name, _) in rulesets.iter().flat_map(|a| a.animations.iter()) {
@@ -401,7 +503,7 @@ impl StyleSheetBuilder {
         for (animation_name, properties) in animation_keyframes.iter() {
             for (property_id, keyframes) in properties {
                 for (_, value, _) in keyframes {
-                    validate_value(properties_registry, *property_id, value).map_err(
+                    validate_value(property_registry, *property_id, value).map_err(
                         |InvalidPropertyError {
                              property,
                              expected_value_type_path,
@@ -469,7 +571,7 @@ impl StyleSheetBuilder {
     /// apply the fallback.
     pub fn inject_default_ruleset<T: Reflect + Struct + Typed + Component + Default>(
         &mut self,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
         type_registry: &TypeRegistry,
     ) -> &mut Self {
         let all_properties = T::all_property_refs();
@@ -478,11 +580,11 @@ impl StyleSheetBuilder {
         self.new_ruleset()
             .with_simple_selector(SimpleSelector::has_type(T::short_type_path()))
             .with_properties(all_properties.into_iter().flat_map(|property_ref| {
-                let Ok(property_id) = properties_registry.resolve(&property_ref) else {
+                let Ok(property_id) = property_registry.resolve(&property_ref) else {
                     warn!("Property does not exist: {property_ref:?}");
                     return None;
                 };
-                let property = properties_registry.get_property(property_id);
+                let property = property_registry.get_property(property_id);
 
                 let Some(type_registration) =
                     type_registry.get(property.value_type_info().type_id())
@@ -548,25 +650,24 @@ impl StyleSheetBuilder {
         // TODO: There should be an option to either Error or Warn when there is an issue.
         fn resolve_placeholder<A: Asset, L: AssetLoader>(
             loader: &mut L,
-            property_value: &mut StyleBuilderProperty,
+            reflect_value: &mut ReflectValue,
         ) -> Result<(), StyleSheetBuilderError> {
-            if let PropertyValue::Value(reflect_value) = property_value.1.as_mut() {
-                if reflect_value.value_is::<AssetPathPlaceHolder<A>>() {
-                    let place_holder = mem::replace(reflect_value, ReflectValue::Usize(0))
-                        .downcast_value::<AssetPathPlaceHolder<A>>()
-                        .unwrap();
+            if reflect_value.value_is::<AssetPathPlaceHolder<A>>() {
+                let place_holder = mem::replace(reflect_value, ReflectValue::Usize(0))
+                    .downcast_value::<AssetPathPlaceHolder<A>>()
+                    .unwrap();
 
-                    let path = AssetPath::try_parse(&place_holder.0).map_err(|error| {
-                        StyleSheetBuilderError::InvalidAssetPath {
-                            path: place_holder.0.clone(),
-                            error,
-                        }
-                    })?;
+                let path = AssetPath::try_parse(&place_holder.0).map_err(|error| {
+                    StyleSheetBuilderError::InvalidAssetPath {
+                        path: place_holder.0.clone(),
+                        error,
+                    }
+                })?;
 
-                    let handle = loader.load_asset::<A>(path)?;
-                    *reflect_value = ReflectValue::new(handle);
-                }
+                let handle = loader.load_asset::<A>(path)?;
+                *reflect_value = ReflectValue::new(handle);
             }
+
             Ok(())
         }
 
@@ -589,7 +690,12 @@ impl StyleSheetBuilder {
             .iter_mut()
             .flat_map(|r| r.properties.iter_mut())
         {
-            if let PropertyValue::Value(reflect_value) = property_value.1.as_mut() {
+            // TODO: We need to do this also for dynamic properties somehow
+            if let StyleBuilderProperty::Specific {
+                value: PropertyValue::Value(reflect_value),
+                ..
+            } = property_value
+            {
                 if reflect_value.value_is::<FontTypePlaceholder>() {
                     let place_holder = mem::replace(reflect_value, ReflectValue::Usize(0))
                         .downcast_value::<FontTypePlaceholder>()
@@ -601,9 +707,8 @@ impl StyleSheetBuilder {
 
                     *reflect_value = ReflectValue::new(handle.clone());
                 }
+                resolve_placeholder::<Image, _>(&mut loader, reflect_value)?;
             }
-
-            resolve_placeholder::<Image, _>(&mut loader, property_value)?;
         }
 
         Ok(())
@@ -611,7 +716,7 @@ impl StyleSheetBuilder {
 
     fn inner_build(
         mut self,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
         loader: impl AssetLoader,
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
         self.resolve_asset_handles_with_loader(loader)?;
@@ -639,7 +744,7 @@ impl StyleSheetBuilder {
         let rulesets = self
             .rulesets
             .into_iter()
-            .map(|ruleset| ruleset.resolve(properties_registry))
+            .map(|ruleset| ruleset.resolve(property_registry))
             .collect::<Result<Vec<_>, _>>()?;
 
         let animation_keyframes = self
@@ -649,7 +754,7 @@ impl StyleSheetBuilder {
                 let properties = properties
                     .into_iter()
                     .map(|(property_ref, keyframes)| {
-                        Ok((properties_registry.resolve(&property_ref)?, keyframes))
+                        Ok((property_registry.resolve(&property_ref)?, keyframes))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -657,7 +762,7 @@ impl StyleSheetBuilder {
             })
             .collect::<Result<FxHashMap<_, _>, ResolvePropertyError>>()?;
 
-        Self::validate_all_properties(properties_registry, &animation_keyframes, &rulesets)?;
+        Self::validate_all_properties(property_registry, &animation_keyframes, &rulesets)?;
 
         Ok(StyleSheet {
             rulesets,
@@ -669,43 +774,27 @@ impl StyleSheetBuilder {
     /// Build the style sheet without loading any asset.
     pub fn build_without_loader(
         self,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        self.inner_build(properties_registry, ())
+        self.inner_build(property_registry, ())
     }
 
     /// Build the style sheet using the [`AssetServer`] to load any asset.
     pub fn build_with_asset_server(
         self,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
         asset_server: &AssetServer,
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        self.inner_build(properties_registry, asset_server)
+        self.inner_build(property_registry, asset_server)
     }
 
     /// Build the style sheet using the [`LoadContext`] to load any asset.
     pub fn build_with_load_context(
         self,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
         load_context: &mut LoadContext,
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        self.inner_build(properties_registry, load_context)
-    }
-}
-
-/// Represents a property and its value inside a [``StyleSheetBuilder].
-#[derive(Debug)]
-pub struct StyleBuilderProperty(pub ComponentPropertyRef, pub PropertyValue);
-
-impl From<(ComponentPropertyRef, ReflectValue)> for StyleBuilderProperty {
-    fn from((property, value): (ComponentPropertyRef, ReflectValue)) -> Self {
-        Self(property, PropertyValue::Value(value))
-    }
-}
-
-impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
-    fn from((property, property_value): (ComponentPropertyRef, PropertyValue)) -> Self {
-        Self(property, property_value)
+        self.inner_build(property_registry, load_context)
     }
 }
 
@@ -713,11 +802,11 @@ impl<T> From<(ComponentPropertyId, T)> for StyleBuilderProperty
 where
     T: FromReflect,
 {
-    fn from((property, value): (ComponentPropertyId, T)) -> Self {
-        Self(
-            property.into(),
-            PropertyValue::Value(ReflectValue::new(value)),
-        )
+    fn from((property_id, value): (ComponentPropertyId, T)) -> Self {
+        Self::Specific {
+            property_ref: ComponentPropertyRef::Id(property_id),
+            value: ReflectValue::new(value).into(),
+        }
     }
 }
 
@@ -725,11 +814,11 @@ impl<T> From<(&'static str, T)> for StyleBuilderProperty
 where
     T: FromReflect,
 {
-    fn from((property, value): (&'static str, T)) -> Self {
-        Self(
-            property.into(),
-            PropertyValue::Value(ReflectValue::new(value)),
-        )
+    fn from((css_name, value): (&'static str, T)) -> Self {
+        Self::Specific {
+            property_ref: ComponentPropertyRef::CssName(css_name.into()),
+            value: ReflectValue::new(value).into(),
+        }
     }
 }
 

@@ -9,14 +9,18 @@ use std::ops::Range;
 pub use error::*;
 pub use loader::*;
 pub use reflect::*;
+pub use shorthand::*;
 
 mod error;
 mod parser;
 
+mod calc;
 mod error_codes;
 mod loader;
 mod reflect;
+mod shorthand;
 mod utils;
+mod vars;
 
 /// Wrapper for a value that has a location in a byte range
 #[derive(Clone, Deref)]
@@ -125,11 +129,7 @@ impl<'a> ParserExt<'a> for Parser<'a, '_> {
         let start_state = self.state();
         let result = self.next().cloned();
         self.reset(&start_state);
-
-        match result {
-            Ok(token) => Ok(token),
-            Err(err) => Err(err),
-        }
+        result
     }
 
     fn located_with_whitespace<F, T, E>(&mut self, inner: F) -> Result<Located<T>, E>
@@ -164,3 +164,35 @@ impl<'a> ParserExt<'a> for Parser<'a, '_> {
 }
 
 pub(crate) type CssParseResult<T> = Result<T, CssError>;
+
+#[cfg(test)]
+pub(crate) mod testing {
+    use crate::{CssError, ErrorReportGenerator};
+    use cssparser::{Parser, ParserInput};
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn parse_content_with<T>(
+        contents: &str,
+        parse_fn: fn(&mut Parser) -> Result<T, CssError>,
+    ) -> T {
+        let mut input = ParserInput::new(contents);
+        let mut parser = Parser::new(&mut input);
+
+        let result =
+            parser.parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
+
+        match result {
+            Ok(value) => value,
+            Err(error) => {
+                let mut style_error = CssError::from(error);
+                style_error.improve_location_with_sub_str(contents);
+
+                let mut report_generator = ErrorReportGenerator::new("test.css", contents);
+                report_generator.add_error(style_error);
+
+                panic!("{}", report_generator.into_message());
+            }
+        }
+    }
+}

@@ -1,6 +1,7 @@
+use crate::ReflectParseCss;
 use crate::error::CssError;
 use crate::error_codes::color as error_codes;
-use crate::reflect::ReflectParseCss;
+use crate::utils::parse_property_value_with;
 use bevy::color::{Alpha, Color};
 use bevy::math::FloatExt;
 use bevy::reflect::FromType;
@@ -163,7 +164,7 @@ impl FromParsedColor for ParsedColor {
     }
 }
 
-pub(super) fn parse_color(parser: &mut Parser) -> Result<Color, CssError> {
+pub(crate) fn parse_color(parser: &mut Parser) -> Result<Color, CssError> {
     struct ColorParser;
 
     impl cssparser_color::ColorParser<'_> for ColorParser {
@@ -177,7 +178,7 @@ pub(super) fn parse_color(parser: &mut Parser) -> Result<Color, CssError> {
 
 impl FromType<Color> for ReflectParseCss {
     fn from_type() -> Self {
-        Self(|parser| parse_color(parser).map(ReflectValue::Color))
+        Self(|parser| Ok(parse_property_value_with(parser, parse_color)?.map(ReflectValue::Color)))
     }
 }
 

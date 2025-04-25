@@ -46,9 +46,7 @@ Scene(
     ),
     4294967297: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967296,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
         "bevy_ecs::hierarchy::Children": Children([
           4294967298,
           4294967299,
@@ -86,9 +84,7 @@ Scene(
     ),
     4294967298: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967297,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967297),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -121,9 +117,7 @@ Scene(
     ),
     4294967299: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967297,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967297),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -156,9 +150,7 @@ Scene(
     ),
     4294967300: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967297,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967297),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -191,9 +183,7 @@ Scene(
     ),
     4294967301: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967296,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -226,9 +216,7 @@ Scene(
     ),
     4294967302: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967296,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
         "bevy_ecs::hierarchy::Children": Children([
           4294967303,
           4294967304,
@@ -266,9 +254,7 @@ Scene(
     ),
     4294967303: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967302,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967302),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
@@ -301,9 +287,7 @@ Scene(
     ),
     4294967304: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967302,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967302),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
@@ -336,9 +320,7 @@ Scene(
     ),
     4294967305: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967302,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967302),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet: Weak(Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",

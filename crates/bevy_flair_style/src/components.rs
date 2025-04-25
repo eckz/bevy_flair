@@ -6,12 +6,13 @@ use crate::animations::{
 
 use crate::{
     ClassName, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation, StyleSheet,
+    VarTokens,
 };
 
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistry;
 use bevy_flair_core::{
-    ComponentPropertyId, ComputedValue, PropertiesHashMap, PropertiesMap, PropertiesRegistry,
+    ComponentPropertyId, ComputedValue, PropertiesHashMap, PropertyMap, PropertyRegistry,
     PropertyValue, ReflectValue,
 };
 use bitflags::bitflags;
@@ -20,6 +21,7 @@ use std::collections::BinaryHeap;
 use std::collections::hash_map::Entry;
 use std::convert::Infallible;
 
+use crate::style_sheet::StyleSheetRulesetId;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::reflect::serde::{
@@ -31,7 +33,7 @@ use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 use std::mem;
 use std::str::FromStr;
-use std::sync::atomic;
+use std::sync::{Arc, atomic};
 use std::time::Duration;
 
 /// Contains information about siblings of an Entity.
@@ -111,6 +113,14 @@ pub(crate) struct TypeNameWithPriority {
 
 /// Gathers all data needed to calculate styles.
 /// Selectors will use this struct to decide if the entity is a match or not.
+#[derive(Debug, Clone, Default, Component, Reflect)]
+#[reflect(Debug, Default, Component)]
+pub struct NodeStyleActiveRules {
+    pub(crate) active_rules: Vec<StyleSheetRulesetId>,
+}
+
+/// Gathers all data needed to calculate styles.
+/// Selectors will use this struct to decide if the entity is a match or not.
 #[derive(Debug, Default, Component, Reflect)]
 #[reflect(Debug, Default, Component)]
 pub struct NodeStyleData {
@@ -118,6 +128,8 @@ pub struct NodeStyleData {
 
     // TODO: We need a system that listen to hierarchical events and
     //       Depending on selectors::matching::ElementSelectorFlags marks things to recalculation
+
+    // TODO: MOVE THIS INTO A FLAGS COMPONENT
     pub(crate) selector_flags: atomic::AtomicUsize,
     pub(crate) recalculation_flags: atomic::AtomicUsize,
 
@@ -255,7 +267,14 @@ impl NodeStyleData {
 /// ```
 #[derive(Debug, Default, Component, Reflect)]
 #[reflect(Debug, Default, Component)]
-#[require(NodeStyleData, NodeStyleMarker, NodeProperties, Siblings)]
+#[require(
+    NodeStyleData,
+    NodeStyleActiveRules,
+    NodeStyleMarker,
+    NodeVars,
+    NodeProperties,
+    Siblings
+)]
 pub enum NodeStyleSheet {
     /// Node will inherit the stylesheet from the closest parent.
     #[default]
@@ -273,13 +292,30 @@ impl NodeStyleSheet {
     }
 }
 
+/// Contains all properties applied to the current Node.
+/// Also contains active animations and transits
+#[derive(Clone, Debug, Default, Component, Reflect, Deref, DerefMut)]
+#[reflect(opaque, Debug, Default, Component)]
+pub struct NodeVars(FxHashMap<Arc<str>, VarTokens>);
+
+impl NodeVars {
+    pub(crate) fn replace_vars(&mut self, new_vars: FxHashMap<Arc<str>, VarTokens>) -> bool {
+        if new_vars != self.0 {
+            self.0 = new_vars;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Clone, Resource)]
-pub(crate) struct EmptyComputedProperties(PropertiesMap<ComputedValue>);
+pub(crate) struct EmptyComputedProperties(PropertyMap<ComputedValue>);
 
 impl FromWorld for EmptyComputedProperties {
     fn from_world(world: &mut World) -> Self {
-        let properties_registry = world.resource::<PropertiesRegistry>();
-        Self(properties_registry.create_properties_map(ComputedValue::None))
+        let property_registry = world.resource::<PropertyRegistry>();
+        Self(property_registry.create_property_map(ComputedValue::None))
     }
 }
 
@@ -289,17 +325,17 @@ impl FromWorld for EmptyComputedProperties {
 #[component(on_add = set_node_properties_initial_data)]
 #[reflect(opaque, Debug, Default, Component, SerializeWithRegistry)]
 pub struct NodeProperties {
-    properties_registry: Option<PropertiesRegistry>,
-    empty_computed_properties: PropertiesMap<ComputedValue>,
+    property_registry: Option<PropertyRegistry>,
+    empty_computed_properties: PropertyMap<ComputedValue>,
 
     pub(crate) transitions_options: PropertiesHashMap<TransitionOptions>,
 
     // NEW STUFF
-    pub(crate) pending_property_values: PropertiesMap<PropertyValue>,
-    pub(crate) property_values: PropertiesMap<PropertyValue>,
-    pub(crate) pending_computed_values: PropertiesMap<ComputedValue>,
-    pub(crate) pending_animation_values: PropertiesMap<ComputedValue>,
-    pub(crate) computed_values: PropertiesMap<ComputedValue>,
+    pub(crate) pending_property_values: PropertyMap<PropertyValue>,
+    pub(crate) property_values: PropertyMap<PropertyValue>,
+    pub(crate) pending_computed_values: PropertyMap<ComputedValue>,
+    pub(crate) pending_animation_values: PropertyMap<ComputedValue>,
+    pub(crate) computed_values: PropertyMap<ComputedValue>,
 
     transitions: PropertiesHashMap<Transition>,
     // TODO: SmallVec here?
@@ -307,11 +343,11 @@ pub struct NodeProperties {
 }
 
 fn set_node_properties_initial_data(mut world: DeferredWorld, context: HookContext) {
-    let properties_registry = world.resource::<PropertiesRegistry>().clone();
+    let property_registry = world.resource::<PropertyRegistry>().clone();
     let empty_computed_properties = world.resource::<EmptyComputedProperties>().0.clone();
     let mut this = world.get_mut::<NodeProperties>(context.entity).unwrap();
 
-    this.properties_registry = Some(properties_registry);
+    this.property_registry = Some(property_registry);
     this.empty_computed_properties = empty_computed_properties;
 
     this.computed_values = this.empty_computed_properties.clone();
@@ -320,9 +356,9 @@ fn set_node_properties_initial_data(mut world: DeferredWorld, context: HookConte
 fn get_reflect_animatable<'a>(
     property_id: ComponentPropertyId,
     type_registry: &'a TypeRegistry,
-    properties_registry: &PropertiesRegistry,
+    property_registry: &PropertyRegistry,
 ) -> Option<&'a ReflectAnimatable> {
-    let property = properties_registry.get_property(property_id);
+    let property = property_registry.get_property(property_id);
 
     let type_registration = type_registry
         .get(property.value_type_info().type_id())
@@ -350,7 +386,9 @@ impl NodeProperties {
     pub(crate) fn compute_pending_property_values_for_root(
         &mut self,
         type_registry: &TypeRegistry,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
+        // TODO: DELETE
+        // resolve_var: impl Fn(ComponentPropertyId, &str) -> ComputedValue,
     ) {
         debug_assert!(self.pending_computed_values.is_empty());
         debug_assert!(self.pending_animation_values.is_empty());
@@ -377,7 +415,7 @@ impl NodeProperties {
         }
         self.pending_computed_values = pending_computed_values;
         self.pending_animation_values = self.empty_computed_properties.clone();
-        self.create_transitions(type_registry, properties_registry);
+        self.create_transitions(type_registry, property_registry);
         self.apply_transitions_and_animations();
     }
 
@@ -385,7 +423,9 @@ impl NodeProperties {
         &mut self,
         parent: &Self,
         type_registry: &TypeRegistry,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
+        // TODO: DELETE
+        // resolve_var: impl Fn(ComponentPropertyId, &str) -> ComputedValue,
     ) {
         debug_assert!(self.pending_computed_values.is_empty());
         debug_assert!(self.pending_animation_values.is_empty());
@@ -427,7 +467,7 @@ impl NodeProperties {
 
         self.pending_computed_values = pending_computed_values;
         self.pending_animation_values = self.empty_computed_properties.clone();
-        self.create_transitions(type_registry, properties_registry);
+        self.create_transitions(type_registry, property_registry);
         self.apply_transitions_and_animations();
     }
 
@@ -436,7 +476,7 @@ impl NodeProperties {
     fn create_transitions(
         &mut self,
         type_registry: &TypeRegistry,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
     ) {
         for (&property_id, options) in self.transitions_options.iter() {
             let from_value = &self.computed_values[property_id];
@@ -452,9 +492,8 @@ impl NodeProperties {
                     (from_value, to_value)
                 }
                 (ComputedValue::Value(from_value), ComputedValue::None) => {
-                    let canonical_name = properties_registry
-                        .get_property(property_id)
-                        .canonical_name();
+                    let canonical_name =
+                        property_registry.get_property(property_id).canonical_name();
                     warn!(
                         "Cannot create a transition '{canonical_name}' from '{from_value:?}' to None. You should avoid this by setting a baseline style that set the default values."
                     );
@@ -466,7 +505,7 @@ impl NodeProperties {
             };
 
             let Some(reflect_animatable) =
-                get_reflect_animatable(property_id, type_registry, properties_registry)
+                get_reflect_animatable(property_id, type_registry, property_registry)
             else {
                 continue;
             };
@@ -579,7 +618,7 @@ impl NodeProperties {
                     apply_change_fn(property_id, new_value);
                 } else {
                     let canonical_name = self
-                        .properties_registry
+                        .property_registry
                         .as_ref()
                         .unwrap()
                         .get_property(property_id)
@@ -625,7 +664,7 @@ impl NodeProperties {
         &mut self,
         new_animations: Vec<ResolvedAnimation>,
         type_registry: &TypeRegistry,
-        properties_registry: &PropertiesRegistry,
+        property_registry: &PropertyRegistry,
     ) {
         let previous_animations_map = &self
             .animations
@@ -665,7 +704,7 @@ impl NodeProperties {
             let animations = self.animations.entry(property_id).or_default();
 
             let Some(reflect_animatable) =
-                get_reflect_animatable(property_id, type_registry, properties_registry)
+                get_reflect_animatable(property_id, type_registry, property_registry)
             else {
                 continue;
             };
@@ -692,7 +731,7 @@ impl NodeProperties {
                         &resolved_animation.options,
                         reflect_animatable,
                     );
-                    let property = properties_registry.get_property(property_id);
+                    let property = property_registry.get_property(property_id);
                     trace!("New animation for {property}: {new_animation:?}");
                     animations.push(new_animation);
                 }
@@ -710,10 +749,10 @@ impl NodeProperties {
         self.transitions.clear();
         self.animations.clear();
 
-        self.property_values = PropertiesMap::default();
-        self.pending_property_values = PropertiesMap::default();
-        self.pending_computed_values = PropertiesMap::default();
-        self.pending_animation_values = PropertiesMap::default();
+        self.property_values = PropertyMap::default();
+        self.pending_property_values = PropertyMap::default();
+        self.pending_computed_values = PropertyMap::default();
+        self.pending_animation_values = PropertyMap::default();
         self.computed_values = self.empty_computed_properties.clone();
     }
 
@@ -792,16 +831,12 @@ impl SerializeWithRegistry for NodeProperties {
     where
         S: Serializer,
     {
-        let properties_registry = self.properties_registry.as_ref().unwrap();
+        let property_registry = self.property_registry.as_ref().unwrap();
         let mut map = serializer.serialize_map(None)?;
 
         for (property_id, value) in self.computed_values.iter() {
             if let ComputedValue::Value(value) = value {
-                map.serialize_key(
-                    &properties_registry
-                        .get_property(property_id)
-                        .canonical_name(),
-                )?;
+                map.serialize_key(&property_registry.get_property(property_id).canonical_name())?;
                 map.serialize_value(&TypedReflectSerializer::new(value, registry))?;
             }
         }
@@ -842,17 +877,17 @@ mod debug {
     impl<'a> PendingComputedValues<'a> {
         pub fn into_debug(
             self,
-            properties_registry: &'a PropertiesRegistry,
+            property_registry: &'a PropertyRegistry,
         ) -> PendingComputedPropertiesDebug<'a> {
             PendingComputedPropertiesDebug {
-                properties_registry,
+                property_registry,
                 pending: RefCell::new(self),
             }
         }
     }
 
     pub(crate) struct PendingComputedPropertiesDebug<'a> {
-        properties_registry: &'a PropertiesRegistry,
+        property_registry: &'a PropertyRegistry,
         pending: RefCell<PendingComputedValues<'a>>,
     }
 
@@ -862,7 +897,7 @@ mod debug {
 
             let mut map = f.debug_map();
             for (property_id, value) in iter {
-                let property = self.properties_registry.get_property(property_id);
+                let property = self.property_registry.get_property(property_id);
                 map.entry(&property.canonical_name(), value);
             }
             map.finish()
@@ -1005,24 +1040,24 @@ mod tests {
 
     const INHERITED_PROPERTY: &str = "inherited-property";
 
-    static PROPERTIES_REGISTRY: LazyLock<PropertiesRegistry> = LazyLock::new(|| {
-        let mut registry = PropertiesRegistry::default();
-        registry.register_with_css_name(
+    static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
+        let mut registry = PropertyRegistry::default();
+        registry.register_with_css(
             PROPERTY_1,
             ComponentProperty::new::<TestComponent>("property_1"),
             PropertyValue::None,
         );
-        registry.register_with_css_name(
+        registry.register_with_css(
             PROPERTY_2,
             ComponentProperty::new::<TestComponent>("property_2"),
             PropertyValue::None,
         );
-        registry.register_with_css_name(
+        registry.register_with_css(
             PROPERTY_3,
             ComponentProperty::new::<TestComponent>("property_3"),
             PropertyValue::None,
         );
-        registry.register_with_css_name(
+        registry.register_with_css(
             INHERITED_PROPERTY,
             ComponentProperty::new::<TestComponent>("inherited_property"),
             PropertyValue::Inherit,
@@ -1041,7 +1076,7 @@ mod tests {
         ($($k:expr => $v:expr),* $(,)?) => {{
 
             [$((
-                PROPERTIES_REGISTRY.resolve(&ComponentPropertyRef::CssName($k.into())).unwrap_or_else(|e| panic!("{e}")),
+                PROPERTY_REGISTRY.resolve(&ComponentPropertyRef::CssName($k.into())).unwrap_or_else(|e| panic!("{e}")),
                 $v
             ),)*]
         }};
@@ -1097,7 +1132,7 @@ mod tests {
         }};
         ($properties:expr, $($k:expr => $v:expr),* $(,)?) => {{
             assert!($properties.pending_property_values.is_empty());
-            let mut pending_property_values = PROPERTIES_REGISTRY.get_default_values();
+            let mut pending_property_values = PROPERTY_REGISTRY.get_default_values();
 
             for (id, value) in properties![$($k => $v.into_property_value(),)*] {
                 pending_property_values[id] = value;
@@ -1110,22 +1145,22 @@ mod tests {
     macro_rules! set_property_values_and_compute {
         ($properties:expr) => {{
             set_property_values!($properties);
-            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
-            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, $parent:expr) => {{
             set_property_values!($properties);
-            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, $parent:expr, { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
-            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY);
             assert!($properties.pending_property_values.is_empty());
         }};
     }
@@ -1143,9 +1178,9 @@ mod tests {
 
     fn default_node_properties() -> NodeProperties {
         let mut properties = NodeProperties::default();
-        properties.properties_registry = Some(PROPERTIES_REGISTRY.clone());
+        properties.property_registry = Some(PROPERTY_REGISTRY.clone());
         properties.empty_computed_properties =
-            PROPERTIES_REGISTRY.create_properties_map(ComputedValue::None);
+            PROPERTY_REGISTRY.create_property_map(ComputedValue::None);
         properties.computed_values = properties.empty_computed_properties.clone();
         properties
     }
@@ -1155,7 +1190,7 @@ mod tests {
         let mut properties = default_node_properties();
 
         // Nothing is set;
-        properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTIES_REGISTRY);
+        properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY);
         assert!(properties.pending_property_values.is_empty());
 
         assert_eq!(apply_computed_values!(properties), vec![]);

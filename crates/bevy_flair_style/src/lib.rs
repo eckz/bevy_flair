@@ -23,6 +23,7 @@ mod testing;
 pub mod css_selector;
 
 mod systems;
+mod vars;
 
 use crate::animations::ReflectAnimationsPlugin;
 use crate::components::*;
@@ -30,10 +31,12 @@ use crate::components::*;
 pub use builder::*;
 pub use simple_selector::*;
 pub use style_sheet::*;
+pub use vars::*;
 
 pub(crate) type IdName = smol_str::SmolStr;
 pub(crate) type ClassName = smol_str::SmolStr;
 pub(crate) type TypeName = smol_str::SmolStr;
+pub(crate) type VarName = std::sync::Arc<str>;
 
 /// Trait for things the can serialize themselves in CSS syntax.
 pub trait ToCss {
@@ -48,6 +51,18 @@ pub trait ToCss {
         let mut s = String::new();
         self.to_css(&mut s).unwrap();
         s
+    }
+}
+
+impl<T: ToCss> ToCss for &[T] {
+    fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result {
+        for (i, t) in self.iter().enumerate() {
+            t.to_css(dest)?;
+            if i < self.len() - 1 {
+                dest.write_char(' ')?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -120,7 +135,7 @@ pub(crate) struct GlobalChangeDetection {
 }
 
 impl GlobalChangeDetection {
-    pub fn any_change(&self) -> bool {
+    pub fn any_property_change(&self) -> bool {
         self.any_property_value_changed || self.any_animation_active
     }
 }
@@ -140,8 +155,12 @@ pub enum StyleSystemSets {
     /// so new animations are not moved on the frame they are added.
     TickAnimations,
 
-    /// Calculates new properties, transitions and animations for nodes that are marked for recalculation
-    CalculateStyle,
+    /// Calculates active stylesheet sets for nodes that are marked for recalculation.
+    /// Also sets vars and further marks nodes as changed when a var changes.
+    CalculateStyles,
+
+    /// Sets new properties, transitions and animations for nodes that are marked for recalculation.
+    SetStyleProperties,
 
     /// Converts properties set in `CalculateStyle` into computed properties. Also calculates inherited properties.
     ComputeProperties,
@@ -164,6 +183,7 @@ impl Plugin for FlairStylePlugin {
                 ClassList,
                 Siblings,
                 NodeProperties,
+                NodeVars,
             )>()
             .register_required_components::<Node, NodeStyleSheet>()
             .add_plugins((
@@ -180,12 +200,13 @@ impl Plugin for FlairStylePlugin {
                         StyleSystemSets::StructuralChanges,
                         StyleSystemSets::SetStyleData,
                         StyleSystemSets::MarkNodesForRecalculation,
-                        StyleSystemSets::CalculateStyle,
+                        StyleSystemSets::CalculateStyles,
+                        StyleSystemSets::SetStyleProperties,
                         StyleSystemSets::ComputeProperties,
                         StyleSystemSets::ApplyProperties.before(bevy::ui::UiSystem::Prepare),
                     )
                         .chain(),
-                    StyleSystemSets::TickAnimations.before(StyleSystemSets::CalculateStyle),
+                    StyleSystemSets::TickAnimations.before(StyleSystemSets::SetStyleProperties),
                 ),
             )
             .add_systems(PreStartup, |mut commands: Commands| {
@@ -218,7 +239,8 @@ impl Plugin for FlairStylePlugin {
                     systems::mark_nodes_for_recalculation
                         .in_set(StyleSystemSets::MarkNodesForRecalculation),
                     systems::tick_animations.in_set(StyleSystemSets::TickAnimations),
-                    systems::calculate_style.in_set(StyleSystemSets::CalculateStyle),
+                    systems::calculate_style_and_set_vars.in_set(StyleSystemSets::CalculateStyles),
+                    systems::set_style_properties.in_set(StyleSystemSets::SetStyleProperties),
                     systems::compute_property_values.in_set(StyleSystemSets::ComputeProperties),
                     systems::apply_properties.in_set(StyleSystemSets::ApplyProperties),
                 ),
@@ -354,7 +376,7 @@ mod tests {
     fn app() -> App {
         let mut app = App::new();
 
-        app.init_resource::<PropertiesRegistry>();
+        app.init_resource::<PropertyRegistry>();
 
         app.add_plugins((
             bevy::time::TimePlugin,

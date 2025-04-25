@@ -1,5 +1,7 @@
 use crate::error::CssError;
-use crate::reflect::ReflectParseCss;
+
+use crate::ReflectParseCss;
+use crate::utils::parse_property_value_with;
 use bevy::asset::Handle;
 use bevy::prelude::Image;
 use bevy::reflect::{FromType, TypePath};
@@ -24,13 +26,13 @@ fn parse_font(parser: &mut Parser) -> Result<ReflectValue, CssError> {
 
 impl FromType<Handle<Image>> for ReflectParseCss {
     fn from_type() -> Self {
-        ReflectParseCss(parse_asset_path::<Image>)
+        ReflectParseCss(|parser| parse_property_value_with(parser, parse_asset_path::<Image>))
     }
 }
 
 impl FromType<Handle<Font>> for ReflectParseCss {
     fn from_type() -> Self {
-        ReflectParseCss(parse_font)
+        ReflectParseCss(|parser| parse_property_value_with(parser, parse_font))
     }
 }
 

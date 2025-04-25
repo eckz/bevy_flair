@@ -1,3 +1,4 @@
+use crate::ShorthandPropertyRegistry;
 use crate::error::ErrorReportGenerator;
 use crate::parser::{
     AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
@@ -7,10 +8,11 @@ use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext};
 use bevy::log::{error, warn};
 use bevy::reflect::TypeRegistryArc;
-use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertiesRegistry, PropertyValue};
+use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertyRegistry, PropertyValue};
 use bevy_flair_style::css_selector::CssSelector;
 use bevy_flair_style::{
-    AnimationKeyframesBuilder, StyleSheet, StyleSheetBuilder, StyleSheetBuilderError,
+    AnimationKeyframesBuilder, StyleBuilderProperty, StyleSheet, StyleSheetBuilder,
+    StyleSheetBuilderError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -55,21 +57,24 @@ pub struct CssStyleLoaderSetting {
 /// It capable of loading `.css` files.
 pub struct CssStyleLoader {
     type_registry_arc: TypeRegistryArc,
-    properties_registry: PropertiesRegistry,
+    property_registry: PropertyRegistry,
+    shorthand_property_registry: ShorthandPropertyRegistry,
 }
 
 impl CssStyleLoader {
     /// Extensions that this loader can load. basically `.css`
     pub const EXTENSIONS: &'static [&'static str] = &["css"];
 
-    /// Creates a new [`CssStyleLoader`] with the given [`TypeRegistryArc`] and [`PropertiesRegistry`].
+    /// Creates a new [`CssStyleLoader`] with the given [`TypeRegistryArc`],  [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
     pub fn new(
         type_registry_arc: TypeRegistryArc,
-        properties_registry: PropertiesRegistry,
+        property_registry: PropertyRegistry,
+        shorthand_property_registry: ShorthandPropertyRegistry,
     ) -> Self {
         Self {
             type_registry_arc,
-            properties_registry,
+            property_registry,
+            shorthand_property_registry,
         }
     }
 }
@@ -144,12 +149,33 @@ impl AssetLoader for CssStyleLoader {
                                 ruleset_builder
                                     .add_properties([(ComponentPropertyRef::Id(id), value)]);
                             }
+                            CssRulesetProperty::MultipleProperties(properties) => {
+                                ruleset_builder.add_properties(
+                                    properties
+                                        .into_iter()
+                                        .map(|(id, value)| (ComponentPropertyRef::Id(id), value)),
+                                );
+                            }
+                            CssRulesetProperty::DynamicProperty(css_name, parser, tokens) => {
+                                ruleset_builder.add_properties([StyleBuilderProperty::Dynamic {
+                                    css_name,
+                                    parser,
+                                    tokens,
+                                }])
+                            }
                             CssRulesetProperty::Transitions(property_transitions) => {
                                 for transition_fallible in property_transitions {
                                     match transition_fallible {
-                                        Ok(CssTransitionProperty { property, options }) => {
-                                            ruleset_builder
-                                                .add_property_transition(property, options);
+                                        Ok(CssTransitionProperty {
+                                            properties,
+                                            options,
+                                        }) => {
+                                            for property in properties {
+                                                ruleset_builder.add_property_transition(
+                                                    property,
+                                                    options.clone(),
+                                                );
+                                            }
                                         }
                                         Err(error) => {
                                             report_generator.add_error(error);
@@ -168,6 +194,9 @@ impl AssetLoader for CssStyleLoader {
                                         }
                                     }
                                 }
+                            }
+                            CssRulesetProperty::Var(var_name, tokens) => {
+                                ruleset_builder.add_var(var_name, tokens);
                             }
                             CssRulesetProperty::NestedRuleset(nested_ruleset) => {
                                 nested_rulesets.push(nested_ruleset);
@@ -196,7 +225,8 @@ impl AssetLoader for CssStyleLoader {
 
         parse_css(
             &type_registry,
-            &self.properties_registry,
+            &self.property_registry,
+            &self.shorthand_property_registry,
             &contents,
             |item| match item {
                 CssStyleSheetItem::RuleSet(ruleset) => {
@@ -274,7 +304,7 @@ impl AssetLoader for CssStyleLoader {
             }
         }
 
-        Ok(builder.build_with_load_context(&self.properties_registry, load_context)?)
+        Ok(builder.build_with_load_context(&self.property_registry, load_context)?)
     }
 
     fn extensions(&self) -> &[&str] {

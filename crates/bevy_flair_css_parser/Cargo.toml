@@ -16,17 +16,18 @@ missing_docs = "warn"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
+derive_more = { version = "2.0", features = ["debug"] }
 smallvec = "1.13"
-either = "1.13"
+smol_str = "0.2"
 rustc-hash = "2.1"
 
 bevy = { workspace = true }
 bevy_flair_core = { workspace = true }
 bevy_flair_style = { workspace = true, features = ["css_selectors"] }
 
-cssparser = { version = "0.34" }
-cssparser-color = { version = "0.2.0" }
-selectors = { version = "0.26" }
+cssparser = { version = "0.35" }
+cssparser-color = { version = "0.3" }
+selectors = { version = "0.27" }
 
 ariadne = "0.5"
 

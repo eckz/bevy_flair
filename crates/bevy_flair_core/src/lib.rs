@@ -1,7 +1,7 @@
 //! # Bevy Flair Core
 //! Adds
 mod component_property;
-pub mod properties_map;
+pub mod property_map;
 mod property_value;
 mod reflect_value;
 mod registry;
@@ -11,7 +11,7 @@ mod sub_properties;
 use bevy::prelude::*;
 
 pub use component_property::*;
-pub use properties_map::PropertiesMap;
+pub use property_map::PropertyMap;
 pub use property_value::*;
 pub use reflect_value::*;
 pub use registry::*;
@@ -31,10 +31,26 @@ macro_rules! default_properties {
     (@default_value inherit) => {
         PropertyValue::Inherit
     };
-    ($($css:literal $($default_value:ident)? { $($tt:tt)* },)*) => {
-        pub(crate) fn register_bevy_ui_properties(registry: &mut PropertiesRegistry, type_registry: &bevy::reflect::TypeRegistry) {
+    (@register $registry:ident, $css:literal, $property:expr, $default_value:expr, $type_registry:ident) => {
+        $registry.register_with_css(
+            $css,
+            $property,
+            $default_value
+        );
+    };
+    (@register sub_properties $registry:ident, $css:literal, $property:expr, $default_value:expr, $type_registry:ident) => {
+        $registry.register_sub_properties(
+            $css,
+            $property,
+            $default_value,
+            $type_registry
+        );
+    };
+    ($($($sub_property:ident)? $css:literal $($default_value:ident)? { $($tt:tt)* },)*) => {
+        pub(crate) fn register_bevy_ui_properties(registry: &mut PropertyRegistry, type_registry: &bevy::reflect::TypeRegistry) {
             $(
-                registry.register_recursively_with_css_name(
+                default_properties!(@register $($sub_property)*
+                    registry,
                     $css,
                     default_properties!(@impl_property $($tt)*),
                     default_properties!(@default_value $($default_value)*),
@@ -49,7 +65,7 @@ default_properties! {
     // Node properties
     "display" { Node[".display"] },
     "position" { Node[".position_type"] },
-    "overflow" { Node[".overflow"] },
+    sub_properties "overflow" { Node[".overflow"] },
     // TODO: pub overflow_clip_margin: OverflowClipMargin
     "left" { Node[".left"] },
     "right" { Node[".right"] },
@@ -68,9 +84,9 @@ default_properties! {
     "justify-self" { Node[".justify_self"] },
     "align-content" { Node[".align_content"] },
     "justify-content" { Node[".justify_content"] },
-    "margin" { Node[".margin"] },
-    "padding" { Node[".padding"] },
-    "border" { Node[".border"] },
+    sub_properties "margin" { Node[".margin"] },
+    sub_properties "padding" { Node[".padding"] },
+    sub_properties "border-width" { Node[".border"] },
     "flex-direction" { Node[".flex_direction"] },
     "flex-wrap" { Node[".flex_wrap"] },
     "flex-grow" { Node[".flex_grow"] },
@@ -91,8 +107,12 @@ default_properties! {
     // Misc components
     "border-color" { insert_if_missing: BorderColor[".0"] },
     "background-color" { insert_if_missing: BackgroundColor[".0"] },
-    "border-radius" { insert_if_missing: BorderRadius[""] },
-    "outline" { insert_if_missing: Outline[""] },
+    // We need to manually register all border-radius sub-properties
+    "border-top-left-radius" { insert_if_missing: BorderRadius[".top_left"] },
+    "border-top-right-radius" { insert_if_missing: BorderRadius[".top_right"] },
+    "border-bottom-left-radius" { insert_if_missing: BorderRadius[".bottom_left"] },
+    "border-bottom-right-radius" { insert_if_missing: BorderRadius[".bottom_right"] },
+    sub_properties "outline" { insert_if_missing: Outline[""] },
     "box-shadow" { insert_if_missing: BoxShadow[""] },
     "z-index" { insert_if_missing: ZIndex[""] },
 
@@ -101,11 +121,13 @@ default_properties! {
     "font-family" inherit { TextFont[".font"] },
     "font-size" inherit { TextFont[".font_size"] },
 
-    // UiImage properties. Note: These css properties do not exist
+    // UiImage properties.
+    // Note: The `image-` css properties are not standard.
+    "background-image" { insert_if_missing: ImageNode[".image"] },
     "image-color" { insert_if_missing: ImageNode[".color"] },
-    "image-texture" { insert_if_missing: ImageNode[".image"] },
     "image-mode" { insert_if_missing: ImageNode[".image_mode"] },
 
+    // TODO: text-shadow
 }
 
 /// Register all Bevy UI properties
@@ -117,7 +139,6 @@ macro_rules! register_sub_properties {
             // register_type_data could fail if the type is not registered.
             $app.register_type::<$ty>();
             $app.register_type_data::<$ty, ReflectCreateSubProperties>();
-            $app.register_type_data::<$ty, ReflectBreakIntoSubProperties>();
         )*
     };
 }
@@ -125,7 +146,7 @@ macro_rules! register_sub_properties {
 impl Plugin for BevyUiPropertiesPlugin {
     fn build(&self, app: &mut App) {
         // Init registry if it's not already initialized
-        app.init_resource::<PropertiesRegistry>();
+        app.init_resource::<PropertyRegistry>();
 
         register_sub_properties!(app => {
             UiRect,
@@ -137,18 +158,18 @@ impl Plugin for BevyUiPropertiesPlugin {
         let registry_arc = app.world().resource::<AppTypeRegistry>().0.clone();
         let registry = registry_arc.read();
 
-        let mut properties_registry = app
+        let mut property_registry = app
             .world_mut()
-            .get_resource_mut::<PropertiesRegistry>()
+            .get_resource_mut::<PropertyRegistry>()
             .unwrap();
 
-        register_bevy_ui_properties(&mut properties_registry, &registry);
+        register_bevy_ui_properties(&mut property_registry, &registry);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{BevyUiPropertiesPlugin, PropertiesRegistry};
+    use crate::{BevyUiPropertiesPlugin, PropertyRegistry};
     use bevy::app::App;
     use bevy::reflect::PartialReflect;
     use bevy::ui::{Node, UiPlugin, UiRect, Val};
@@ -167,7 +188,7 @@ mod tests {
 
         app.finish();
 
-        let properties_registry = app.world().resource::<PropertiesRegistry>().clone();
+        let property_registry = app.world().resource::<PropertyRegistry>().clone();
 
         let entity = app.world_mut().spawn(Node {
             margin: UiRect {
@@ -178,8 +199,8 @@ mod tests {
             ..default()
         });
 
-        let margin_left = properties_registry.get_property(
-            properties_registry
+        let margin_left = property_registry.get_property(
+            property_registry
                 .get_property_id_by_css_name("margin-left")
                 .expect("margin-left not found"),
         );

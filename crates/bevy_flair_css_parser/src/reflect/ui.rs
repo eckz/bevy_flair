@@ -1,11 +1,12 @@
 use bevy::prelude::ShadowStyle;
 use bevy::reflect::FromType;
-use bevy::ui::{BorderRadius, BoxShadow, Outline, Overflow, OverflowAxis, UiRect, Val, ZIndex};
+use bevy::ui::{BoxShadow, Val, ZIndex};
 
-use crate::ParserExt;
+use crate::calc::parse_calc_property_value_with;
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
-use crate::reflect::{ReflectParseCss, ReflectParseCssEnum};
+use crate::utils::parse_property_value_with;
+use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
@@ -25,7 +26,7 @@ pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
     })
 }
 
-fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
+pub(crate) fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
     let next = parser.located_next()?;
     Ok(match &*next {
         Token::Ident(ident) if ident.as_ref() == "auto" => Val::Auto,
@@ -74,87 +75,8 @@ pub(crate) fn parse_four_values<T: Copy>(
     })
 }
 
-fn parse_ui_rect(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    let [top, right, bottom, left] = parse_four_values(parser, parse_val)?;
-
-    let ui_rect = UiRect {
-        left,
-        right,
-        top,
-        bottom,
-    };
-    Ok(ReflectValue::new(ui_rect))
-}
-
-fn parse_border_radius(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    let [top_left, top_right, bottom_right, bottom_left] = parse_four_values(parser, parse_val)?;
-
-    let border_radius = BorderRadius {
-        top_left,
-        top_right,
-        bottom_left,
-        bottom_right,
-    };
-    Ok(ReflectValue::new(border_radius))
-}
-
-fn parse_outline(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    fn parse_width_ident(parser: &mut Parser) -> Result<Val, CssError> {
-        let ident = parser.expect_ident()?;
-        Ok(match_ignore_ascii_case! { ident.as_ref(),
-            "none" => Val::ZERO,
-            "thin" => Val::Px(1.0),
-            "medium" => Val::Px(2.0),
-            "thick" => Val::Px(5.0),
-            // This error does not matter much because it will be ignored
-            _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
-        })
-    }
-
-    let width_result = parser
-        .try_parse(parse_width_ident)
-        .or_else(|_| parser.try_parse(parse_val));
-
-    let width = match width_result {
-        Ok(width) => width,
-        _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
-    };
-
-    let color = if !parser.is_exhausted() {
-        super::color::parse_color(parser)?
-    } else {
-        Outline::default().color
-    };
-
-    let outline = Outline {
-        width,
-        color,
-        ..Default::default()
-    };
-
-    Ok(ReflectValue::new(outline))
-}
-
 fn parse_z_index(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     Ok(ReflectValue::new(ZIndex(parser.expect_integer()?)))
-}
-
-fn parse_overflow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    let parse_overflow_axis = <ReflectParseCssEnum as FromType<OverflowAxis>>::from_type().0;
-    let first_value = parse_overflow_axis(parser)?.downcast_value().unwrap();
-
-    if parser.is_exhausted() {
-        Ok(ReflectValue::new(Overflow {
-            x: first_value,
-            y: first_value,
-        }))
-    } else {
-        let second_value = parse_overflow_axis(parser)?.downcast_value().unwrap();
-        Ok(ReflectValue::new(Overflow {
-            x: first_value,
-            y: second_value,
-        }))
-    }
 }
 
 fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, CssError> {
@@ -222,49 +144,25 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
 
 impl FromType<f32> for ReflectParseCss {
     fn from_type() -> Self {
-        Self(|parser| parse_f32(parser).map(ReflectValue::Float))
+        Self(|parser| parse_calc_property_value_with(parser, parse_f32))
     }
 }
 
 impl FromType<Val> for ReflectParseCss {
     fn from_type() -> Self {
-        Self(|parser| parse_val(parser).map(ReflectValue::Val))
-    }
-}
-
-impl FromType<UiRect> for ReflectParseCss {
-    fn from_type() -> Self {
-        Self(parse_ui_rect)
-    }
-}
-
-impl FromType<BorderRadius> for ReflectParseCss {
-    fn from_type() -> Self {
-        Self(parse_border_radius)
-    }
-}
-
-impl FromType<Outline> for ReflectParseCss {
-    fn from_type() -> Self {
-        Self(parse_outline)
+        Self(|parser| parse_calc_property_value_with(parser, parse_val))
     }
 }
 
 impl FromType<ZIndex> for ReflectParseCss {
     fn from_type() -> Self {
-        Self(parse_z_index)
-    }
-}
-
-impl FromType<Overflow> for ReflectParseCss {
-    fn from_type() -> Self {
-        Self(parse_overflow)
+        Self(|parser| parse_property_value_with(parser, parse_z_index))
     }
 }
 
 impl FromType<BoxShadow> for ReflectParseCss {
     fn from_type() -> Self {
-        Self(parse_box_shadow)
+        Self(|parser| parse_property_value_with(parser, parse_box_shadow))
     }
 }
 
@@ -272,8 +170,7 @@ impl FromType<BoxShadow> for ReflectParseCss {
 mod tests {
     use crate::reflect::testing::test_parse_css;
     use bevy::color::palettes::css;
-    use bevy::prelude::ShadowStyle;
-    use bevy::ui::{BorderRadius, BoxShadow, Outline, Overflow, UiRect, Val, ZIndex};
+    use bevy::ui::{BoxShadow, ShadowStyle, Val, ZIndex};
 
     #[test]
     fn test_val() {
@@ -288,123 +185,8 @@ mod tests {
     }
 
     #[test]
-    fn test_ui_rect() {
-        assert_eq!(test_parse_css::<UiRect>("2px"), UiRect::all(Val::Px(2.0)));
-
-        assert_eq!(test_parse_css::<UiRect>("0"), UiRect::all(Val::ZERO));
-
-        assert_eq!(
-            test_parse_css::<UiRect>("10% auto"),
-            UiRect {
-                left: Val::Auto,
-                right: Val::Auto,
-                top: Val::Percent(10.0),
-                bottom: Val::Percent(10.0),
-            }
-        );
-
-        assert_eq!(
-            test_parse_css::<UiRect>("10px 50px 20px"),
-            UiRect {
-                left: Val::Px(50.0),
-                right: Val::Px(50.0),
-                top: Val::Px(10.0),
-                bottom: Val::Px(20.0),
-            }
-        );
-
-        assert_eq!(
-            test_parse_css::<UiRect>("10px 50px 30px 0"),
-            UiRect {
-                left: Val::ZERO,
-                right: Val::Px(50.0),
-                top: Val::Px(10.0),
-                bottom: Val::Px(30.0),
-            }
-        );
-    }
-
-    #[test]
-    fn test_border_radius() {
-        assert_eq!(
-            test_parse_css::<BorderRadius>("10px"),
-            BorderRadius::all(Val::Px(10.0))
-        );
-
-        assert_eq!(
-            test_parse_css::<BorderRadius>("0"),
-            BorderRadius::all(Val::ZERO)
-        );
-
-        assert_eq!(
-            test_parse_css::<BorderRadius>("10px 5%"),
-            BorderRadius {
-                top_left: Val::Px(10.0),
-                top_right: Val::Percent(5.0),
-                bottom_left: Val::Percent(5.0),
-                bottom_right: Val::Px(10.0),
-            }
-        );
-
-        assert_eq!(
-            test_parse_css::<BorderRadius>("2px 50% 50px"),
-            BorderRadius {
-                top_left: Val::Px(2.0),
-                top_right: Val::Percent(50.0),
-                bottom_left: Val::Percent(50.0),
-                bottom_right: Val::Px(50.0),
-            }
-        );
-
-        assert_eq!(
-            test_parse_css::<BorderRadius>("1px 0 3px 4px"),
-            BorderRadius {
-                top_left: Val::Px(1.0),
-                top_right: Val::ZERO,
-                bottom_left: Val::Px(4.0),
-                bottom_right: Val::Px(3.0),
-            }
-        );
-    }
-
-    #[test]
-    fn test_outline() {
-        assert_eq!(
-            test_parse_css::<Outline>("5px"),
-            Outline {
-                width: Val::Px(5.0),
-                ..Default::default()
-            }
-        );
-        assert_eq!(
-            test_parse_css::<Outline>("none"),
-            Outline {
-                width: Val::ZERO,
-                ..Default::default()
-            }
-        );
-        assert_eq!(
-            test_parse_css::<Outline>("thin"),
-            Outline {
-                width: Val::Px(1.0),
-                ..Default::default()
-            }
-        );
-        assert_eq!(
-            test_parse_css::<Outline>("thick"),
-            Outline {
-                width: Val::Px(5.0),
-                ..Default::default()
-            }
-        );
-        assert_eq!(
-            test_parse_css::<Outline>("3px red"),
-            Outline {
-                width: Val::Px(3.0),
-                color: css::RED.into(),
-                ..Default::default()
-            }
-        );
+    fn test_val_with_calc() {
+        assert_eq!(test_parse_css::<Val>("calc(15px * 2)"), Val::Px(30.0));
     }
 
     #[test]
@@ -412,22 +194,6 @@ mod tests {
         assert_eq!(test_parse_css::<ZIndex>("2"), ZIndex(2));
         assert_eq!(test_parse_css::<ZIndex>("0"), ZIndex(0));
         assert_eq!(test_parse_css::<ZIndex>("-999999"), ZIndex(-999999));
-    }
-
-    #[test]
-    fn test_overflow() {
-        assert_eq!(test_parse_css::<Overflow>("clip"), Overflow::clip());
-
-        assert_eq!(test_parse_css::<Overflow>("visible"), Overflow::visible());
-
-        assert_eq!(
-            test_parse_css::<Overflow>("clip visible"),
-            Overflow::clip_x()
-        );
-        assert_eq!(
-            test_parse_css::<Overflow>("visible scroll"),
-            Overflow::scroll_y()
-        );
     }
 
     #[test]

@@ -1,5 +1,12 @@
-use crate::{builder::StyleSheetBuilder, simple_selector::SimpleSelector};
-use bevy::{asset::Asset, prelude::TypePath, reflect::Reflect};
+use crate::{
+    ResolveTokensError, VarName, VarToken, VarTokens, builder::StyleSheetBuilder,
+    simple_selector::SimpleSelector,
+};
+use bevy::{
+    asset::Asset,
+    prelude::TypePath,
+    reflect::{FromReflect, Reflect},
+};
 use bevy_flair_core::*;
 use std::borrow::Borrow;
 use std::cmp;
@@ -14,11 +21,11 @@ use crate::animations::TransitionOptions;
 #[cfg(feature = "css_selectors")]
 use crate::css_selector::CssSelector;
 
-use bevy::prelude::FromReflect;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::ops::Add;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::error;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug)]
 pub(crate) struct SelectorSpecificity {
@@ -284,9 +291,37 @@ impl AnimationKeyframesBuilder {
     }
 }
 
-#[derive(Debug, Default)]
+/// A parser function for dynamically parsing a list of [`VarToken`]s.
+///
+/// This parser is used to convert a sequence of var tokens into a list of defined properties.
+///
+/// The result is a `Vec` of `(ComponentPropertyRef, PropertyValue)` pairs, or an error if parsing fails.
+/// ```
+pub type DynamicParseVarTokens = Arc<
+    dyn Fn(
+            &[VarToken],
+        )
+            -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, Box<dyn core::error::Error>>
+        + Send
+        + Sync,
+>;
+
+pub(crate) enum RulesetProperty {
+    Specific {
+        property_id: ComponentPropertyId,
+        value: PropertyValue,
+    },
+    Dynamic {
+        css_name: Arc<str>,
+        parser: DynamicParseVarTokens,
+        tokens: VarTokens,
+    },
+}
+
+#[derive(Default)]
 pub(crate) struct Ruleset {
-    pub(super) properties: Vec<(ComponentPropertyId, PropertyValue)>,
+    pub(super) vars: FxHashMap<Arc<str>, VarTokens>,
+    pub(super) properties: Vec<RulesetProperty>,
     pub(super) animations: Vec<(Arc<str>, AnimationOptions)>,
     pub(super) transitions: PropertiesHashMap<TransitionOptions>,
 }
@@ -329,6 +364,24 @@ impl StyleSheetSelector {
     }
 }
 
+/// Trait for resolving variable names to their associated [`VarTokens`].
+///
+/// A `VarResolver` is typically used during the dynamic evaluation of styles, where variable
+/// references (e.g., `var(--my-color)`) need to be resolved into their underlying token
+/// representations.
+///
+/// Implementors of this trait provide access to all known variable names, and can fetch the
+/// corresponding [`VarTokens`] for a specific variable name.
+///
+/// This trait is used internally by the style engine to support dynamic and scoped variables.
+pub(crate) trait VarResolver {
+    /// Returns a set of all variable names that can be resolved.
+    fn get_all_names(&self) -> FxHashSet<Arc<str>>;
+
+    /// Attempts to retrieve the [`VarTokens`] associated with a given variable name.
+    fn get_var_tokens(&self, var_name: &str) -> Option<&'_ VarTokens>;
+}
+
 impl crate::ToCss for StyleSheetSelector {
     fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
         match self {
@@ -341,7 +394,7 @@ impl crate::ToCss for StyleSheetSelector {
 
 /// Represents a collection of styles that can be applied to elements,
 /// storing rules for various style properties.
-#[derive(Debug, TypePath, Asset)]
+#[derive(TypePath, Asset)]
 pub struct StyleSheet {
     pub(super) rulesets: Vec<Ruleset>,
     pub(super) animation_keyframes:
@@ -359,16 +412,62 @@ impl StyleSheet {
         self.rulesets.get(id.0)
     }
 
-    pub(crate) fn get_property_values(
+    pub(crate) fn get_property_values<V: VarResolver>(
         &self,
         rules_sets: &[StyleSheetRulesetId],
-        output: &mut PropertiesMap<PropertyValue>,
+        property_registry: &PropertyRegistry,
+        var_resolver: &V,
+        output: &mut PropertyMap<PropertyValue>,
     ) {
         for ruleset_id in rules_sets {
             let ruleset = self.get(*ruleset_id).unwrap();
 
-            for &(property, ref value) in ruleset.properties.iter() {
-                output.set_if_neq(property, value.clone());
+            for property in ruleset.properties.iter() {
+                match property {
+                    RulesetProperty::Specific { property_id, value } => {
+                        output.set_if_neq(*property_id, value.clone());
+                    }
+                    RulesetProperty::Dynamic {
+                        css_name,
+                        parser,
+                        tokens,
+                    } => {
+                        let tokens_resolved = match tokens
+                            .resolve_recursively(|var_name| var_resolver.get_var_tokens(var_name))
+                        {
+                            Ok(v) => v,
+                            Err(err) => {
+                                let extra_message =
+                                    if matches!(err, ResolveTokensError::UnknownVarName(_)) {
+                                        format!(
+                                            "\nAvailable variables are {:#?}",
+                                            var_resolver.get_all_names()
+                                        )
+                                    } else {
+                                        Default::default()
+                                    };
+                                error!(
+                                    "Property '{css_name}' cannot cannot be parsed because var tokens cannot be resolved: {err}{extra_message}"
+                                );
+                                continue;
+                            }
+                        };
+                        match parser(&tokens_resolved) {
+                            Ok(values) => {
+                                for (property_ref, value) in values {
+                                    let property_id = property_registry
+                                        .resolve(&property_ref)
+                                        .expect("Error resolving dynamic property");
+                                    output.set_if_neq(property_id, value);
+                                }
+                            }
+                            Err(err) => {
+                                dbg!(tokens_resolved);
+                                error!("Property '{css_name}' cannot parse var tokens:\n{err}");
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -387,6 +486,24 @@ impl StyleSheet {
                     .transitions
                     .iter()
                     .map(|(property, options)| (*property, options.clone())),
+            );
+        }
+        result
+    }
+
+    pub(crate) fn get_vars(
+        &self,
+        rules_sets: &[StyleSheetRulesetId],
+    ) -> FxHashMap<VarName, VarTokens> {
+        let mut result = FxHashMap::default();
+
+        for ruleset_id in rules_sets {
+            let ruleset = self.get(*ruleset_id).unwrap();
+            result.extend(
+                ruleset
+                    .vars
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone())),
             );
         }
         result
@@ -442,9 +559,9 @@ mod tests {
 
     const TEST_PROPERTY: &str = "test-property";
 
-    static PROPERTIES_REGISTRY: LazyLock<PropertiesRegistry> = LazyLock::new(|| {
-        let mut registry = PropertiesRegistry::default();
-        registry.register_with_css_name(
+    static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
+        let mut registry = PropertyRegistry::default();
+        registry.register_with_css(
             TEST_PROPERTY,
             ComponentProperty::new::<TestComponent>("value"),
             PropertyValue::None,
@@ -454,7 +571,7 @@ mod tests {
 
     macro_rules! resolve {
         ($p:expr) => {{
-            PROPERTIES_REGISTRY
+            PROPERTY_REGISTRY
                 .resolve(&ComponentPropertyRef::CssName($p.into()))
                 .unwrap_or_else(|e| panic!("{e}"))
         }};
@@ -469,25 +586,42 @@ mod tests {
         };
     }
 
-    macro_rules! properties_map {
+    macro_rules! property_map {
         () => {
-            PROPERTIES_REGISTRY.get_default_values()
+            PROPERTY_REGISTRY.get_default_values()
         };
         ($($k:expr => $v:expr),* $(,)?) => {{
-            let mut properties_map = PROPERTIES_REGISTRY.get_default_values();
-            properties_map.extend([$((
+            let mut property_map = PROPERTY_REGISTRY.get_default_values();
+            property_map.extend([$((
                 resolve!($k),
                 $v
             ),)*]);
-            properties_map
+            property_map
         }};
+    }
+
+    struct NoVarsSupportedResolver;
+
+    impl VarResolver for NoVarsSupportedResolver {
+        fn get_all_names(&self) -> FxHashSet<Arc<str>> {
+            panic!("No vars support on tests")
+        }
+
+        fn get_var_tokens(&self, _var_name: &str) -> Option<&'_ VarTokens> {
+            panic!("No vars support on tests")
+        }
     }
 
     macro_rules! get_properties {
         ($style_sheet:expr, $rules:expr) => {{
-            let mut properties_map = PROPERTIES_REGISTRY.get_default_values();
-            $style_sheet.get_property_values($rules, &mut properties_map);
-            properties_map
+            let mut property_map = PROPERTY_REGISTRY.get_default_values();
+            $style_sheet.get_property_values(
+                $rules,
+                &PROPERTY_REGISTRY,
+                &NoVarsSupportedResolver,
+                &mut property_map,
+            );
+            property_map
         }};
     }
 
@@ -555,7 +689,7 @@ mod tests {
             .with_properties([(TEST_PROPERTY, 0f32)])
             .id();
 
-        let style_sheet = builder.build_without_loader(&PROPERTIES_REGISTRY).unwrap();
+        let style_sheet = builder.build_without_loader(&PROPERTY_REGISTRY).unwrap();
 
         assert_eq!(
             style_sheet.get_matching_ruleset_ids_for_element(element!(Text)),
@@ -582,7 +716,7 @@ mod tests {
 
         assert_eq!(
             get_properties!(style_sheet, &[rule_any_id, rule_class_id]),
-            properties_map! { TEST_PROPERTY => ReflectValue::Float(2.0) }
+            property_map! { TEST_PROPERTY => ReflectValue::Float(2.0) }
         );
 
         assert_eq!(
@@ -595,7 +729,7 @@ mod tests {
                     rule_with_name_id
                 ]
             ),
-            properties_map! { TEST_PROPERTY => ReflectValue::Float(4.0) }
+            property_map! { TEST_PROPERTY => ReflectValue::Float(4.0) }
         );
 
         assert_eq!(

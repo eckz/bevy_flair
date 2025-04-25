@@ -24,9 +24,7 @@ Scene(
     ),
     4294967297: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967296,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: Some(4294967298),
@@ -37,9 +35,7 @@ Scene(
     ),
     4294967298: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967296,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: Some(4294967299),
@@ -50,9 +46,7 @@ Scene(
     ),
     4294967299: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(
-          parent: 4294967296,
-        ),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967296),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: None,

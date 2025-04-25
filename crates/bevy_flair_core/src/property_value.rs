@@ -1,21 +1,38 @@
 use crate::ReflectValue;
-use bevy::prelude::Reflect;
-use std::sync::Arc;
+use bevy::reflect::Reflect;
+use std::fmt::Debug;
 
 /// Generic property value that can be used to represent a value that can be inherited,
 /// set to a specific value, or reference a var.
-#[derive(Debug, Clone, PartialEq, Reflect)]
+#[derive(Clone)]
 pub enum PropertyValue<T = ReflectValue> {
     /// No value is set
     None,
-    /// Unset value (Uses default value, which would be None or Inherit)
-    Unset,
     /// Inherits from parent
     Inherit,
-    /// References a --var value
-    Var(Arc<str>),
     /// Specific Value
     Value(T),
+}
+
+impl<T: PartialEq> PartialEq for PropertyValue<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PropertyValue::None, PropertyValue::None) => true,
+            (PropertyValue::Inherit, PropertyValue::Inherit) => true,
+            (PropertyValue::Value(left), PropertyValue::Value(right)) => left == right,
+            _ => false,
+        }
+    }
+}
+
+impl<T: Debug> Debug for PropertyValue<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PropertyValue::None => f.debug_tuple("None").finish(),
+            PropertyValue::Inherit => f.debug_tuple("Inherit").finish(),
+            PropertyValue::Value(v) => f.debug_tuple("Value").field(v).finish(),
+        }
+    }
 }
 
 impl<T> PropertyValue<T> {
@@ -23,9 +40,7 @@ impl<T> PropertyValue<T> {
     pub fn as_ref(&self) -> PropertyValue<&T> {
         match self {
             PropertyValue::None => PropertyValue::None,
-            PropertyValue::Unset => PropertyValue::Unset,
             PropertyValue::Inherit => PropertyValue::Inherit,
-            PropertyValue::Var(var) => PropertyValue::Var(var.clone()),
             PropertyValue::Value(value) => PropertyValue::Value(value),
         }
     }
@@ -34,9 +49,7 @@ impl<T> PropertyValue<T> {
     pub fn as_mut(&mut self) -> PropertyValue<&mut T> {
         match self {
             PropertyValue::None => PropertyValue::None,
-            PropertyValue::Unset => PropertyValue::Unset,
             PropertyValue::Inherit => PropertyValue::Inherit,
-            PropertyValue::Var(var) => PropertyValue::Var(var.clone()),
             PropertyValue::Value(value) => PropertyValue::Value(value),
         }
     }
@@ -45,53 +58,32 @@ impl<T> PropertyValue<T> {
     pub fn map<O>(self, f: impl FnOnce(T) -> O) -> PropertyValue<O> {
         match self {
             PropertyValue::None => PropertyValue::None,
-            PropertyValue::Unset => PropertyValue::Unset,
             PropertyValue::Inherit => PropertyValue::Inherit,
-            PropertyValue::Var(var) => PropertyValue::Var(var),
             PropertyValue::Value(value) => PropertyValue::Value(f(value)),
         }
     }
 
     /// Returns true if the property value is set to inherit from the parent values or vars
     pub fn inherits(&self) -> bool {
-        matches!(self, PropertyValue::Inherit | PropertyValue::Var(_))
+        matches!(self, PropertyValue::Inherit)
     }
 }
 
 impl PropertyValue {
     /// Converts the PropertyValue value into a [`ComputedValue`] when there is a parent to inherit from.
-    pub fn compute_with_parent(
-        &self,
-        // default_value: Option<&ComputedValue>,
-        parent_computed_value: &ComputedValue,
-    ) -> ComputedValue {
+    pub fn compute_with_parent(&self, parent_computed_value: &ComputedValue) -> ComputedValue {
         match self {
             PropertyValue::None => ComputedValue::None,
-            PropertyValue::Unset => {
-                todo!("unset")
-            }
             PropertyValue::Inherit => parent_computed_value.clone(),
-            PropertyValue::Var(_) => {
-                todo!("vars")
-            }
             PropertyValue::Value(value) => ComputedValue::Value(value.clone()),
         }
     }
 
     /// Converts the PropertyValue value into a [`ComputedValue`] when the is not parent to inherit.
-    pub fn compute_root_value(
-        &self,
-        // default_value: Option<&ComputedValue>,
-    ) -> ComputedValue {
+    pub fn compute_root_value(&self) -> ComputedValue {
         match self {
             PropertyValue::None => ComputedValue::None,
-            PropertyValue::Unset => {
-                todo!("unset")
-            }
             PropertyValue::Inherit => ComputedValue::None,
-            PropertyValue::Var(_) => {
-                todo!("vars")
-            }
             PropertyValue::Value(value) => ComputedValue::Value(value.clone()),
         }
     }
@@ -104,7 +96,6 @@ impl From<ReflectValue> for PropertyValue {
 }
 
 /// Represents a value that have been computed.
-/// In g
 #[derive(Debug, Clone, PartialEq, Reflect)]
 pub enum ComputedValue {
     /// Unset value
@@ -132,6 +123,14 @@ impl ComputedValue {
         match self {
             x @ Self::Value(_) => x,
             Self::None => b,
+        }
+    }
+
+    /// Expects that a value is defined
+    pub fn expect(self, msg: &str) -> ReflectValue {
+        match self {
+            ComputedValue::Value(v) => v,
+            ComputedValue::None => panic!("{msg}"),
         }
     }
 }

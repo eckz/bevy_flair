@@ -1,7 +1,7 @@
 use crate::error::CssError;
 use crate::error_codes::grid as error_codes;
-use crate::reflect::ReflectParseCss;
-use crate::{Located, ParserExt};
+use crate::utils::parse_property_value_with;
+use crate::{Located, ParserExt, ReflectParseCss};
 use bevy::prelude::MinTrackSizingFunction;
 use bevy::reflect::{FromType, TypePath};
 use bevy::ui::{
@@ -358,19 +358,19 @@ fn parse_grid_placement(parser: &mut Parser) -> Result<ReflectValue, CssError> {
 
 impl FromType<Vec<GridTrack>> for ReflectParseCss {
     fn from_type() -> Self {
-        ReflectParseCss(parse_grid_track_vec)
+        ReflectParseCss(|parser| parse_property_value_with(parser, parse_grid_track_vec))
     }
 }
 
 impl FromType<Vec<RepeatedGridTrack>> for ReflectParseCss {
     fn from_type() -> Self {
-        ReflectParseCss(parse_repeated_grid_track_vec)
+        ReflectParseCss(|parser| parse_property_value_with(parser, parse_repeated_grid_track_vec))
     }
 }
 
 impl FromType<GridPlacement> for ReflectParseCss {
     fn from_type() -> Self {
-        ReflectParseCss(parse_grid_placement)
+        ReflectParseCss(|parser| parse_property_value_with(parser, parse_grid_placement))
     }
 }
 

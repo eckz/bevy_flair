@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 /// A type of Map that has a value for every possible property
 #[derive(Debug, Clone, PartialEq, Reflect)]
-pub struct PropertiesMap<T>(pub(crate) Arc<[T]>);
+pub struct PropertyMap<T>(pub(crate) Arc<[T]>);
 
-impl<T> PropertiesMap<T> {
+impl<T> PropertyMap<T> {
     /// Returns true if the map is empty and has no contents.
     /// This is generally true only when the map is first created using [`Default::default`].
     pub fn is_empty(&self) -> bool {
@@ -55,7 +55,7 @@ impl<T> PropertiesMap<T> {
     }
 }
 
-impl<T: PartialEq + Clone> PropertiesMap<T> {
+impl<T: PartialEq + Clone> PropertyMap<T> {
     /// Sets the value of a property if it is different from the current value.
     /// Returns true if the value was changed
     pub fn set_if_neq(&mut self, property_id: ComponentPropertyId, new: T) -> bool {
@@ -69,7 +69,7 @@ impl<T: PartialEq + Clone> PropertiesMap<T> {
     }
 }
 
-impl<E: Into<T>, T: Clone> Extend<(ComponentPropertyId, E)> for PropertiesMap<T> {
+impl<E: Into<T>, T: Clone> Extend<(ComponentPropertyId, E)> for PropertyMap<T> {
     fn extend<I: IntoIterator<Item = (ComponentPropertyId, E)>>(&mut self, iter: I) {
         for (id, value) in iter {
             self[id] = value.into();
@@ -77,13 +77,13 @@ impl<E: Into<T>, T: Clone> Extend<(ComponentPropertyId, E)> for PropertiesMap<T>
     }
 }
 
-impl<T> Default for PropertiesMap<T> {
+impl<T> Default for PropertyMap<T> {
     fn default() -> Self {
-        PropertiesMap(Default::default())
+        PropertyMap(Default::default())
     }
 }
 
-impl<T> Index<ComponentPropertyId> for PropertiesMap<T> {
+impl<T> Index<ComponentPropertyId> for PropertyMap<T> {
     type Output = T;
     fn index(&self, index: ComponentPropertyId) -> &Self::Output {
         let index: usize = index.into();
@@ -91,14 +91,14 @@ impl<T> Index<ComponentPropertyId> for PropertiesMap<T> {
     }
 }
 
-impl<T: Clone> IndexMut<ComponentPropertyId> for PropertiesMap<T> {
+impl<T: Clone> IndexMut<ComponentPropertyId> for PropertyMap<T> {
     fn index_mut(&mut self, index: ComponentPropertyId) -> &mut Self::Output {
         let index: usize = index.into();
         &mut Arc::make_mut(&mut self.0)[index]
     }
 }
 
-impl<'a, T> IntoIterator for &'a PropertiesMap<T> {
+impl<'a, T> IntoIterator for &'a PropertyMap<T> {
     type Item = (ComponentPropertyId, &'a T);
 
     type IntoIter = Iter<'a, T>;
@@ -108,7 +108,7 @@ impl<'a, T> IntoIterator for &'a PropertiesMap<T> {
     }
 }
 
-/// An iterator over the properties of a [`PropertiesMap`]
+/// An iterator over the properties of a [`PropertyMap`]
 pub struct Iter<'a, T> {
     inner: core::iter::Enumerate<core::slice::Iter<'a, T>>,
 }
@@ -161,7 +161,7 @@ impl<T> ExactSizeIterator for Iter<'_, T> {
     }
 }
 
-/// Lazy mutable proxy for an index in a [`PropertiesMap`].
+/// Lazy mutable proxy for an index in a [`PropertyMap`].
 /// If [`DerefMut`] or [`PropertyMut::set_if_neq`] are not called, the internal [`Arc`] would not
 /// necessarily be cloned.
 pub struct PropertyMut<'a, T> {
@@ -194,7 +194,7 @@ impl<T> Deref for PropertyMut<'_, T> {
     }
 }
 
-/// Mutable iterator over pairs of [`ComponentPropertyId`]  and [`PropertiesMap`].
+/// Mutable iterator over pairs of [`ComponentPropertyId`]  and [`PropertyMap`].
 /// It does not clone the values of the internal [`Arc`] unless there is a real mutation.
 pub struct IterMut<'a, T> {
     _marker: PhantomData<&'a mut Arc<[T]>>,
@@ -234,7 +234,7 @@ impl<T> ExactSizeIterator for IterMut<'_, T> {
     }
 }
 
-/// Mutable iterator over values of a [`PropertiesMap`].
+/// Mutable iterator over values of a [`PropertyMap`].
 /// It does not clone the values of the internal [`Arc`] unless there is a real mutation.
 pub struct IterValuesMut<'a, T> {
     inner: IterMut<'a, T>,
@@ -265,21 +265,21 @@ mod tests {
 
     macro_rules! create_map {
         ($($v:expr),* $(,)?) => {
-            PropertiesMap([$($v),*].into_iter().collect())
+            PropertyMap([$($v),*].into_iter().collect())
         };
     }
 
     #[test]
     fn default_points_to_the_same_place() {
-        let map_a: PropertiesMap<ComputedValue> = Default::default();
-        let map_b: PropertiesMap<ComputedValue> = Default::default();
+        let map_a: PropertyMap<ComputedValue> = Default::default();
+        let map_b: PropertyMap<ComputedValue> = Default::default();
 
         assert!(map_a.ptr_eq(&map_b));
     }
 
     #[test]
-    fn properties_map() {
-        let original_map: PropertiesMap<i32> = create_map![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    fn property_map() {
+        let original_map: PropertyMap<i32> = create_map![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let mut map = original_map.clone();
 
         assert_eq!(map, original_map);

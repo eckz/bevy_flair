@@ -156,7 +156,7 @@ impl Element for ElementRef<'_> {
     }
 
     fn parent_element(&self) -> Option<Self> {
-        let parent = self.queries.parent_query.get(self.entity).ok()?.parent;
+        let parent = self.queries.parent_query.get(self.entity).ok()?.parent();
         Self::related_new(
             parent,
             self.queries,

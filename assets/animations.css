@@ -59,8 +59,7 @@
     position: absolute;
     width: 20vw;
     height: 20vh;
-    border: 4px;
-    border-color: black;
+    border: 4px black;
 }
 
 .box:nth-child(1) {

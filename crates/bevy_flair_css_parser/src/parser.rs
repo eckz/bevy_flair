@@ -4,29 +4,28 @@ use std::cell::RefCell;
 use cssparser::*;
 
 use crate::error::CssError;
-use crate::error_codes;
-use crate::reflect::{ParseFn, ReflectParseCss, ReflectParseCssEnum};
-use crate::utils::parse_property_value_with;
-use crate::{CssParseResult, ParserExt};
+use crate::reflect::ReflectParseCssEnum;
+use crate::vars::parse_var_tokens;
+use crate::{CssParseResult, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
+use crate::{ReflectParseCss, error_codes};
 use bevy::math::Vec2;
 use bevy::reflect::TypeRegistry;
-use bevy_flair_core::{
-    ComponentPropertyId, PropertiesRegistry, PropertyValue, ReflectBreakIntoSubProperties,
-};
+use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyRegistry, PropertyValue};
 use bevy_flair_style::animations::{
     AnimationDirection, AnimationOptions, EasingFunction, IterationCount, StepPosition,
     TransitionOptions,
 };
-use either::Either;
+use bevy_flair_style::{DynamicParseVarTokens, VarTokens};
 use rustc_hash::FxHashSet;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CssTransitionProperty {
-    pub property: ComponentPropertyId,
+    pub properties: Vec<ComponentPropertyRef>,
     pub options: TransitionOptions,
 }
 
@@ -36,9 +35,12 @@ pub struct CssAnimation {
     pub options: AnimationOptions,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, derive_more::Debug)]
 pub enum CssRulesetProperty {
     SingleProperty(ComponentPropertyId, PropertyValue),
+    MultipleProperties(Vec<(ComponentPropertyId, PropertyValue)>),
+    DynamicProperty(Arc<str>, #[debug(skip)] DynamicParseVarTokens, VarTokens),
+    Var(Arc<str>, VarTokens),
     Transitions(Vec<CssParseResult<CssTransitionProperty>>),
     Animations(Vec<CssParseResult<CssAnimation>>),
     NestedRuleset(CssRuleset),
@@ -147,9 +149,16 @@ fn parse_duration(parser: &mut Parser) -> Result<Duration, CssError> {
 
     Ok(match &*next {
         Token::Dimension { value, unit, .. }
-            if *value > 0.001 && unit.as_ref().eq_ignore_ascii_case("s") =>
+            if *value >= 0.001 && unit.as_ref().eq_ignore_ascii_case("s") =>
         {
             Duration::from_secs_f32(*value)
+        }
+        Token::Dimension {
+            int_value: Some(int_value),
+            unit,
+            ..
+        } if *int_value >= 0 && unit.as_ref().eq_ignore_ascii_case("ms") => {
+            Duration::from_millis(*int_value as u64)
         }
         _ => {
             return Err(CssError::new_located(
@@ -475,21 +484,30 @@ fn parse_single_animation(
 struct CssParserContext<'a, 'i> {
     pub declared_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
     pub type_registry: &'a TypeRegistry,
-    pub properties_registry: &'a PropertiesRegistry,
+    pub property_registry: &'a PropertyRegistry,
+    pub shorthand_property_registry: &'a ShorthandPropertyRegistry,
 }
 
 impl CssParserContext<'_, '_> {
-    fn get_css_property(&self, name: &str) -> Option<ComponentPropertyId> {
-        self.properties_registry.get_property_id_by_css_name(name)
+    fn get_shorthand_css(&self, css_name: &str) -> Option<&ShorthandProperty> {
+        self.shorthand_property_registry.get_property(css_name)
     }
 
-    fn get_parse_fn(&self, type_path: &'static str) -> Option<ParseFn> {
+    fn get_css_property(&self, css_name: &str) -> Option<ComponentPropertyId> {
+        self.property_registry.get_property_id_by_css_name(css_name)
+    }
+
+    fn get_reflect_parse_css(&self, type_path: &'static str) -> Option<ReflectParseCss> {
         let type_registry = self.type_registry.get_with_type_path(type_path)?;
 
         type_registry
             .data::<ReflectParseCss>()
-            .map(|rp| rp.0)
-            .or_else(|| type_registry.data::<ReflectParseCssEnum>().map(|rpe| rpe.0))
+            .copied()
+            .or_else(|| {
+                type_registry
+                    .data::<ReflectParseCssEnum>()
+                    .map(|rpe| (*rpe).into())
+            })
     }
 
     fn parse_single_property_transition(
@@ -498,7 +516,11 @@ impl CssParserContext<'_, '_> {
     ) -> Result<CssTransitionProperty, CssError> {
         let property_name = parser.expect_located_ident()?;
 
-        let Some(property) = self.get_css_property(&property_name) else {
+        let properties = if let Some(shorthand_property) = self.get_shorthand_css(&property_name) {
+            shorthand_property.sub_properties.clone()
+        } else if let Some(property_id) = self.get_css_property(&property_name) {
+            vec![ComponentPropertyRef::Id(property_id)]
+        } else {
             return Err(CssError::new_located(
                 &property_name,
                 error_codes::basic::PROPERTY_NOT_RECOGNIZED,
@@ -508,81 +530,10 @@ impl CssParserContext<'_, '_> {
 
         let options = parse_transition_options(parser)?;
 
-        Ok(CssTransitionProperty { property, options })
-    }
-
-    fn break_transitions_into_sub_properties(
-        &self,
-        transitions: Vec<Result<CssTransitionProperty, CssError>>,
-    ) -> Vec<Result<CssTransitionProperty, CssError>> {
-        transitions.into_iter()
-            .flat_map(|result| {
-                match result {
-                    Ok(transition) => {
-                        let property = self.properties_registry.get_property(transition.property);
-                        match property.sub_properties() {
-                            None => {
-                                Either::Left([Ok(transition)])
-                            }
-                            Some(sub_properties) => {
-                                let options = transition.options;
-
-                                let sub_properties_transitions = sub_properties.into_iter().map(|sub_property_ref| {
-                                    let property = self.properties_registry.resolve(&sub_property_ref).unwrap_or_else(|err| {
-                                        panic!("Sub property {sub_property_ref:?} does not exists: {err}") }
-                                    );
-                                    Ok(CssTransitionProperty {
-                                        property,
-                                        options: options.clone()
-                                    })
-                                }).collect::<Vec<_>>();
-                                Either::Right(sub_properties_transitions)
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        Either::Left([Err(err)])
-                    }
-                }.into_iter()
-            }).collect()
-    }
-
-    fn break_ruleset_properties_into_sub_properties(
-        &self,
-        properties: Vec<CssRulesetProperty>,
-    ) -> Vec<CssRulesetProperty> {
-        properties.into_iter().flat_map(|ruleset_property| {
-            match ruleset_property {
-                CssRulesetProperty::SingleProperty(property_id, value) => {
-                    let property = self.properties_registry.get_property(property_id);
-                    let value_type_id = property.value_type_info().type_id();
-                    match self.type_registry.get_type_data::<ReflectBreakIntoSubProperties>(value_type_id) {
-                        Some(reflect_break_into_sub_properties) => {
-                            let sub_properties = reflect_break_into_sub_properties.break_into_sub_properties(
-                                property,
-                                value,
-                                self.type_registry,
-                            );
-                            let sub_properties = sub_properties.into_iter()
-                                .map(|(sub_property_ref, value)| {
-                                    let property_id = self.properties_registry.resolve(&sub_property_ref).unwrap_or_else(|err| {
-                                        panic!("Sub property {sub_property_ref:?} does not exists: {err}");
-                                    });
-                                    CssRulesetProperty::SingleProperty(property_id, value)
-                                }).collect::<Vec<_>>();
-
-                            Either::Right(sub_properties)
-                        }
-                        None => {
-                            Either::Left([CssRulesetProperty::SingleProperty(property_id, value)])
-                        }
-                    }
-                }
-                other => {
-                    Either::Left([other])
-                }
-            }.into_iter()
-        }).collect()
+        Ok(CssTransitionProperty {
+            properties,
+            options,
+        })
     }
 
     fn parse_ruleset_property(
@@ -590,6 +541,45 @@ impl CssParserContext<'_, '_> {
         property_name: CowRcStr,
         parser: &mut Parser,
     ) -> CssRulesetProperty {
+        if let Some(shorthand_property) = self.get_shorthand_css(&property_name) {
+            let initial_state = parser.state();
+            parser.look_for_var_or_env_functions();
+
+            let result = parser.parse_entirely(|parser| {
+                (shorthand_property.parse_fn)(parser).map_err(|error| error.into_parse_error())
+            });
+
+            let seen_var_or_env_functions = parser.seen_var_or_env_functions();
+
+            return match result {
+                Ok(properties) => CssRulesetProperty::MultipleProperties(
+                    properties
+                        .into_iter()
+                        .map(|(property, value)| {
+                            (self.property_registry.resolve(&property).unwrap(), value)
+                        })
+                        .collect(),
+                ),
+                Err(_) if seen_var_or_env_functions => {
+                    parser.reset(&initial_state);
+
+                    let result = parser.parse_entirely(|parser| {
+                        parse_var_tokens(parser).map_err(|error| error.into_parse_error())
+                    });
+
+                    match result {
+                        Ok(var_tokens) => CssRulesetProperty::DynamicProperty(
+                            shorthand_property.css_name.as_ref().into(),
+                            shorthand_property.as_dynamic_parse_var_tokens(),
+                            var_tokens,
+                        ),
+                        Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+                    }
+                }
+                Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+            };
+        }
+
         let Some(property_id) = self.get_css_property(&property_name) else {
             return CssRulesetProperty::Error(CssError::new_unlocated(
                 error_codes::basic::PROPERTY_NOT_RECOGNIZED,
@@ -597,10 +587,10 @@ impl CssParserContext<'_, '_> {
             ));
         };
 
-        let property = self.properties_registry.get_property(property_id);
+        let property = self.property_registry.get_property(property_id);
         let value_type_path = property.value_type_info().type_path();
 
-        let Some(parse_fn) = self.get_parse_fn(value_type_path) else {
+        let Some(reflect_parse_css) = self.get_reflect_parse_css(value_type_path) else {
             return CssRulesetProperty::Error(CssError::new_unlocated(
                 error_codes::basic::NON_PARSEABLE_TYPE,
                 format!(
@@ -608,13 +598,33 @@ impl CssParserContext<'_, '_> {
                 ),
             ));
         };
+        let initial_state = parser.state();
+        parser.look_for_var_or_env_functions();
 
-        let result = parser.parse_entirely(|parser| {
-            parse_property_value_with(parser, parse_fn).map_err(|error| error.into_parse_error())
-        });
+        let parse_fn = reflect_parse_css.parse_fn();
+        let result = parser
+            .parse_entirely(|parser| parse_fn(parser).map_err(|error| error.into_parse_error()));
+
+        let seen_var_or_env_functions = parser.seen_var_or_env_functions();
 
         match result {
             Ok(dv) => CssRulesetProperty::SingleProperty(property_id, dv),
+            Err(_) if seen_var_or_env_functions => {
+                parser.reset(&initial_state);
+
+                let result = parser.parse_entirely(|parser| {
+                    parse_var_tokens(parser).map_err(|error| error.into_parse_error())
+                });
+
+                match result {
+                    Ok(var_tokens) => CssRulesetProperty::DynamicProperty(
+                        property_name.as_ref().into(),
+                        reflect_parse_css.as_dynamic_parse_var_tokens(property_id),
+                        var_tokens,
+                    ),
+                    Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+                }
+            }
             Err(err) => CssRulesetProperty::Error(CssError::from(err)),
         }
     }
@@ -714,10 +724,6 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
         let properties = collect_parser(body_parser);
 
-        let properties = self
-            .inner
-            .break_ruleset_properties_into_sub_properties(properties);
-
         Ok(CssRulesetProperty::NestedRuleset(CssRuleset {
             selectors,
             properties,
@@ -733,8 +739,20 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
         &mut self,
         property_name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
+        _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
-        if self.parse_transition && property_name.eq_ignore_ascii_case("transition") {
+        if property_name.starts_with("--") {
+            let var_name = property_name.strip_prefix("--").unwrap();
+
+            let result = input.parse_entirely(|parser| {
+                parse_var_tokens(parser).map_err(|err| err.into_parse_error())
+            });
+
+            Ok(match result {
+                Ok(value) => CssRulesetProperty::Var(var_name.into(), value),
+                Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+            })
+        } else if self.parse_transition && property_name.eq_ignore_ascii_case("transition") {
             let transitions: Vec<_> =
                 input.parse_comma_separated_ignoring_errors::<_, _, ()>(|parser| {
                     let result = self.inner.parse_single_property_transition(parser);
@@ -745,9 +763,6 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     }
                     Ok(result)
                 });
-            let transitions = self
-                .inner
-                .break_transitions_into_sub_properties(transitions);
 
             debug_assert!(!transitions.is_empty());
             Ok(CssRulesetProperty::Transitions(transitions))
@@ -807,6 +822,7 @@ impl<'i> DeclarationParser<'i> for CssFontFaceBodyParser<'_, 'i> {
         &mut self,
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
+        _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
         self.inner
             .parse_font_face_property(name, input)
@@ -884,10 +900,6 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
 
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
         let properties = collect_parser(body_parser);
-
-        let properties = self
-            .inner
-            .break_ruleset_properties_into_sub_properties(properties);
 
         Ok(AnimationKeyFrame::Valid { times, properties })
     }
@@ -1042,10 +1054,6 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
         let properties = collect_parser(body_parser);
 
-        let properties = self
-            .inner
-            .break_ruleset_properties_into_sub_properties(properties);
-
         Ok(CssStyleSheetItem::RuleSet(CssRuleset {
             selectors,
             properties,
@@ -1055,7 +1063,8 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
 
 pub fn parse_css<F>(
     type_registry: &TypeRegistry,
-    properties_registry: &PropertiesRegistry,
+    property_registry: &PropertyRegistry,
+    shorthand_property_registry: &ShorthandPropertyRegistry,
     contents: &str,
     mut processor: F,
 ) where
@@ -1068,7 +1077,8 @@ pub fn parse_css<F>(
         inner: CssParserContext {
             declared_animations: Default::default(),
             type_registry,
-            properties_registry,
+            property_registry,
+            shorthand_property_registry,
         },
     };
 
@@ -1087,9 +1097,11 @@ pub fn parse_css<F>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::parse_property_value_with;
     use bevy::prelude::Component;
     use bevy::reflect::*;
     use bevy_flair_core::*;
+    use bevy_flair_style::{VarOrToken, VarToken};
     use indoc::indoc;
     use std::sync::LazyLock;
 
@@ -1114,7 +1126,11 @@ mod tests {
 
     impl FromType<i32> for ReflectParseCss {
         fn from_type() -> Self {
-            ReflectParseCss(|parser| Ok(ReflectValue::new(parser.expect_integer()?)))
+            Self(|parser| {
+                parse_property_value_with(parser, |parser| {
+                    Ok(ReflectValue::new(parser.expect_integer()?))
+                })
+            })
         }
     }
 
@@ -1126,19 +1142,19 @@ mod tests {
         registry
     }
 
-    fn properties_registry() -> PropertiesRegistry {
-        let mut registry = PropertiesRegistry::default();
-        registry.register_with_css_name(
+    fn property_registry() -> PropertyRegistry {
+        let mut registry = PropertyRegistry::default();
+        registry.register_with_css(
             "width",
             ComponentProperty::new::<TestComponent>("width"),
             PropertyValue::None,
         );
-        registry.register_with_css_name(
+        registry.register_with_css(
             "height",
             ComponentProperty::new::<TestComponent>("height"),
             PropertyValue::None,
         );
-        registry.register_with_css_name(
+        registry.register_with_css(
             "property-enum",
             ComponentProperty::new::<TestComponent>("property_enum"),
             PropertyValue::None,
@@ -1146,7 +1162,9 @@ mod tests {
         registry
     }
 
-    static PROPERTIES_REGISTRY: LazyLock<PropertiesRegistry> = LazyLock::new(properties_registry);
+    static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(property_registry);
+    static SHORTHAND_PROPERTY_REGISTRY: LazyLock<ShorthandPropertyRegistry> =
+        LazyLock::new(ShorthandPropertyRegistry::default);
 
     macro_rules! into_report {
         ($error:expr, $contents:expr) => {{
@@ -1164,16 +1182,22 @@ mod tests {
         let mut items = Vec::new();
         let type_registry = type_registry();
 
-        parse_css(&type_registry, &PROPERTIES_REGISTRY, contents, |item| {
-            let item = match item {
-                CssStyleSheetItem::Error(error) => {
-                    panic!("{}", into_report!(error, contents));
-                }
-                item => item,
-            };
+        parse_css(
+            &type_registry,
+            &PROPERTY_REGISTRY,
+            &SHORTHAND_PROPERTY_REGISTRY,
+            contents,
+            |item| {
+                let item = match item {
+                    CssStyleSheetItem::Error(error) => {
+                        panic!("{}", into_report!(error, contents));
+                    }
+                    item => item,
+                };
 
-            items.push(item);
-        });
+                items.push(item);
+            },
+        );
 
         items
     }
@@ -1290,7 +1314,7 @@ mod tests {
 
     macro_rules! expect_property_name {
         ($property:expr, $property_name:literal) => {{
-            let expected_property_id = PROPERTIES_REGISTRY
+            let expected_property_id = PROPERTY_REGISTRY
                 .get_property_id_by_css_name($property_name)
                 .expect("Invalid property_name provided");
 
@@ -1306,8 +1330,47 @@ mod tests {
                 CssRulesetProperty::Error(error) => {
                     panic!("{}", error.into_context_less_report());
                 }
-                _ => {
-                    panic!("Not valid nor error");
+                other => {
+                    panic!("Not valid single property nor error. Got: {other:?}");
+                }
+            }
+        }};
+    }
+
+    macro_rules! expect_dynamic_property_name {
+        ($property:expr, $property_name:literal, { $($k:expr => $v:expr),* $(,)? }) => {{
+            let expected_property_id = PROPERTY_REGISTRY
+                .get_property_id_by_css_name($property_name)
+                .expect("Invalid property_name provided");
+
+            match $property {
+                CssRulesetProperty::DynamicProperty(_, parser, tokens) => {
+                    let vars = rustc_hash::FxHashMap::from_iter([$((
+                        $k,
+                        crate::testing::parse_content_with(&$v, crate::vars::parse_var_tokens)
+                    ),)*]);
+
+                    let resolved_tokens = tokens.resolve_recursively(|var_name| {
+                        vars.get(var_name)
+                    }).expect("Could not resolve tokens");
+
+                    let parsed = parser(&resolved_tokens).expect("Could not parse dynamically");
+
+                    let (id_ref, value) = parsed.expect_one();
+                    let id = PROPERTY_REGISTRY.resolve(&id_ref).expect("Invalid id reference");
+
+                    assert_eq!(
+                        id, expected_property_id,
+                        "Property name is not '{}'",
+                        $property_name
+                    );
+                    value
+                }
+                CssRulesetProperty::Error(error) => {
+                    panic!("{}", error.into_context_less_report());
+                }
+                other => {
+                    panic!("Not valid dynamic property nor error. Got: {other:?}");
                 }
             }
         }};
@@ -1323,11 +1386,6 @@ mod tests {
             let property = $properties.expect_one();
             let value = expect_property_name!(property, $property_name);
             assert_eq!(value, PropertyValue::Unset);
-        }};
-        ($properties:expr, $property_name:literal, var($var_name:literal)) => {{
-            let property = $properties.expect_one();
-            let value = expect_property_name!(property, $property_name);
-            assert_eq!(value, PropertyValue::Var($var_name.into()));
         }};
         ($properties:expr, $property_name:literal, $expected:literal) => {{
             let property = $properties.expect_one();
@@ -1387,19 +1445,10 @@ mod tests {
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
         assert_single_property!(ruleset.properties, "height", inherit);
-
-        let contents = r#"
-            .rule1 { height: unset; }
-        "#;
-
-        let items = parse(contents);
-        let ruleset = items.expect_one_rule_set();
-        assert_single_class_selector!(ruleset, "rule1");
-        assert_single_property!(ruleset.properties, "height", unset);
     }
 
     #[test]
-    fn property_access_var() {
+    fn property_with_var_tokens() {
         let contents = r#"
             .rule1 { width: var(--some-var); }
         "#;
@@ -1407,7 +1456,80 @@ mod tests {
         let items = parse(contents);
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
-        assert_single_property!(ruleset.properties, "width", var("some-var"));
+        let property = ruleset.properties.expect_one();
+        let value = expect_dynamic_property_name!(property, "width", { "some-var" => "4" });
+        assert_eq!(value, PropertyValue::Value(ReflectValue::new(4)));
+    }
+
+    macro_rules! assert_var_tokens {
+        ($property:ident, $name:literal, $tokens:expr) => {{
+            let CssRulesetProperty::Var(var_name, tokens) = $property else {
+                panic!("Expected Var value. Found {:?}", $property);
+            };
+
+            assert_eq!(var_name.as_ref(), $name);
+            assert_eq!(tokens.as_slice(), &$tokens);
+        }};
+    }
+
+    #[test]
+    fn define_vars() {
+        let contents = r#"
+            .rule1 {
+                --some-var: value;
+            }
+        "#;
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        assert_single_class_selector!(ruleset, "rule1");
+        let var_property = ruleset.properties.expect_one();
+        assert_var_tokens!(
+            var_property,
+            "some-var",
+            [VarOrToken::Token(VarToken::Ident("value".into()))]
+        );
+    }
+
+    #[test]
+    fn complex_vars() {
+        let contents = r#"
+            .colors {
+              --some-val: 16px;
+              --some-color: oklch(0.1 0.2 250.0);
+              --other-color: var(--some-color);
+            }
+        "#;
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        assert_single_class_selector!(ruleset, "colors");
+
+        let [some_val, some_color, other_color] = ruleset.properties.expect_n();
+        assert_var_tokens!(
+            some_val,
+            "some-val",
+            [VarOrToken::Token(VarToken::Dimension {
+                value: 16.0,
+                unit: "px".into()
+            })]
+        );
+        assert_var_tokens!(
+            some_color,
+            "some-color",
+            [
+                VarOrToken::Token(VarToken::Function("oklch".into())),
+                VarOrToken::Token(VarToken::Number(0.1)),
+                VarOrToken::Token(VarToken::Number(0.2)),
+                VarOrToken::Token(VarToken::Number(250.0)),
+                VarOrToken::Token(VarToken::EndFunction),
+            ]
+        );
+        assert_var_tokens!(
+            other_color,
+            "other-color",
+            [VarOrToken::Var("some-color".into())]
+        );
     }
 
     #[test]
@@ -1428,7 +1550,7 @@ mod tests {
             panic!("Expected transition property");
         };
 
-        let width_property_id = PROPERTIES_REGISTRY
+        let width_property_id = PROPERTY_REGISTRY
             .get_property_id_by_css_name("width")
             .unwrap();
 
@@ -1437,7 +1559,7 @@ mod tests {
         assert_eq!(
             transition,
             CssTransitionProperty {
-                property: width_property_id,
+                properties: vec![width_property_id.into()],
                 options: TransitionOptions {
                     duration: Duration::from_secs(2),
                     ..Default::default()
@@ -1464,7 +1586,7 @@ mod tests {
             panic!("Expected transition property");
         };
 
-        let width_property_id = PROPERTIES_REGISTRY
+        let width_property_id = PROPERTY_REGISTRY
             .get_property_id_by_css_name("width")
             .unwrap();
 
@@ -1473,7 +1595,7 @@ mod tests {
         assert_eq!(
             transition,
             CssTransitionProperty {
-                property: width_property_id,
+                properties: vec![width_property_id.into()],
                 options: TransitionOptions {
                     duration: Duration::from_secs(3),
                     easing_function: EasingFunction::EaseInOut,
@@ -1501,11 +1623,11 @@ mod tests {
             panic!("Expected transition property");
         };
 
-        let width_property_id = PROPERTIES_REGISTRY
+        let width_property_id = PROPERTY_REGISTRY
             .get_property_id_by_css_name("width")
             .unwrap();
 
-        let height_property_id = PROPERTIES_REGISTRY
+        let height_property_id = PROPERTY_REGISTRY
             .get_property_id_by_css_name("height")
             .unwrap();
 
@@ -1517,7 +1639,7 @@ mod tests {
         assert_eq!(
             transition_width,
             CssTransitionProperty {
-                property: width_property_id,
+                properties: vec![width_property_id.into()],
                 options: TransitionOptions {
                     duration: Duration::from_secs(2),
                     easing_function: EasingFunction::EaseOut,
@@ -1529,7 +1651,7 @@ mod tests {
         assert_eq!(
             transition_height,
             CssTransitionProperty {
-                property: height_property_id,
+                properties: vec![height_property_id.into()],
                 options: TransitionOptions {
                     duration: Duration::from_secs(4),
                     easing_function: EasingFunction::Linear,
@@ -1557,7 +1679,7 @@ mod tests {
             panic!("Expected transition property");
         };
 
-        let height_property_id = PROPERTIES_REGISTRY
+        let height_property_id = PROPERTY_REGISTRY
             .get_property_id_by_css_name("height")
             .unwrap();
 
@@ -1584,7 +1706,7 @@ mod tests {
         assert_eq!(
             transition_height,
             CssTransitionProperty {
-                property: height_property_id,
+                properties: vec![height_property_id.into()],
                 options: TransitionOptions {
                     duration: Duration::from_secs(4),
                     easing_function: EasingFunction::Linear,

@@ -2,6 +2,7 @@ use crate::ParserExt;
 use crate::error::CssError;
 use crate::error_codes::enums as error_codes;
 use crate::reflect::ReflectParseCssEnum;
+use crate::utils::parse_property_value_with;
 use bevy::prelude::FromReflect;
 use bevy::reflect::{DynamicEnum, DynamicVariant, Enum, FromType, TypeInfo, Typed, VariantInfo};
 use bevy_flair_core::ReflectValue;
@@ -69,7 +70,7 @@ where
     T: FromReflect + Typed + Enum,
 {
     fn from_type() -> Self {
-        Self(parse_enum_value::<T>)
+        Self(|parser| parse_property_value_with(parser, parse_enum_value::<T>))
     }
 }
 
@@ -88,18 +89,14 @@ mod tests {
     #[test]
     fn test_enum() {
         assert_eq!(test_parse_enum::<CustomEnum>("aa"), CustomEnum::AA);
-
         assert_eq!(test_parse_enum::<CustomEnum>("bb"), CustomEnum::BB);
     }
 
     #[test]
     fn test_display() {
         assert_eq!(test_parse_enum::<Display>("none"), Display::None);
-
         assert_eq!(test_parse_enum::<Display>("block"), Display::Block);
-
         assert_eq!(test_parse_enum::<Display>("flex"), Display::Flex);
-
         assert_eq!(test_parse_enum::<Display>("grid"), Display::Grid);
     }
 }

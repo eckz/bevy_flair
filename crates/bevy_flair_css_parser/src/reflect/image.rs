@@ -1,11 +1,11 @@
 use bevy::reflect::FromType;
 use bevy::sprite::{BorderRect, TextureSlicer};
 
-use crate::ParserExt;
 use crate::error::CssError;
 use crate::error_codes::image as error_codes;
-use crate::reflect::ReflectParseCss;
 use crate::reflect::ui::{parse_f32, parse_four_values};
+use crate::utils::parse_property_value_with;
+use crate::{ParserExt, ReflectParseCss};
 use bevy::ui::widget::NodeImageMode;
 use bevy_flair_core::ReflectValue;
 use cssparser::{Parser, Token};
@@ -110,7 +110,11 @@ fn parse_image_mode(parser: &mut Parser) -> Result<NodeImageMode, CssError> {
 
 impl FromType<NodeImageMode> for ReflectParseCss {
     fn from_type() -> Self {
-        ReflectParseCss(|parser| parse_image_mode(parser).map(ReflectValue::new))
+        ReflectParseCss(|parser| {
+            parse_property_value_with(parser, |parser| {
+                parse_image_mode(parser).map(ReflectValue::new)
+            })
+        })
     }
 }
 
@@ -149,7 +153,7 @@ mod tests {
         ));
 
         let NodeImageMode::Sliced(slicer) = test_parse_css::<NodeImageMode>("sliced(20px)") else {
-            unreachable!("");
+            unreachable!();
         };
 
         assert_eq!(expected_slicer, slicer);

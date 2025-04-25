@@ -258,55 +258,79 @@ impl CssErrorCode {
 /// It contains handy [`From`] conversions, so it can be used with existing [`Parser`] methods like `Parser::expect_integer()?`
 ///
 /// [`Parser`]: cssparser::Parser
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CssError {
     data: StyleErrorData,
     location: CssErrorLocation,
+    #[cfg(test)]
+    pub(crate) backtrace: Box<std::backtrace::Backtrace>,
+}
+
+impl Clone for CssError {
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+            location: self.location.clone(),
+            #[cfg(test)]
+            backtrace: Box::new(std::backtrace::Backtrace::capture()),
+        }
+    }
 }
 
 impl CssError {
+    #[track_caller]
+    fn new(data: StyleErrorData, location: CssErrorLocation) -> Self {
+        Self {
+            data,
+            location,
+            #[cfg(test)]
+            backtrace: Box::new(std::backtrace::Backtrace::capture()),
+        }
+    }
+
     /// New error with specific location.
     /// This constructor is the preferred way to create a new error.
     ///
     /// Located items can be obtained using methods from [`ParserExt`] trait.
     ///
     /// [`ParserExt`]: crate::ParserExt
+    #[track_caller]
     pub fn new_located<T>(
         located: &Located<T>,
         code: CssErrorCode,
         annotated_message: impl Into<String>,
     ) -> Self {
-        Self {
-            data: StyleErrorData::new(code, annotated_message),
-            location: CssErrorLocation::Range(located.location.clone()),
-        }
+        Self::new(
+            StyleErrorData::new(code, annotated_message),
+            CssErrorLocation::Range(located.location.clone()),
+        )
     }
 
     /// New error where the location is unknown.
-    /// Is ok to construct errors this way when implementing [`crate::reflect::ReflectParseCss`],
+    /// Is ok to construct errors this way when implementing [`crate::reflect::LegacyReflectParseCss`],
     /// since the location will be automatically upgraded to the current line.
+    #[track_caller]
     pub fn new_unlocated(code: CssErrorCode, annotated_message: impl Into<String>) -> Self {
-        Self {
-            data: StyleErrorData::new(code, annotated_message),
-            location: CssErrorLocation::Unlocated,
-        }
+        Self::new(
+            StyleErrorData::new(code, annotated_message),
+            CssErrorLocation::Unlocated,
+        )
     }
 
     // Mainly used to convert from Selector errors.
+    #[track_caller]
     pub(crate) fn from_parse_error<E>(error: ParseError<E>) -> Self
     where
         E: Clone + Into<StyleErrorData>,
         (SourceLocation, E): Into<CssErrorLocation>,
     {
         match error.kind {
-            ParseErrorKind::Basic(basic) => Self {
-                data: basic.clone().into(),
-                location: (error.location, basic).into(),
-            },
-            ParseErrorKind::Custom(custom) => Self {
-                data: custom.clone().into(),
-                location: (error.location, custom).into(),
-            },
+            ParseErrorKind::Basic(basic) => {
+                Self::new(basic.clone().into(), (error.location, basic).into())
+            }
+            ParseErrorKind::Custom(custom) => {
+                Self::new(custom.clone().into(), (error.location, custom).into())
+            }
         }
     }
 
@@ -361,20 +385,20 @@ impl CssError {
 
 impl<'a> From<BasicParseError<'a>> for CssError {
     fn from(error: BasicParseError<'a>) -> Self {
-        Self {
-            data: error.kind.clone().into(),
-            location: (error.location, error.kind).into(),
-        }
+        Self::new(
+            error.kind.clone().into(),
+            (error.location, error.kind).into(),
+        )
     }
 }
 
 impl<'a> From<ParseError<'a, CssError>> for CssError {
     fn from(error: ParseError<'a, CssError>) -> Self {
         match error.kind {
-            ParseErrorKind::Basic(basic_kind) => Self {
-                data: basic_kind.clone().into(),
-                location: (error.location, basic_kind).into(),
-            },
+            ParseErrorKind::Basic(basic_kind) => Self::new(
+                basic_kind.clone().into(),
+                (error.location, basic_kind).into(),
+            ),
             ParseErrorKind::Custom(custom) => custom,
         }
     }
@@ -383,10 +407,10 @@ impl<'a> From<ParseError<'a, CssError>> for CssError {
 impl<'a> From<ParseError<'a, ()>> for CssError {
     fn from(error: ParseError<'a, ()>) -> Self {
         match error.kind {
-            ParseErrorKind::Basic(basic_kind) => Self {
-                data: basic_kind.clone().into(),
-                location: (error.location, basic_kind).into(),
-            },
+            ParseErrorKind::Basic(basic_kind) => Self::new(
+                basic_kind.clone().into(),
+                (error.location, basic_kind).into(),
+            ),
             ParseErrorKind::Custom(_) => {
                 panic!("Custom unit error found")
             }

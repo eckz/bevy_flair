@@ -66,5 +66,10 @@ define_errors!(ui => {
 
 define_errors!(vars => {
     INVALID_TOKEN(70, "Invalid token"),
-    INVALID_VAR_NAME(71, "Var names should start with --"),
+    INVALID_VAR_TOKEN(71, "Invalid var token"),
+    INVALID_VAR_NAME(72, "Var names should start with --"),
+});
+
+define_errors!(calc => {
+    CALC_ERROR(80, "Could not calculate value"),
 });

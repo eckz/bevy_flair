@@ -1,5 +1,6 @@
 :root {
-    background-color: white;
+    --white: #fff;
+    background-color: var(--white);
 }
 
 :root > * {
