@@ -9,7 +9,7 @@ use bevy::reflect::FromType;
 use bevy::ui::OverflowAxis;
 use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
-use cssparser::{Parser, match_ignore_ascii_case};
+use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::{SmolStr, format_smolstr};
@@ -353,6 +353,68 @@ fn parse_outline(
     }
 }
 
+const FLEX_GROW: ComponentPropertyRef =
+    ComponentPropertyRef::CssName(SmolStr::new_static("flex-grow"));
+
+const FLEX_SHRINK: ComponentPropertyRef =
+    ComponentPropertyRef::CssName(SmolStr::new_static("flex-shrink"));
+
+const FLEX_BASIS: ComponentPropertyRef =
+    ComponentPropertyRef::CssName(SmolStr::new_static("flex-basis"));
+
+fn parse_flex(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    fn final_result(
+        (flex_grow, flex_shrink, flex_basis): (f32, f32, Val),
+    ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+        Ok(vec![
+            (
+                FLEX_GROW,
+                PropertyValue::Value(ReflectValue::Float(flex_grow)),
+            ),
+            (
+                FLEX_SHRINK,
+                PropertyValue::Value(ReflectValue::Float(flex_shrink)),
+            ),
+            (
+                FLEX_BASIS,
+                PropertyValue::Value(ReflectValue::Val(flex_basis)),
+            ),
+        ])
+    }
+
+    fn parse_flex_keyword<'i>(
+        parser: &mut Parser<'i, '_>,
+    ) -> Result<(f32, f32, Val), ParseError<'i, ()>> {
+        let ident = parser.expect_ident()?;
+        Ok(match_ignore_ascii_case! { ident.as_ref(),
+            "none" => (0.0, 0.0, Val::Auto),
+            // This error does not matter much because it will be ignored
+            _ => return Err(parser.new_error_for_next_token()),
+        })
+    }
+
+    if let Ok(r) = parser.try_parse(parse_flex_keyword) {
+        return final_result(r);
+    };
+
+    if let Ok(flex_grow) = parser.try_parse(|parser| parser.expect_number()) {
+        let flex_shrink = parser
+            .try_parse(|parser| parser.expect_number())
+            .unwrap_or(1.0);
+        let flex_basis = parser
+            .try_parse(|parser| parse_val(parser).map_err(|err| err.into_parse_error()))
+            .unwrap_or(Val::Percent(0.0));
+
+        return final_result((flex_grow, flex_shrink, flex_basis));
+    }
+
+    /* One value, width/height: flex-basis */
+    let flex_basis = parse_val(parser)?;
+    let (flex_grow, flex_shrink) = (1.0, 1.0);
+
+    final_result((flex_grow, flex_shrink, flex_basis))
+}
+
 pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandPropertyRegistry) {
     registry.register_new("overflow", [OVERFLOW_X, OVERFLOW_Y], parse_overflow);
     registry.register_new("outline", [OUTLINE_WIDTH, OUTLINE_COLOR], parse_outline);
@@ -393,6 +455,7 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         ],
         parse_border_width,
     );
+    registry.register_new("flex", [FLEX_GROW, FLEX_SHRINK, FLEX_BASIS], parse_flex);
 }
 
 /// A plugin that registers common CSS shorthand properties.
@@ -472,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn test_shorthand_properties() {
+    fn test_margin_and_padding() {
         test_shorthand_property!("margin", "2px", {
             "margin-left" =>  Val::Px(2.0),
             "margin-right" =>  Val::Px(2.0),
@@ -493,7 +556,9 @@ mod tests {
             "padding-top" => Val::Px(10.0),
             "padding-bottom" => Val::Px(20.0),
         });
-
+    }
+    #[test]
+    fn test_border() {
         test_shorthand_property!("border", "3px black", {
             "border-left-width" => Val::Px(3.0),
             "border-right-width" => Val::Px(3.0),
@@ -515,7 +580,9 @@ mod tests {
             "border-bottom-left-radius" => Val::Percent(5.0),
             "border-bottom-right-radius" => Val::Px(10.0),
         });
-
+    }
+    #[test]
+    fn test_outline() {
         test_shorthand_property!("outline", "5px", {
             "outline-width" => Val::Px(5.0),
         });
@@ -527,6 +594,45 @@ mod tests {
         test_shorthand_property!("outline", "3px red", {
             "outline-width" => Val::Px(3.0),
             "outline-color" => Color::from(css::RED),
+        });
+    }
+
+    #[test]
+    fn test_flex() {
+        test_shorthand_property!("flex", "none", {
+            "flex-grow" => 0.0,
+            "flex-shrink" => 0.0,
+            "flex-basis" => Val::Auto,
+        });
+
+        test_shorthand_property!("flex", "2", {
+            "flex-grow" => 2.0,
+            "flex-shrink" => 1.0,
+            "flex-basis" => Val::Percent(0.0),
+        });
+
+        test_shorthand_property!("flex", "auto", {
+            "flex-grow" => 1.0,
+            "flex-shrink" => 1.0,
+            "flex-basis" => Val::Auto,
+        });
+
+        test_shorthand_property!("flex", "20%", {
+            "flex-grow" => 1.0,
+            "flex-shrink" => 1.0,
+            "flex-basis" => Val::Percent(20.0),
+        });
+
+        test_shorthand_property!("flex", "2 2", {
+            "flex-grow" => 2.0,
+            "flex-shrink" => 2.0,
+            "flex-basis" => Val::Percent(0.0),
+        });
+
+        test_shorthand_property!("flex", "2 1 10.0%", {
+            "flex-grow" => 2.0,
+            "flex-shrink" => 1.0,
+            "flex-basis" => Val::Percent(10.0),
         });
     }
 }

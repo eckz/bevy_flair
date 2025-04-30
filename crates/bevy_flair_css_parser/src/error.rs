@@ -313,7 +313,7 @@ impl CssError {
     }
 
     /// New error where the location is unknown.
-    /// Is ok to construct errors this way when implementing [`crate::reflect::LegacyReflectParseCss`],
+    /// Is ok to construct errors this way when implementing [`crate::reflect::ReflectParseCss`],
     /// since the location will be automatically upgraded to the current line.
     #[track_caller]
     pub fn new_unlocated(code: CssErrorCode, annotated_message: impl Into<String>) -> Self {

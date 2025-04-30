@@ -102,7 +102,7 @@ Input {
     }
 
     .item-text {
-        flex-grow: 1;
+        flex: 1;
         border-width: 0 2px;
         border-color: var(--color-gray-900);
         margin-right: 15px;
@@ -110,7 +110,6 @@ Input {
 
         padding: 4px 15px;
     }
-
 
     .remove-button {
         display: flex;

@@ -61,6 +61,8 @@ impl ReflectValue {
         let dyn_value: &dyn Reflect = &value;
         if TypeId::of::<T>() == TypeId::of::<f32>() {
             Self::Float(*dyn_value.downcast_ref().unwrap())
+        } else if TypeId::of::<T>() == TypeId::of::<f64>() {
+            Self::Float(*dyn_value.downcast_ref::<f64>().unwrap() as f32)
         } else if TypeId::of::<T>() == TypeId::of::<usize>() {
             Self::Usize(*dyn_value.downcast_ref().unwrap())
         } else if TypeId::of::<T>() == TypeId::of::<Color>() {
