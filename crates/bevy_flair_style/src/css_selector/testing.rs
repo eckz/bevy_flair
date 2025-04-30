@@ -98,6 +98,10 @@ impl Element for TestElementRef<'_> {
     fn is_root(&self) -> bool {
         self.is_root
     }
+
+    fn is_same_type(&self, other: &Self) -> bool {
+        self.type_names.peek() == other.type_names.peek()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -172,6 +176,10 @@ impl Element for TestNodeRef<'_> {
 
     fn is_root(&self) -> bool {
         self.0.parent().is_none() && self.0.value().is_root
+    }
+
+    fn is_same_type(&self, other: &Self) -> bool {
+        self.0.value().type_names.peek() == other.0.value().type_names.peek()
     }
 }
 

@@ -186,18 +186,27 @@ You can see more examples in the [examples folder](https://github.com/eckz/bevy_
 
 - Care about how developers spawn the Bevy UI elements.
   - If you want to use any fancy macro to spawn your bevy UI elements, or if you want to do it in a manual way, it should not matter, it should work the same way.
-- Mix between manually applied styles and CSS styles.
-  - It's not a goal to keep manually applied style. When applying CSS styles, is expected that the only actor in modifying style is this crate.
+- Define a default style.
+  - By default, if a property is not defined, such property will not be modified. This means that is up to the author to set up fallback styling if it's needed.
 - Support all css features / properties.
-  - Css is a vast specification, so there are plenty of features that might not make sense to support.
+  - CSS is a vast specification, so there are plenty of features that might not make sense to support.
 - Being consistent with the css standard.
-  - Css is a standard and such it defines certain behaviours very well, for example, current implementation of `animation` or `transition` is quite possible not 100% consistent with the standard.
+  - CSS is a standard and such it defines certain behaviours very well, for example, current implementation of `animation` or `transition` is quite possible not 100% consistent with the standard.
 - Implement missing Bevy UI features.
   - If a certain feature does not exist in bevy UI, it will not implement, e.g. it will not implement [`transform`] nor [`linear-gradient`] if bevy UI does not implement them.
   - There is always an option to implement custom properties with custom parsers.
 
 [`transform`]: https://developer.mozilla.org/en-US/docs/Web/CSS/transform
 [`linear-gradient`]: https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/linear-gradient
+
+## Bevy compatibility
+
+
+| bevy | bevy_flair |
+|------|------------|
+| 0.16 | 0.2        |
+| 0.15 | 0.1        |
+
 
 ## Contributing
 

@@ -32,7 +32,7 @@ bevy_flair_style = { workspace = true }
 bevy_flair_css_parser = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.5", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports"] }
 bevy = { workspace = true, features = [
     "bevy_ui",
     "bevy_text",

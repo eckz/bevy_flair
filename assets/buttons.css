@@ -101,6 +101,7 @@ Button.dark-light-button {
     border-width: 3px;
 
     &:hover, &:active {
+        color: var(--text-color);
         background-color: var(--button-bg);
         border-color: var(--button-border);
     }

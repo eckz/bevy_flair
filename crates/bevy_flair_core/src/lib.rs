@@ -64,6 +64,7 @@ macro_rules! default_properties {
 default_properties! {
     // Node properties
     "display" { Node[".display"] },
+    // TODO: pub box_sizing: BoxSizing,
     "position" { Node[".position_type"] },
     sub_properties "overflow" { Node[".overflow"] },
     // TODO: pub overflow_clip_margin: OverflowClipMargin
@@ -86,7 +87,11 @@ default_properties! {
     "justify-content" { Node[".justify_content"] },
     sub_properties "margin" { Node[".margin"] },
     sub_properties "padding" { Node[".padding"] },
-    sub_properties "border-width" { Node[".border"] },
+    // We need to manually register all border-width sub-properties
+    "border-left-width" { Node[".border.left"] },
+    "border-right-width" { Node[".border.right"] },
+    "border-top-width" { Node[".border.top"] },
+    "border-bottom-width" { Node[".border.bottom"] },
     "flex-direction" { Node[".flex_direction"] },
     "flex-wrap" { Node[".flex_wrap"] },
     "flex-grow" { Node[".flex_grow"] },

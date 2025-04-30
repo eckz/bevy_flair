@@ -110,8 +110,8 @@ impl FromParsedColor for ParsedColor {
         alpha: Option<f32>,
     ) -> Self {
         let lightness = unwrap_component!(lightness);
-        let a = remap!(unwrap_component!(a), input: 0.4, output: 1.0);
-        let b = remap!(unwrap_component!(b), input: 0.4, output: 1.0);
+        let a = unwrap_component!(a);
+        let b = unwrap_component!(b);
         ParsedColor::Color(Color::oklaba(lightness, a, b, alpha!(alpha)))
     }
 
@@ -122,7 +122,7 @@ impl FromParsedColor for ParsedColor {
         alpha: Option<f32>,
     ) -> Self {
         let lightness = unwrap_component!(lightness);
-        let chroma = remap!(unwrap_component!(chroma), input: 0.4, output: 1.0);
+        let chroma = unwrap_component!(chroma);
         let hue = unwrap_component!(hue);
         ParsedColor::Color(Color::oklcha(lightness, chroma, hue, alpha!(alpha)))
     }
@@ -320,7 +320,7 @@ mod tests {
     fn test_oklab() {
         assert_eq!(
             test_parse_css::<Color>("oklab(50% -100% 0.4)"),
-            Color::oklab(0.5, -1.0, 1.0)
+            Color::oklab(0.5, -0.4, 0.4)
         );
     }
 

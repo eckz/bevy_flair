@@ -102,6 +102,7 @@ bitflags! {
     pub(crate) struct RecalculateOnChangeFlags: usize {
         const RECALCULATE_SIBLINGS = 1 << 0;
         const RECALCULATE_DESCENDANTS = 1 << 1;
+        const RECALCULATE_ASCENDANTS = 1 << 1;
     }
 }
 
@@ -139,7 +140,7 @@ pub struct NodeStyleData {
     pub(crate) classes: Vec<ClassName>,
 
     // Contains type names with their priority, so the one with the highest priority defines this node.
-    type_names: BinaryHeap<TypeNameWithPriority>,
+    pub(crate) type_names: BinaryHeap<TypeNameWithPriority>,
     pub(crate) pseudo_state: NodePseudoState,
 }
 
@@ -387,8 +388,6 @@ impl NodeProperties {
         &mut self,
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
-        // TODO: DELETE
-        // resolve_var: impl Fn(ComponentPropertyId, &str) -> ComputedValue,
     ) {
         debug_assert!(self.pending_computed_values.is_empty());
         debug_assert!(self.pending_animation_values.is_empty());
@@ -424,8 +423,6 @@ impl NodeProperties {
         parent: &Self,
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
-        // TODO: DELETE
-        // resolve_var: impl Fn(ComponentPropertyId, &str) -> ComputedValue,
     ) {
         debug_assert!(self.pending_computed_values.is_empty());
         debug_assert!(self.pending_animation_values.is_empty());

@@ -37,7 +37,6 @@ fn safe_transmute<Src: Any + Copy, Dst: Any>(src: Src) -> Option<Dst> {
 ///    - ['Val']
 ///
 /// [`reflect_partial_eq`]: PartialReflect::reflect_partial_eq
-// TODO: Rename to `Value`.?
 #[derive(Clone, Reflect)]
 #[reflect(opaque, SerializeWithRegistry)]
 pub enum ReflectValue {

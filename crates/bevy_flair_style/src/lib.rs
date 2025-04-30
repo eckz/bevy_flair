@@ -236,7 +236,11 @@ impl Plugin for FlairStylePlugin {
                         systems::sync_input_focus,
                     )
                         .in_set(StyleSystemSets::SetStyleData),
-                    systems::mark_nodes_for_recalculation
+                    (
+                        systems::mark_related_nodes_for_recalculation,
+                        systems::mark_changed_nodes_for_recalculation,
+                    )
+                        .chain()
                         .in_set(StyleSystemSets::MarkNodesForRecalculation),
                     systems::tick_animations.in_set(StyleSystemSets::TickAnimations),
                     systems::calculate_style_and_set_vars.in_set(StyleSystemSets::CalculateStyles),
@@ -258,17 +262,29 @@ impl Plugin for FlairStylePlugin {
 pub struct TrackTypeNameComponentPlugin<T> {
     /// The priority of the component name.
     pub priority: u32,
-    /// Optional override name of the component.
-    pub name: Option<&'static str>,
+    /// name of the component.
+    pub name: &'static str,
     _marker: std::marker::PhantomData<fn() -> T>,
 }
 
-impl<C: Component + TypePath> TrackTypeNameComponentPlugin<C> {
+impl<T: Component> TrackTypeNameComponentPlugin<T> {
     /// Creates a new instance of the plugin.
-    pub fn new(priority: u32) -> Self {
+    pub fn new(priority: u32) -> Self
+    where
+        T: TypePath,
+    {
         Self {
             priority,
-            name: None,
+            name: T::short_type_path(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Creates a new instance of the plugin using the given name.
+    pub fn with_name(priority: u32, name: &'static str) -> Self {
+        Self {
+            priority,
+            name,
             _marker: std::marker::PhantomData,
         }
     }
@@ -276,10 +292,10 @@ impl<C: Component + TypePath> TrackTypeNameComponentPlugin<C> {
     #[allow(clippy::type_complexity)]
     fn on_added(
         &self,
-    ) -> impl FnMut(Query<&mut NodeStyleData, Or<(Added<C>, (With<C>, Added<NodeStyleData>))>>) + 'static
+    ) -> impl FnMut(Query<&mut NodeStyleData, Or<(Added<T>, (With<T>, Added<NodeStyleData>))>>) + 'static
     {
         let priority = self.priority;
-        let name = self.name.unwrap_or(C::short_type_path());
+        let name = self.name;
         move |mut query| {
             for mut data in &mut query {
                 data.push_type_name_with_priority(name, priority);
@@ -288,7 +304,7 @@ impl<C: Component + TypePath> TrackTypeNameComponentPlugin<C> {
     }
 }
 
-impl<C: Component + TypePath> Plugin for TrackTypeNameComponentPlugin<C> {
+impl<T: Component> Plugin for TrackTypeNameComponentPlugin<T> {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,

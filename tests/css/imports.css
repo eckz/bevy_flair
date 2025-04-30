@@ -1,0 +1,5 @@
+@import "_import_1.css";
+
+:root {
+    background-color: var(--import-1-var);
+}

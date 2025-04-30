@@ -222,6 +222,15 @@ fn ui_rect_sub_properties(css_name: &'static str) -> Vec<ComponentPropertyRef> {
     ]
 }
 
+const BORDER_LEFT_WIDTH: ComponentPropertyRef =
+    ComponentPropertyRef::CssName(SmolStr::new_static("border-left-width"));
+const BORDER_RIGHT_WIDTH: ComponentPropertyRef =
+    ComponentPropertyRef::CssName(SmolStr::new_static("border-right-width"));
+const BORDER_BOTTOM_WIDTH: ComponentPropertyRef =
+    ComponentPropertyRef::CssName(SmolStr::new_static("border-bottom-width"));
+const BORDER_TOP_WIDTH: ComponentPropertyRef =
+    ComponentPropertyRef::CssName(SmolStr::new_static("border-top-width"));
+
 const BORDER_TOP_LEFT_RADIUS: ComponentPropertyRef =
     ComponentPropertyRef::CssName(SmolStr::new_static("border-top-left-radius"));
 const BORDER_TOP_RIGHT_RADIUS: ComponentPropertyRef =
@@ -275,18 +284,34 @@ fn parse_border(
 ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
     let width = parse_calc_property_value_with(parser, parse_val)?;
     if parser.is_exhausted() {
-        Ok(ui_rect_sub_properties("border-width")
-            .into_iter()
-            .map(|p| (p, width.clone()))
-            .collect())
+        Ok(vec![
+            (BORDER_LEFT_WIDTH, width.clone()),
+            (BORDER_RIGHT_WIDTH, width.clone()),
+            (BORDER_BOTTOM_WIDTH, width.clone()),
+            (BORDER_TOP_WIDTH, width),
+        ])
     } else {
         let color = parse_property_value_with(parser, parse_color)?;
-        Ok(ui_rect_sub_properties("border-width")
-            .into_iter()
-            .map(|p| (p, width.clone()))
-            .chain([(BORDER_COLOR, color.map(ReflectValue::Color))])
-            .collect())
+        Ok(vec![
+            (BORDER_LEFT_WIDTH, width.clone()),
+            (BORDER_RIGHT_WIDTH, width.clone()),
+            (BORDER_BOTTOM_WIDTH, width.clone()),
+            (BORDER_TOP_WIDTH, width),
+            (BORDER_COLOR, color.map(ReflectValue::Color)),
+        ])
     }
+}
+
+fn parse_border_width(
+    parser: &mut Parser,
+) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
+    Ok(vec![
+        (BORDER_LEFT_WIDTH, left),
+        (BORDER_RIGHT_WIDTH, right),
+        (BORDER_TOP_WIDTH, top),
+        (BORDER_BOTTOM_WIDTH, bottom),
+    ])
 }
 
 const OUTLINE_WIDTH: ComponentPropertyRef =
@@ -333,9 +358,13 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
     registry.register_new("outline", [OUTLINE_WIDTH, OUTLINE_COLOR], parse_outline);
     registry.register_new(
         "border",
-        ui_rect_sub_properties("border-width")
-            .into_iter()
-            .chain([BORDER_COLOR]),
+        [
+            BORDER_LEFT_WIDTH,
+            BORDER_RIGHT_WIDTH,
+            BORDER_TOP_WIDTH,
+            BORDER_BOTTOM_WIDTH,
+            BORDER_COLOR,
+        ],
         parse_border,
     );
     registry.register_new(
@@ -356,8 +385,13 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
     });
     registry.register_new(
         "border-width",
-        ui_rect_sub_properties("border-width"),
-        |parser| parse_ui_rect("border-width", parser),
+        [
+            BORDER_LEFT_WIDTH,
+            BORDER_RIGHT_WIDTH,
+            BORDER_TOP_WIDTH,
+            BORDER_BOTTOM_WIDTH,
+        ],
+        parse_border_width,
     );
 }
 
@@ -458,6 +492,21 @@ mod tests {
             "padding-right" => Val::Px(50.0),
             "padding-top" => Val::Px(10.0),
             "padding-bottom" => Val::Px(20.0),
+        });
+
+        test_shorthand_property!("border", "3px black", {
+            "border-left-width" => Val::Px(3.0),
+            "border-right-width" => Val::Px(3.0),
+            "border-bottom-width" => Val::Px(3.0),
+            "border-top-width" => Val::Px(3.0),
+            "border-color" => Color::from(css::BLACK),
+        });
+
+        test_shorthand_property!("border-width", "3px 5%", {
+            "border-left-width" => Val::Percent(5.0),
+            "border-right-width" => Val::Percent(5.0),
+            "border-bottom-width" => Val::Px(3.0),
+            "border-top-width" => Val::Px(3.0),
         });
 
         test_shorthand_property!("border-radius", "10px 5%", {

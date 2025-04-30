@@ -1,0 +1,5 @@
+@import "_import_2.css";
+
+:root {
+    --import-1-var: var(--import-2-var);
+}

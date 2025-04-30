@@ -230,7 +230,54 @@ pub(crate) fn clear_global_change_detection(
     *global_change_detection = GlobalChangeDetection::default();
 }
 
-pub(crate) fn mark_nodes_for_recalculation(
+#[cfg(feature = "css_selectors")]
+pub(crate) fn mark_related_nodes_for_recalculation(
+    children_changed_query: Query<Entity, Changed<Children>>,
+    style_data_query: Query<&NodeStyleData>,
+    mut markers_query: Query<&mut NodeStyleMarker>,
+    siblings_query: Query<(Option<&ChildOf>, Option<&Children>), With<NodeStyleData>>,
+    children_query: Query<&Children, With<NodeStyleData>>,
+    mut to_be_marked: Local<EntityHashSet>,
+    mut removed_children: RemovedComponents<Children>,
+) -> Result {
+    use selectors::matching::ElementSelectorFlags;
+    for entity in children_changed_query.iter().chain(removed_children.read()) {
+        let Ok(style_data) = style_data_query.get(entity) else {
+            continue;
+        };
+        let flags = ElementSelectorFlags::from_bits_truncate(
+            style_data.selector_flags.load(atomic::Ordering::Relaxed),
+        );
+
+        if flags.intersects(
+            ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR
+                | ElementSelectorFlags::RELATIVE_SELECTOR_SEARCH_DIRECTION_ANCESTOR
+                | ElementSelectorFlags::HAS_EMPTY_SELECTOR,
+        ) {
+            to_be_marked.insert(entity);
+        }
+
+        for child in children_query.relationship_sources(entity) {
+            if flags.intersects(
+                ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH
+                    | ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR
+                    | ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS,
+            ) {
+                to_be_marked.extend(siblings_query.iter_siblings(child));
+            }
+        }
+    }
+
+    for entity in to_be_marked.drain() {
+        if let Ok(mut marker) = markers_query.get_mut(entity) {
+            marker.mark_for_recalculation();
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) fn mark_changed_nodes_for_recalculation(
     mut queries: ParamSet<(
         Query<
             (
@@ -244,21 +291,22 @@ pub(crate) fn mark_nodes_for_recalculation(
         Query<&mut NodeStyleMarker>,
     )>,
     children_query: Query<&Children, With<NodeStyleData>>,
+    parent_query: Query<&ChildOf, With<NodeStyleData>>,
     mut to_be_marked: Local<EntityHashSet>,
 ) -> Result {
     let nodes_changed_query = queries.p0();
 
-    for (entity, match_data, marker, child_of) in &nodes_changed_query {
-        if !match_data.is_changed() && !marker.needs_recalculation() {
+    for (entity, style_data, marker, child_of) in &nodes_changed_query {
+        if !style_data.is_changed() && !marker.needs_recalculation() {
             continue;
         }
 
-        if match_data.is_changed() {
+        if style_data.is_changed() {
             to_be_marked.insert(entity);
         }
 
         let flags = RecalculateOnChangeFlags::from_bits_truncate(
-            match_data
+            style_data
                 .recalculation_flags
                 .load(atomic::Ordering::Relaxed),
         );
@@ -269,6 +317,9 @@ pub(crate) fn mark_nodes_for_recalculation(
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
             to_be_marked.extend(children_query.iter_descendants(entity));
+        }
+        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_ASCENDANTS) {
+            to_be_marked.extend(parent_query.iter_ancestors(entity));
         }
     }
 

@@ -34,10 +34,6 @@ macro_rules! impl_element_commons {
             unreachable!("has_namespace")
         }
 
-        fn is_same_type(&self, _other: &Self) -> bool {
-            todo!("is_of_type selectors are not supported")
-        }
-
         fn match_pseudo_element(
             &self,
             _pe: &crate::css_selector::CssPseudoElement,
@@ -200,7 +196,11 @@ impl Element for ElementRef<'_> {
             .ok()?
             .iter()
             .next()?;
-        Self::related_new(first_child, self.queries, RecalculateOnChangeFlags::empty())
+        Self::related_new(
+            first_child,
+            self.queries,
+            RecalculateOnChangeFlags::RECALCULATE_ASCENDANTS,
+        )
     }
 
     fn has_local_name(&self, local_name: &<Self::Impl as SelectorImpl>::BorrowedLocalName) -> bool {
@@ -236,6 +236,10 @@ impl Element for ElementRef<'_> {
             .classes
             .iter()
             .any(|c| case_sensitivity.eq(c.as_bytes(), name.as_ref()))
+    }
+
+    fn is_same_type(&self, other: &Self) -> bool {
+        self.data.type_names.peek() == other.data.type_names.peek()
     }
 
     fn is_empty(&self) -> bool {
