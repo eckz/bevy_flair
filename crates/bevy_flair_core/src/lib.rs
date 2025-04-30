@@ -64,7 +64,7 @@ macro_rules! default_properties {
 default_properties! {
     // Node properties
     "display" { Node[".display"] },
-    // TODO: pub box_sizing: BoxSizing,
+    "box-sizing" { Node[".box_sizing"] },
     "position" { Node[".position_type"] },
     sub_properties "overflow" { Node[".overflow"] },
     // TODO: pub overflow_clip_margin: OverflowClipMargin

@@ -115,6 +115,7 @@ impl Plugin for ReflectParsePlugin {
             ReflectParseCssEnum,
             (
                 Display,
+                BoxSizing,
                 PositionType,
                 OverflowAxis,
                 AlignItems,
