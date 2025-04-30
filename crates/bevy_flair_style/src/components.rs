@@ -127,9 +127,6 @@ pub struct NodeStyleActiveRules {
 pub struct NodeStyleData {
     pub(crate) effective_style_sheet: Handle<StyleSheet>,
 
-    // TODO: We need a system that listen to hierarchical events and
-    //       Depending on selectors::matching::ElementSelectorFlags marks things to recalculation
-
     // TODO: MOVE THIS INTO A FLAGS COMPONENT
     pub(crate) selector_flags: atomic::AtomicUsize,
     pub(crate) recalculation_flags: atomic::AtomicUsize,

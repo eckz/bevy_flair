@@ -14,13 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Import other stylesheets using `@import`.
 - Nested selectors are supported.
     - You can add `&:hover { .. }` inside a selector and it will work.
-- Support for custom properties using [`var()`].
+- Support for custom properties using `var()`.
     - Fallback is currently not supported
-- Basic support for calc expressions using [`calc()`].
+- Basic support for calc expressions using `calc()`.
     - This is currently limited by Bevy support of mixing different types. For example, this cannot not work currently: `calc(100% - 20px)`.
     - Currently, is valuable to do calculations using vars. For example: `calc(var(--spacing) * 2)`.
-- `:nth-child()` type selectors are correctly re-calculated when a sibling is added.
 - Support for some shorthand properties not previously supported like `border` or `flex`.
+
+### Fixed
+- `:nth-child()` type selectors are correctly re-calculated when a sibling is added.
 
 ### Changed
 - Support for Bevy 0.16
