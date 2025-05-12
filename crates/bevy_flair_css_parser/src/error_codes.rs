@@ -73,3 +73,10 @@ define_errors!(vars => {
 define_errors!(calc => {
     CALC_ERROR(80, "Could not calculate value"),
 });
+
+define_errors!(media_queries => {
+    UNRECOGNIZED_PROPERTY(90, "Unrecognized media query property"),
+    UNPEXPECTED_SIZE_TOKEN(91, "Unexpected token for a media size type"),
+    UNPEXPECTED_COLOR_SCHEMA_TOKEN(92, "Unexpected token for color-scheme"),
+    UNPEXPECTED_RESOLUTION_TOKEN(93, "Unexpected token for a resolution type"),
+});

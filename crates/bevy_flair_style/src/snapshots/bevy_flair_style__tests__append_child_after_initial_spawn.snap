@@ -17,8 +17,6 @@ Scene(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           )),
-          selector_flags: 0,
-          recalculation_flags: 0,
           is_root: true,
           name: Some("Root"),
           classes: [],
@@ -51,8 +49,6 @@ Scene(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           )),
-          selector_flags: 0,
-          recalculation_flags: 0,
           is_root: false,
           name: None,
           classes: [],
@@ -84,8 +80,6 @@ Scene(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           )),
-          selector_flags: 0,
-          recalculation_flags: 0,
           is_root: false,
           name: None,
           classes: [],
@@ -117,8 +111,6 @@ Scene(
           effective_style_sheet: Weak(Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           )),
-          selector_flags: 0,
-          recalculation_flags: 0,
           is_root: false,
           name: None,
           classes: [],

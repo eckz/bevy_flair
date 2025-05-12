@@ -395,6 +395,13 @@ struct BuilderRuleset {
 }
 
 impl BuilderRuleset {
+    fn is_empty(&self) -> bool {
+        self.vars.is_empty()
+            && self.properties.is_empty()
+            && self.property_transitions.is_empty()
+            && self.animations.is_empty()
+    }
+
     fn resolve(
         self,
         property_registry: &PropertyRegistry,
@@ -711,13 +718,56 @@ impl StyleSheetBuilder {
     /// Creates a new ruleset and returns a [`RulesetBuilder`] to build such ruleset.
     pub fn new_ruleset(&mut self) -> RulesetBuilder {
         let ruleset_id = StyleSheetRulesetId(self.rulesets.len());
-        self.rulesets.push(Default::default());
+        self.rulesets.push(BuilderRuleset::default());
 
         RulesetBuilder {
             ruleset_id,
             ruleset: &mut self.rulesets[ruleset_id.0],
             simple_selectors_to_rulesets: &mut self.simple_selectors_to_rulesets,
             css_selectors_to_rulesets: &mut self.css_selectors_to_rulesets,
+        }
+    }
+
+    pub(crate) fn remove_id(&mut self, id_to_remove: StyleSheetRulesetId) {
+        assert!(
+            id_to_remove.0 < self.rulesets.len(),
+            "Invalid StyleSheetRulesetId: {id_to_remove}"
+        );
+
+        self.rulesets.remove(id_to_remove.0);
+
+        self.simple_selectors_to_rulesets
+            .retain(|(_, id)| *id != id_to_remove);
+
+        let mut removed_selectors = Vec::new();
+        self.css_selectors_to_rulesets.retain(|(css_selector, id)| {
+            if *id == id_to_remove {
+                removed_selectors.push(css_selector.clone());
+            }
+            *id != id_to_remove
+        });
+
+        for (_, id) in &mut self.simple_selectors_to_rulesets {
+            if *id > id_to_remove {
+                id.0 -= 1;
+            }
+        }
+        for (_, id) in &mut self.css_selectors_to_rulesets {
+            if *id > id_to_remove {
+                id.0 -= 1;
+            }
+        }
+    }
+
+    /// Remove all rulesets that are empty
+    pub fn remove_all_empty_rulesets(&mut self) {
+        let mut i = 0;
+        while i < self.rulesets.len() {
+            if self.rulesets[i].is_empty() {
+                self.remove_id(StyleSheetRulesetId(i))
+            } else {
+                i += 1;
+            }
         }
     }
 

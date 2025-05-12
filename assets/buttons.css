@@ -24,12 +24,14 @@
     --button-border-radius: 5px;
 }
 
-:root.dark-mode {
-    --background-color: var(--color-neutral-800);
-    --text-color: var(--color-gray-100);
+@media (prefers-color-scheme: dark) {
+    :root {
+        --background-color: var(--color-neutral-800);
+        --text-color: var(--color-gray-100);
 
-    --button-bg: var(--color-neutral-600);
-    --button-border: var(--color-neutral-900);
+        --button-bg: var(--color-neutral-600);
+        --button-border: var(--color-neutral-900);
+    }
 }
 
 :root {
@@ -57,11 +59,19 @@ Button {
     border-width: 5px;
     margin: 15px 0;
 
+    @media (min-width: 500px) {
+        width: 200px;
+    }
+
+    @media (min-width: 800px) {
+        width: 250px;
+    }
+
     background-color: var(--button-bg);
     border-color: var(--button-border);
     border-radius: var(--button-border-radius);
 
-    transition: border-radius 0.6s ease-in-out, border-color 0.3s, background-color 0.3s, outline-color 0.3s;
+    transition: border-radius 0.6s ease-in-out, border-color 0.3s, background-color 0.3s, outline-color 0.3s, width 0.4s;
 
     outline: 3px transparent;
 

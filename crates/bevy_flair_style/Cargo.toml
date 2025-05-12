@@ -28,13 +28,14 @@ smallvec = "1.14"
 
 bevy = { workspace = true, features = [
     "bevy_image",
-    "bevy_input_focus"
+    "bevy_input_focus",
+    "bevy_window"
 ] }
 tracing = "0.1"
 bevy_flair_core = { workspace = true }
 
 cssparser = { version = "0.35", optional = true }
-selectors = { version = "0.27", optional = true }
+selectors = { version = "0.28", optional = true }
 precomputed-hash = { version = "0.1", optional = true }
 
 [features]
@@ -47,7 +48,7 @@ css_selectors = [
 
 [dev-dependencies]
 bevy = { workspace = true, features = [
-    "bevy_scene"
+    "bevy_scene",
 ] }
 ego-tree = "0.10"
 insta = { version = "1.42", features = ["ron"] }

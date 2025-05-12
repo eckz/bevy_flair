@@ -1,0 +1,37 @@
+:root {
+    width: 1px;
+    @media (prefers-color-scheme: light) {
+        width: 20px;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        width: 10px;
+    }
+}
+
+.child {
+    width: 0;
+}
+
+@media (min-width: 1024px) {
+    .child {
+        width: 1024px;
+
+        @media (min-resolution: 2x) {
+            width: 2048px;
+        }
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    .child {
+        @media (min-width: 600px) {
+            width: 1000px;
+        }
+        /* This takes preference because @media
+           does not add specificity  */
+        width: 100px;
+    }
+}

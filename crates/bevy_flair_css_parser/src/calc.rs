@@ -324,7 +324,7 @@ mod tests {
                 Ok(property_value) => property_value,
                 Err(error) => {
                     if error.backtrace.status() == BacktraceStatus::Captured {
-                        println!("{}", error.backtrace);
+                        eprintln!("{}", error.backtrace);
                     }
 
                     let mut report_generator = crate::error::ErrorReportGenerator::new_with_config(

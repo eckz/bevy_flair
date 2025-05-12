@@ -1,13 +1,13 @@
-use bevy::app::{App, TaskPoolOptions, TaskPoolPlugin, Update};
 use bevy::asset::io::memory::Dir;
-use bevy::asset::{AssetApp, AssetLoadFailedEvent, AssetPlugin, AssetServer, Handle};
+
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::input_focus::{InputFocus, InputFocusVisible};
-use bevy::prelude::{Component, Deref, DerefMut, Entity, EventReader, Resource, World};
-use bevy_flair::FlairPlugin;
-use bevy_flair_css_parser::{CssStyleLoaderErrorMode, CssStyleLoaderSetting};
-use bevy_flair_style::StyleSheet;
+use bevy::prelude::*;
+
+use bevy::asset::AssetLoadFailedEvent;
+use bevy_flair::parser::{CssStyleLoaderErrorMode, CssStyleLoaderSetting};
+use bevy_flair::prelude::*;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -29,6 +29,11 @@ fn on_insert_unique_name(mut world: DeferredWorld, context: HookContext) {
     let mut map = world.resource_mut::<UniqueNamesMap>();
     if let std::collections::hash_map::Entry::Vacant(e) = map.entry(name.clone()) {
         e.insert(context.entity);
+
+        world
+            .commands()
+            .entity(context.entity)
+            .insert(Name::new(name));
     } else {
         eprintln!("Duplicate unique name: {}", name);
         world.commands().entity(context.entity).despawn();
@@ -109,8 +114,22 @@ pub(crate) fn test_app() -> App {
             task_pool_options: TaskPoolOptions::with_num_threads(1),
         },
         AssetPlugin::default(),
+        WindowPlugin::default(),
+        ImagePlugin::default(),
         FlairPlugin,
     ));
+
+    /* Bare minimum systems to support media selectors */
+    app.init_resource::<bevy::render::camera::ManualTextureViews>();
+    app.init_resource::<UiScale>();
+    app.add_systems(
+        PostUpdate,
+        (
+            bevy::render::camera::camera_system,
+            bevy::ui::update::update_ui_context_system.in_set(bevy::ui::UiSystem::Prepare),
+        )
+            .chain(),
+    );
 
     app.init_resource::<InputFocus>()
         .init_resource::<InputFocusVisible>();
@@ -118,7 +137,6 @@ pub(crate) fn test_app() -> App {
     app.finish();
 
     app.init_resource::<UniqueNamesMap>();
-
     app.add_systems(Update, panic_on_load_error);
 
     app

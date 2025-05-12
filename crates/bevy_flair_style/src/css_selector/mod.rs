@@ -9,6 +9,7 @@ pub(crate) mod testing;
 pub use error::{SelectorError, SelectorErrorKind};
 
 use crate::NodePseudoStateSelector;
+use crate::media_selector::{MediaFeaturesProvider, MediaSelectors};
 use cssparser::{CowRcStr, ParseError, SourceLocation, match_ignore_ascii_case};
 pub(crate) use element::{ElementRef, ElementRefSystemParam};
 use rustc_hash::FxBuildHasher;
@@ -247,8 +248,9 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
 /// Wrapper around CSS selectors.
 ///
 /// Represents a single selector, i.e. a comma-separated list of selectors would be a `Vec<CssSelector>`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CssSelector {
+    pub(crate) media_selectors: MediaSelectors,
     // TODO: Compute ancestors hashes?
     pub(crate) selector: Selector<CssSelectorImpl>,
 }
@@ -289,7 +291,10 @@ impl CssSelector {
                 .slice()
                 .iter()
                 .cloned()
-                .map(|selector| Self { selector })
+                .map(|selector| Self {
+                    selector,
+                    media_selectors: MediaSelectors::empty(),
+                })
                 .collect()
         })
     }
@@ -304,8 +309,43 @@ impl CssSelector {
         };
 
         Selector::parse(&css_selector_parser, &mut parser)
-            .map(|selector| Self { selector })
+            .map(|selector| Self {
+                selector,
+                media_selectors: MediaSelectors::empty(),
+            })
             .map_err(SelectorError::from)
+    }
+
+    /// Parse a single selector from a string when the selector can be a nested selector.
+    pub fn parse_single_for_nested(selector: &str) -> Result<Self, SelectorError> {
+        let mut parser_input = cssparser::ParserInput::new(selector);
+        let mut parser = cssparser::Parser::new(&mut parser_input);
+
+        let css_selector_parser = CssSelectorParser {
+            nested_selector: true,
+        };
+
+        let [single] = Self::parse_comma_separated_inner(
+            &mut parser,
+            &css_selector_parser,
+            ParseRelative::ForNesting,
+        )?
+        .try_into()
+        .expect("Multiple selectors parsed, expected only one");
+        Ok(single)
+    }
+
+    /// Return current media selectors.
+    pub fn get_media_selectors(&self) -> &MediaSelectors {
+        &self.media_selectors
+    }
+
+    /// Set the media selectors of this css selector.
+    pub fn with_media_selectors(self, media_selectors: impl Into<MediaSelectors>) -> Self {
+        Self {
+            media_selectors: media_selectors.into(),
+            selector: self.selector,
+        }
     }
 
     /// Returns true if the selector is a single class selector with the given class name.
@@ -333,16 +373,32 @@ impl CssSelector {
 
     /// Replaces the parent selector when the selector has been parsed with [`Self::parse_comma_separated_for_nested`].
     pub fn replace_parent_selector(self, parent_selectors: &[CssSelector]) -> CssSelector {
+        let parent_media_selectors = &parent_selectors[0].media_selectors;
+
+        #[cfg(debug_assertions)]
+        for selector in parent_selectors {
+            debug_assert_eq!(
+                selector.get_media_selectors(),
+                parent_media_selectors,
+                "All parent selectors should have the same media selectors"
+            );
+        }
+
         let parent_selectors_list =
             SelectorList::from_iter(parent_selectors.iter().map(|s| s.selector.clone()));
         CssSelector {
+            media_selectors: parent_media_selectors.merge_with(self.media_selectors),
             selector: self
                 .selector
                 .replace_parent_selector(&parent_selectors_list),
         }
     }
 
-    pub(crate) fn matches<E: Element<Impl = CssSelectorImpl>>(&self, element: &E) -> bool {
+    pub(crate) fn matches_media_selector<M: MediaFeaturesProvider>(&self, provider: &M) -> bool {
+        self.media_selectors.matches(provider)
+    }
+
+    pub(crate) fn matches_selector<E: Element<Impl = CssSelectorImpl>>(&self, element: &E) -> bool {
         let mut selector_caches = SelectorCaches::default();
         let mut matching_context = MatchingContext::new(
             MatchingMode::Normal,
@@ -402,7 +458,7 @@ mod tests {
         tree.nodes()
             .filter(|node| {
                 let test_node: TestNodeRef = (*node).into();
-                selector.matches(&test_node)
+                selector.matches_selector(&test_node)
             })
             .collect()
     }

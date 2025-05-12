@@ -6,7 +6,7 @@ use cssparser::*;
 use crate::error::CssError;
 use crate::reflect::ReflectParseCssEnum;
 use crate::vars::parse_var_tokens;
-use crate::{CssParseResult, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
+use crate::{CssParseResult, LocatedStr, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
 use crate::{ReflectParseCss, error_codes};
 use bevy::math::Vec2;
 use bevy::reflect::TypeRegistry;
@@ -15,7 +15,10 @@ use bevy_flair_style::animations::{
     AnimationDirection, AnimationOptions, EasingFunction, IterationCount, StepPosition,
     TransitionOptions,
 };
-use bevy_flair_style::{DynamicParseVarTokens, StyleSheet, VarTokens};
+use bevy_flair_style::{
+    ColorScheme, DynamicParseVarTokens, MediaRangeSelector, MediaSelector, MediaSelectors,
+    StyleSheet, VarTokens,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Debug;
 use std::num::NonZeroU32;
@@ -139,6 +142,7 @@ pub struct AnimationKeyFrames {
 #[derive(Debug)]
 pub enum CssStyleSheetItem {
     EmbedStylesheet(StyleSheet),
+    Inner(Vec<CssStyleSheetItem>),
     RuleSet(CssRuleset),
     FontFace(FontFace),
     AnimationKeyFrames(AnimationKeyFrames),
@@ -289,7 +293,7 @@ fn parse_easing_steps_parameters(parser: &mut Parser) -> Result<EasingFunction, 
             _ =>
                 return Err(CssError::new_located(
                     &step_position,
-                    crate::error_codes::animations::INVALID_STEP_POSITION,
+                    error_codes::animations::INVALID_STEP_POSITION,
                     "Expected a step position name. Valid values are: 'jump-start' | 'jump-end' | 'jump-none' | 'jump-both' | 'start' | 'end'",
                 )),
 
@@ -329,7 +333,7 @@ fn parse_easing_function(parser: &mut Parser) -> Result<EasingFunction, CssError
             _ =>
                 return Err(CssError::new_located(
                     &next,
-                    crate::error_codes::animations::INVALID_EASING_FUNCTION_KEYWORD,
+                    error_codes::animations::INVALID_EASING_FUNCTION_KEYWORD,
                     "Expected a valid easing function. Valid values are: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'",
                 )),
 
@@ -481,13 +485,163 @@ fn parse_single_animation(
     })
 }
 
+// Parses media selectors like `(min-width: 30px) and (max-width: 50px)`
+fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError> {
+    fn parse_size(parser: &mut Parser) -> Result<u32, CssError> {
+        let next = parser.located_next()?;
+        Ok(match &*next {
+            Token::Number {
+                int_value: Some(int_value),
+                ..
+            } if *int_value >= 0 => *int_value as u32,
+            Token::Dimension {
+                int_value: Some(int_value),
+                unit,
+                ..
+            } if *int_value >= 0 => {
+                match_ignore_ascii_case! { unit.as_ref(),
+                    "px" => *int_value as u32,
+                    _ => {
+                        return Err(CssError::new_located(&next,  error_codes::media_queries::UNPEXPECTED_SIZE_TOKEN, format!("Dimension '{unit}' is not recognized. Only valid dimension is 'px'")));
+                    }
+                }
+            }
+            _ => {
+                return Err(CssError::new_located(
+                    &next,
+                    error_codes::media_queries::UNPEXPECTED_SIZE_TOKEN,
+                    "This is not valid size token. 300px is a valid size token",
+                ));
+            }
+        })
+    }
+
+    fn parse_resolution(parser: &mut Parser) -> Result<f32, CssError> {
+        let next = parser.located_next()?;
+        Ok(match &*next {
+            Token::Dimension { value, unit, .. } => {
+                match_ignore_ascii_case! { unit.as_ref(),
+                    "dppx" => *value,
+                    "x" => *value,
+                    _ => {
+                        return Err(CssError::new_located(
+                            &next,
+                            error_codes::media_queries::UNPEXPECTED_RESOLUTION_TOKEN,
+                            format!("Dimension '{unit}' is not recognized. Valid dimensions are  'dppx' | 'x'")
+                        ));
+                    }
+                }
+            }
+            _ => {
+                return Err(CssError::new_located(
+                    &next,
+                    error_codes::media_queries::UNPEXPECTED_RESOLUTION_TOKEN,
+                    "This is not valid size token. 300px is a valid size token",
+                ));
+            }
+        })
+    }
+
+    fn parse_ratio(parser: &mut Parser) -> Result<f32, CssError> {
+        let number = parser.expect_number()?;
+        if let Ok(divisor) = parser.try_parse(|parser| {
+            parser.expect_delim('/')?;
+            parser.expect_number()
+        }) {
+            Ok(number / divisor)
+        } else {
+            Ok(number)
+        }
+    }
+
+    fn parse_color_scheme(parser: &mut Parser) -> Result<ColorScheme, CssError> {
+        let ident = parser.expect_located_ident()?;
+        Ok(match_ignore_ascii_case! { &*ident,
+            "light" => ColorScheme::Light,
+            "dark" => ColorScheme::Dark,
+            _ => {
+                return Err(CssError::new_located(&ident,  error_codes::media_queries::UNPEXPECTED_COLOR_SCHEMA_TOKEN, format!("Identifier '{ident}' is not recognized. Only valid color schemes are 'light' or 'dark'")));
+            }
+        })
+    }
+
+    // Parses a single media selectors like `min-width: 300px` or `prefers-color-scheme: dark`.
+    fn parse_selector_range<T>(
+        media_property: &LocatedStr,
+        parser: &mut Parser,
+        value_inner_parser: impl Fn(&mut Parser) -> Result<T, CssError>,
+    ) -> Result<MediaRangeSelector<T>, CssError> {
+        Ok(match media_property {
+            p if p[..3].eq_ignore_ascii_case("min") => {
+                MediaRangeSelector::GreaterOrEqual(value_inner_parser(parser)?)
+            }
+            p if p[..3].eq_ignore_ascii_case("max") => {
+                MediaRangeSelector::LessOrEqual(value_inner_parser(parser)?)
+            }
+            _ => MediaRangeSelector::Exact(value_inner_parser(parser)?),
+        })
+    }
+
+    // Parses a single media selectors like `min-width: 300px` or `prefers-color-scheme: dark`.
+    fn parse_media_selector_atom(parser: &mut Parser) -> Result<MediaSelector, CssError> {
+        let media_property = parser.expect_located_ident()?;
+        parser.expect_colon()?;
+        Ok(match_ignore_ascii_case! { &*media_property,
+            "prefers-color-scheme" => {
+                MediaSelector::ColorScheme(parse_color_scheme(parser)?)
+            },
+            "width" | "min-width" | "max-width" => {
+                MediaSelector::ViewportWidth(parse_selector_range(&media_property, parser, parse_size)?)
+            },
+            "height" | "min-height" | "max-height"=> {
+                MediaSelector::ViewportHeight(parse_selector_range(&media_property, parser, parse_size)?)
+            },
+            "aspect-ratio" | "min-aspect-ratio" | "max-aspect-ratio" => {
+                MediaSelector::AspectRatio(parse_selector_range(&media_property, parser, parse_ratio)?)
+            },
+            "resolution" | "min-resolution" | "max-resolution" => {
+                MediaSelector::Resolution(parse_selector_range(&media_property, parser, parse_resolution)?)
+            },
+            _ => {
+                return Err(CssError::new_located(
+                    &media_property,
+                    error_codes::media_queries::UNRECOGNIZED_PROPERTY,
+                    format!("Property {media_property} is not recognized. Valid properties are 'prefers-color-scheme' | '{{min-|max-}}width' | '{{min-|max-}}-height' | '{{min-|max-}}-resolution | '{{min-|max-}}-aspect-ratio'"),
+                ));
+            }
+        })
+    }
+
+    parser.expect_parenthesis_block()?;
+    let first_selector = parser.parse_nested_block(|parser| {
+        parse_media_selector_atom(parser).map_err(|err| err.into_parse_error())
+    })?;
+
+    let mut selectors = vec![first_selector];
+
+    while let Ok(media_selector) = parser.try_parse(|parser| {
+        parser.expect_ident_matching("and")?;
+        parser.expect_parenthesis_block()?;
+
+        parser.parse_nested_block(|parser| {
+            parse_media_selector_atom(parser).map_err(|err| err.into_parse_error())
+        })
+    }) {
+        selectors.push(media_selector);
+    }
+
+    Ok(MediaSelectors::from_iter(selectors))
+}
+
 #[derive(Clone)]
 struct CssParserContext<'a, 'i> {
-    pub declared_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
-    pub type_registry: &'a TypeRegistry,
-    pub property_registry: &'a PropertyRegistry,
-    pub shorthand_property_registry: &'a ShorthandPropertyRegistry,
-    pub imports: &'a FxHashMap<String, StyleSheet>,
+    declared_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
+    type_registry: &'a TypeRegistry,
+    property_registry: &'a PropertyRegistry,
+    shorthand_property_registry: &'a ShorthandPropertyRegistry,
+    imports: &'a FxHashMap<String, StyleSheet>,
+
+    media_selectors: MediaSelectors,
 }
 
 impl CssParserContext<'_, '_> {
@@ -691,9 +845,57 @@ struct CssRulesetBodyParser<'a, 'i> {
 }
 
 impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
-    type Prelude = ();
+    type Prelude = AtRuleType<'i>;
     type AtRule = CssRulesetProperty;
     type Error = CssError;
+
+    fn parse_prelude<'t>(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<AtRuleType<'i>, ParseError<'i, CssError>> {
+        match_ignore_ascii_case! { &name,
+            "media" =>  {
+                let media_selectors = parse_media_selectors(input).map_err(|err| err.into_parse_error())?;
+                Ok(AtRuleType::MediaSelector(media_selectors))
+            },
+            _ => {
+                Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
+            }
+        }
+    }
+
+    fn parse_block<'t>(
+        &mut self,
+        prelude: Self::Prelude,
+        _start: &ParserState,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Self::AtRule, ParseError<'i, Self::Error>> {
+        Ok(match prelude {
+            AtRuleType::MediaSelector(media_selectors) => {
+                let mut ruleset_body_parser = CssRulesetBodyParser {
+                    parse_transition: true,
+                    parse_animation: true,
+                    parse_nested: true,
+                    inner: self.inner.clone(),
+                };
+                let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
+                let properties = collect_parser(body_parser);
+
+                let parent_selector = CssSelector::parse_single_for_nested("&")
+                    .unwrap()
+                    .with_media_selectors(media_selectors);
+
+                CssRulesetProperty::NestedRuleset(CssRuleset {
+                    selectors: Ok(vec![parent_selector]),
+                    properties,
+                })
+            }
+            _unexpected => {
+                unreachable!("Unexpected media selector: {_unexpected:?}");
+            }
+        })
+    }
 }
 
 impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
@@ -924,13 +1126,17 @@ impl<'i> RuleBodyItemParser<'i, AnimationKeyFrame, CssError> for CssKeyframesBod
 
 /// Top level CSS parser.
 struct CssStyleSheetParser<'a, 'i> {
+    // Indicates if it should parse top level at-rules, like @font-face, @keyframes, @import, etc
+    is_top_level: bool,
     inner: CssParserContext<'a, 'i>,
 }
 
+#[derive(Debug)]
 enum AtRuleType<'i> {
     FontFace,
     KeyFrames(CowRcStr<'i>),
     Import(CowRcStr<'i>),
+    MediaSelector(MediaSelectors),
 }
 
 /// Parses top-level at-rules
@@ -944,20 +1150,25 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
     ) -> Result<AtRuleType<'i>, ParseError<'i, CssError>> {
-        match_ignore_ascii_case! { &name,
-            "font-face" => Ok(AtRuleType::FontFace),
-            "keyframes" => {
+        let is_top_level = self.is_top_level;
+        Ok(match_ignore_ascii_case! { &name,
+            "font-face" if is_top_level => AtRuleType::FontFace,
+            "keyframes" if is_top_level => {
                 let name = input.expect_ident()?.clone();
                 input.expect_exhausted()?;
-                Ok(AtRuleType::KeyFrames(name))
+                AtRuleType::KeyFrames(name)
             },
-            "import" =>  {
+            "import" if is_top_level =>  {
                 let url = input.expect_url_or_string()?;
                 input.expect_exhausted()?;
-                Ok(AtRuleType::Import(url))
+                AtRuleType::Import(url)
             },
-            _ => Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
-        }
+            "media" =>  {
+                let media_selectors = parse_media_selectors(input).map_err(|err| err.into_parse_error())?;
+                AtRuleType::MediaSelector(media_selectors)
+            },
+            _ => return Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
+        })
     }
 
     fn rule_without_block(
@@ -983,7 +1194,7 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         _: &ParserState,
         input: &mut Parser<'i, 't>,
     ) -> Result<CssStyleSheetItem, ParseError<'i, CssError>> {
-        match at_rule_type {
+        Ok(match at_rule_type {
             AtRuleType::FontFace => {
                 let mut font_face_body_parser = CssFontFaceBodyParser {
                     inner: self.inner.clone(),
@@ -1010,17 +1221,16 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
                 }
 
                 if let (Some(family_name), Some(source)) = (family_name, source) {
-                    Ok(CssStyleSheetItem::FontFace(FontFace {
+                    CssStyleSheetItem::FontFace(FontFace {
                         family_name,
                         source,
                         errors,
-                    }))
+                    })
                 } else {
-                    Err(CssError::new_unlocated(
+                    CssStyleSheetItem::Error(CssError::new_unlocated(
                         error_codes::basic::INCOMPLETE_FONT_FACE_RULE,
                         "A font face requires 'font-family' and 'src' provided",
-                    )
-                    .into_parse_error())
+                    ))
                 }
             }
             AtRuleType::KeyFrames(name) => {
@@ -1044,17 +1254,44 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
 
                 declared_animations.insert(name.clone());
 
-                Ok(CssStyleSheetItem::AnimationKeyFrames(AnimationKeyFrames {
+                CssStyleSheetItem::AnimationKeyFrames(AnimationKeyFrames {
                     name: name.to_string(),
                     keyframes,
-                }))
+                })
             }
-            AtRuleType::Import(_name) => Err(CssError::new_unlocated(
-                error_codes::basic::INVALID_AT_RULE,
-                "@import should be a block",
-            )
-            .into_parse_error()),
-        }
+            AtRuleType::MediaSelector(media_selectors) => {
+                let mut new_context = self.inner.clone();
+                new_context.media_selectors =
+                    new_context.media_selectors.merge_with(media_selectors);
+
+                let mut css_style_sheet_parser = CssStyleSheetParser {
+                    is_top_level: false,
+                    inner: new_context,
+                };
+
+                let stylesheet_parser = StyleSheetParser::new(input, &mut css_style_sheet_parser);
+
+                let mut inner = Vec::new();
+
+                for item in stylesheet_parser {
+                    let item = item.unwrap_or_else(|(parse_error, error_str)| {
+                        let mut css_error = CssError::from(parse_error);
+                        css_error.improve_location_with_sub_str(error_str);
+                        CssStyleSheetItem::Error(css_error)
+                    });
+                    inner.push(item);
+                }
+
+                CssStyleSheetItem::Inner(inner)
+            }
+            AtRuleType::Import(_name) => {
+                return Err(CssError::new_unlocated(
+                    error_codes::basic::INVALID_AT_RULE,
+                    "@import cannot be a block",
+                )
+                .into_parse_error());
+            }
+        })
     }
 }
 
@@ -1067,7 +1304,16 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         &mut self,
         input: &mut Parser<'i, 't>,
     ) -> Result<CssParseResult<Vec<CssSelector>>, ParseError<'i, CssError>> {
-        Ok(CssSelector::parse_comma_separated(input).map_err(CssError::from_parse_error))
+        Ok(CssSelector::parse_comma_separated(input)
+            .map(|selectors| {
+                selectors
+                    .into_iter()
+                    .map(|selector| {
+                        selector.with_media_selectors(self.inner.media_selectors.clone())
+                    })
+                    .collect()
+            })
+            .map_err(CssError::from_parse_error))
     }
 
     fn parse_block<'t>(
@@ -1106,12 +1352,14 @@ pub fn parse_css<F>(
     let mut parser = Parser::new(&mut input);
 
     let mut css_style_sheet_parser = CssStyleSheetParser {
+        is_top_level: true,
         inner: CssParserContext {
             declared_animations: Default::default(),
             type_registry,
             property_registry,
             shorthand_property_registry,
             imports,
+            media_selectors: MediaSelectors::empty(),
         },
     };
 
@@ -1134,7 +1382,7 @@ mod tests {
     use bevy::prelude::Component;
     use bevy::reflect::*;
     use bevy_flair_core::*;
-    use bevy_flair_style::{VarOrToken, VarToken};
+    use bevy_flair_style::{ToCss, VarOrToken, VarToken};
     use indoc::indoc;
     use std::sync::LazyLock;
 
@@ -1283,8 +1531,22 @@ mod tests {
     trait ExpectItemExt: ExpectExt<CssStyleSheetItem> {
         #[inline(always)]
         #[track_caller]
+        fn flatten_items(self) -> Vec<CssStyleSheetItem> {
+            self.into_iter()
+                .flat_map(|item| {
+                    if let CssStyleSheetItem::Inner(inner) = item {
+                        inner.flatten_items()
+                    } else {
+                        vec![item]
+                    }
+                })
+                .collect()
+        }
+
+        #[inline(always)]
+        #[track_caller]
         fn expect_n_rule_set<const N: usize>(self) -> [CssRuleset; N] {
-            let n = self.expect_n();
+            let n = self.flatten_items().expect_n();
             n.map(|item| match item {
                 CssStyleSheetItem::RuleSet(rs) => rs,
                 _ => panic!("Expected rule set, found {item:?}"),
@@ -2188,5 +2450,146 @@ mod tests {
 
         assert!(matches!(import1, CssStyleSheetItem::EmbedStylesheet(_)));
         assert!(matches!(import2, CssStyleSheetItem::EmbedStylesheet(_)));
+    }
+
+    #[test]
+    fn media_query_with() {
+        let contents = indoc! {r#"
+             @media (width: 360px) {
+                .rule { width: 3 }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        let media_selectors = selector.get_media_selectors();
+
+        assert_eq!(media_selectors.len(), 1);
+        assert_eq!(
+            media_selectors[0],
+            MediaSelector::ViewportWidth(MediaRangeSelector::Exact(360))
+        );
+
+        assert_selector_is_class_selector!(selector, "rule");
+    }
+
+    #[test]
+    fn media_query_min_with() {
+        let contents = indoc! {r#"
+             @media (min-width: 500px) {
+                .rule { width: 3 }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        let media_selectors = selector.get_media_selectors();
+
+        assert_eq!(media_selectors.len(), 1);
+        assert_eq!(
+            media_selectors[0],
+            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500))
+        );
+
+        assert_selector_is_class_selector!(selector, "rule");
+    }
+
+    #[test]
+    fn media_query_complex() {
+        let contents = indoc! {r#"
+             @media (prefers-color-scheme: dark) and (min-resolution: 1.5x) and (min-aspect-ratio: 3/4) {
+                @media (max-width: 1000px) {
+                    .rule { width: 3 }
+                }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        let media_selectors = selector.get_media_selectors();
+
+        assert_eq!(
+            &**media_selectors,
+            &[
+                MediaSelector::ColorScheme(ColorScheme::Dark),
+                MediaSelector::Resolution(MediaRangeSelector::GreaterOrEqual(1.5)),
+                MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(3.0 / 4.0)),
+                MediaSelector::ViewportWidth(MediaRangeSelector::LessOrEqual(1000)),
+            ]
+        );
+
+        assert_selector_is_class_selector!(selector, "rule");
+    }
+
+    #[test]
+    fn media_query_min_max_nested() {
+        let contents = indoc! {r#"
+             @media (min-width: 500px) {
+                @media (max-width: 1000px) {
+                    .rule { width: 3 }
+                }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        let media_selectors = selector.get_media_selectors();
+
+        assert_eq!(
+            &**media_selectors,
+            &[
+                MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
+                MediaSelector::ViewportWidth(MediaRangeSelector::LessOrEqual(1000))
+            ]
+        );
+
+        assert_selector_is_class_selector!(selector, "rule");
+    }
+
+    #[test]
+    fn media_query_inside_rule() {
+        let contents = indoc! {r#"
+             .rule {
+                @media (max-width: 1000px) {
+                    width: 3
+                }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        assert_selector_is_class_selector!(selector, "rule");
+
+        let mut properties = ruleset.properties;
+        assert_eq!(properties.len(), 1);
+
+        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(0) else {
+            panic!("Expected nested ruleset")
+        };
+
+        let nested_selector = nested_ruleset
+            .selectors
+            .expect("Error while parsing nested selector");
+        assert_eq!(nested_selector.len(), 1);
+        assert_eq!(nested_selector[0].to_css_string(), "&");
+
+        let media_selectors = nested_selector[0].get_media_selectors();
+
+        assert_eq!(
+            &**media_selectors,
+            &[MediaSelector::ViewportWidth(
+                MediaRangeSelector::LessOrEqual(1000)
+            )]
+        );
     }
 }

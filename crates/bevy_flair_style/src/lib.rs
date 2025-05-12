@@ -22,6 +22,7 @@ mod testing;
 #[cfg(feature = "css_selectors")]
 pub mod css_selector;
 
+mod media_selector;
 mod systems;
 mod vars;
 
@@ -29,6 +30,7 @@ use crate::animations::ReflectAnimationsPlugin;
 use crate::components::*;
 
 pub use builder::*;
+pub use media_selector::*;
 pub use simple_selector::*;
 pub use style_sheet::*;
 pub use vars::*;
@@ -128,6 +130,27 @@ impl ToCss for NodePseudoStateSelector {
     }
 }
 
+/// A color scheme that represents `light` or `dark` themes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Reflect)]
+#[reflect(Debug, Default, PartialEq, Clone)]
+pub enum ColorScheme {
+    #[default]
+    /// Use the light variant.
+    Light,
+
+    /// Use the dark variant.
+    Dark,
+}
+
+impl From<bevy::window::WindowTheme> for ColorScheme {
+    fn from(theme: bevy::window::WindowTheme) -> Self {
+        match theme {
+            bevy::window::WindowTheme::Light => Self::Light,
+            bevy::window::WindowTheme::Dark => Self::Dark,
+        }
+    }
+}
+
 #[derive(Resource, Default, Debug)]
 pub(crate) struct GlobalChangeDetection {
     pub any_property_value_changed: bool,
@@ -176,15 +199,15 @@ impl Plugin for FlairStylePlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<StyleSheet>()
             .init_resource::<GlobalChangeDetection>()
-            .register_type::<(
-                NodeStyleSheet,
-                NodeStyleData,
-                NodeStyleMarker,
-                ClassList,
-                Siblings,
-                NodeProperties,
-                NodeVars,
-            )>()
+            .register_type::<WindowMediaFeatures>()
+            .register_type::<NodeStyleSheet>()
+            .register_type::<NodeStyleData>()
+            .register_type::<NodeStyleActiveRules>()
+            .register_type::<NodeStyleMarker>()
+            .register_type::<ClassList>()
+            .register_type::<Siblings>()
+            .register_type::<NodeProperties>()
+            .register_type::<NodeVars>()
             .register_required_components::<Node, NodeStyleSheet>()
             .add_plugins((
                 ReflectAnimationsPlugin,
@@ -203,7 +226,7 @@ impl Plugin for FlairStylePlugin {
                         StyleSystemSets::CalculateStyles,
                         StyleSystemSets::SetStyleProperties,
                         StyleSystemSets::ComputeProperties,
-                        StyleSystemSets::ApplyProperties.before(bevy::ui::UiSystem::Prepare),
+                        StyleSystemSets::ApplyProperties.before(bevy::ui::UiSystem::Layout),
                     )
                         .chain(),
                     StyleSystemSets::TickAnimations.before(StyleSystemSets::SetStyleProperties),
@@ -217,13 +240,16 @@ impl Plugin for FlairStylePlugin {
                 (
                     systems::mark_as_changed_on_style_sheet_change,
                     systems::clear_global_change_detection,
+                    systems::set_window_theme_on_change_event,
                 ),
             )
+            .add_systems(PostStartup, systems::compute_window_media_features)
             .add_systems(
                 PostUpdate,
                 (
                     (
                         systems::calculate_effective_style_sheet,
+                        systems::compute_window_media_features,
                         systems::sync_siblings_system,
                     )
                         .chain()
@@ -239,6 +265,9 @@ impl Plugin for FlairStylePlugin {
                     (
                         systems::mark_related_nodes_for_recalculation,
                         systems::mark_changed_nodes_for_recalculation,
+                        systems::mark_nodes_for_recalculation_on_computed_node_target_change
+                            .after(bevy::ui::UiSystem::Prepare),
+                        systems::mark_nodes_for_recalculation_on_window_media_features_change,
                     )
                         .chain()
                         .in_set(StyleSystemSets::MarkNodesForRecalculation),
@@ -320,7 +349,6 @@ mod tests {
     use bevy::asset::weak_handle;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::ui::Node;
-    use std::sync::atomic;
 
     const TEST_STYLE_SHEET: NodeStyleSheet =
         NodeStyleSheet::new(weak_handle!("fe981062-17ce-46e4-999a-5a61ea8fe722"));
@@ -396,6 +424,10 @@ mod tests {
 
         app.add_plugins((
             bevy::time::TimePlugin,
+            WindowPlugin {
+                primary_window: None,
+                ..default()
+            },
             AssetPlugin::default(),
             BevyUiPropertiesPlugin,
             FlairStylePlugin,
@@ -605,13 +637,15 @@ mod tests {
         {
             app.world_mut()
                 .run_system_once(
-                    |mut query: Query<(&NodeStyleData, &mut NodeStyleMarker), With<FirstChild>>| {
-                        let (data, mut marker) = query.single_mut().unwrap();
+                    |mut query: Query<
+                        (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
+                        With<FirstChild>,
+                    >| {
+                        let (selector_flags, mut marker) = query.single_mut().unwrap();
                         marker.mark_for_recalculation();
-                        data.recalculation_flags.fetch_or(
-                            RecalculateOnChangeFlags::RECALCULATE_SIBLINGS.bits(),
-                            atomic::Ordering::Relaxed,
-                        );
+                        selector_flags
+                            .recalculate_on_change_flags
+                            .insert(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS);
                     },
                 )
                 .unwrap();
@@ -627,13 +661,15 @@ mod tests {
         {
             app.world_mut()
                 .run_system_once(
-                    |mut query: Query<(&NodeStyleData, &mut NodeStyleMarker), Without<ChildOf>>| {
-                        let (data, mut marker) = query.single_mut().unwrap();
+                    |mut query: Query<
+                        (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
+                        Without<ChildOf>,
+                    >| {
+                        let (selector_flags, mut marker) = query.single_mut().unwrap();
                         marker.mark_for_recalculation();
-                        data.recalculation_flags.fetch_or(
-                            RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS.bits(),
-                            atomic::Ordering::Relaxed,
-                        );
+                        selector_flags
+                            .recalculate_on_change_flags
+                            .insert(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS);
                     },
                 )
                 .unwrap();

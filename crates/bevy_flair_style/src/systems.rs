@@ -1,19 +1,23 @@
 use crate::components::{
-    ClassList, NodeProperties, NodeStyleActiveRules, NodeStyleData, NodeStyleMarker,
-    NodeStyleSheet, NodeVars, RecalculateOnChangeFlags, Siblings,
+    ClassList, DependsOnMediaFeaturesFlags, NodeProperties, NodeStyleActiveRules, NodeStyleData,
+    NodeStyleMarker, NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, RecalculateOnChangeFlags,
+    Siblings, WindowMediaFeatures,
 };
-use crate::{GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
+use crate::{ColorScheme, GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
 use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
 use std::iter;
 
 use bevy::prelude::*;
 
+use crate::media_selector::MediaFeaturesProvider;
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::{InputFocus, InputFocusVisible};
+use bevy::render::camera::NormalizedRenderTarget;
+use bevy::window::{PrimaryWindow, WindowEvent};
 use bevy_flair_core::*;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
-use std::sync::{Arc, atomic};
+use std::sync::Arc;
 
 pub(crate) fn sync_siblings_system(
     mut siblings_param_set: ParamSet<(
@@ -66,6 +70,7 @@ pub(crate) fn calculate_effective_style_sheet(
         NameOrEntity,
         &NodeStyleSheet,
         &mut NodeStyleData,
+        &mut NodeStyleSelectorFlags,
         &mut NodeStyleMarker,
     )>,
     node_style_sheet_query: Query<&NodeStyleSheet>,
@@ -77,7 +82,7 @@ pub(crate) fn calculate_effective_style_sheet(
     let mut modified_style_sheets = EntityHashSet::default();
 
     let mut set_effective_style_sheet = |entity| {
-        let Ok((name_or_entity, style_sheet, mut data, mut marker)) =
+        let Ok((name_or_entity, style_sheet, mut data, mut flags, mut marker)) =
             style_data_query.get_mut(entity)
         else {
             return false;
@@ -108,7 +113,11 @@ pub(crate) fn calculate_effective_style_sheet(
         trace!("Effective stylesheet for {name_or_entity} is {effective_style_sheet:?}");
 
         marker.mark_for_recalculation();
-        data.set_effective_style_sheet(effective_style_sheet)
+        let effective_change = data.set_effective_style_sheet(effective_style_sheet);
+        if effective_change {
+            flags.reset();
+        }
+        effective_change
     };
 
     for entity in &changed_style_sheets_query {
@@ -121,6 +130,43 @@ pub(crate) fn calculate_effective_style_sheet(
     for entity in modified_style_sheets {
         for child in children_query.iter_descendants(entity) {
             set_effective_style_sheet(child);
+        }
+    }
+}
+
+// TODO: I guess this should be done automatically by bevy or winit, but it's not happening
+pub(crate) fn set_window_theme_on_change_event(
+    mut windows_query: Query<&mut Window>,
+    mut events: EventReader<WindowEvent>,
+) {
+    for event in events.read() {
+        if let WindowEvent::WindowThemeChanged(theme_changed) = event {
+            if let Ok(mut window) = windows_query.get_mut(theme_changed.window) {
+                info!(
+                    "New window theme for {}: {:?}",
+                    theme_changed.window, theme_changed.theme
+                );
+
+                if window.window_theme != Some(theme_changed.theme) {
+                    window.window_theme = Some(theme_changed.theme);
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn compute_window_media_features(
+    mut commands: Commands,
+    changed_windows_query: Query<(Entity, &Window, Option<&WindowMediaFeatures>), Changed<Window>>,
+) {
+    for (entity, window, maybe_window_media_features) in &changed_windows_query {
+        let new_window_media_features = WindowMediaFeatures::from_window(window);
+
+        if Some(&new_window_media_features) != maybe_window_media_features {
+            debug!("Setting window media features to {entity}: {new_window_media_features:?}");
+            commands
+                .entity(entity)
+                .try_insert(new_window_media_features);
         }
     }
 }
@@ -230,10 +276,66 @@ pub(crate) fn clear_global_change_detection(
     *global_change_detection = GlobalChangeDetection::default();
 }
 
+pub(crate) fn mark_nodes_for_recalculation_on_window_media_features_change(
+    primary_window: Option<Single<Entity, With<PrimaryWindow>>>,
+    cameras_query: Query<(Entity, &Camera)>,
+    window_media_features_changed: Query<Entity, Changed<WindowMediaFeatures>>,
+    mut nodes_query: Query<(
+        &NodeStyleSelectorFlags,
+        &ComputedNodeTarget,
+        &mut NodeStyleMarker,
+    )>,
+) {
+    let windows_changed = EntityHashSet::from_iter(window_media_features_changed.iter());
+    if windows_changed.is_empty() {
+        return;
+    }
+
+    let primary_window = primary_window.as_deref().copied();
+
+    for (camera_entity, camera) in &cameras_query {
+        let Some(NormalizedRenderTarget::Window(window)) = camera.target.normalize(primary_window)
+        else {
+            continue;
+        };
+        if !windows_changed.contains(&window.entity()) {
+            continue;
+        }
+
+        for (flags, computed_node_target, mut marker) in &mut nodes_query {
+            if computed_node_target.camera() != Some(camera_entity) {
+                continue;
+            }
+            if flags
+                .depends_on_media_flags
+                .contains(DependsOnMediaFeaturesFlags::DEPENDS_ON_WINDOW)
+            {
+                marker.mark_for_recalculation();
+            }
+        }
+    }
+}
+
+pub(crate) fn mark_nodes_for_recalculation_on_computed_node_target_change(
+    mut compute_node_target_changed_query: Query<
+        (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
+        Changed<ComputedNodeTarget>,
+    >,
+) {
+    for (flags, mut marker) in &mut compute_node_target_changed_query {
+        if flags
+            .depends_on_media_flags
+            .contains(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET)
+        {
+            marker.mark_for_recalculation();
+        }
+    }
+}
+
 #[cfg(feature = "css_selectors")]
 pub(crate) fn mark_related_nodes_for_recalculation(
     children_changed_query: Query<Entity, Changed<Children>>,
-    style_data_query: Query<&NodeStyleData>,
+    selector_flags_query: Query<&NodeStyleSelectorFlags>,
     mut markers_query: Query<&mut NodeStyleMarker>,
     siblings_query: Query<(Option<&ChildOf>, Option<&Children>), With<NodeStyleData>>,
     children_query: Query<&Children, With<NodeStyleData>>,
@@ -242,14 +344,11 @@ pub(crate) fn mark_related_nodes_for_recalculation(
 ) -> Result {
     use selectors::matching::ElementSelectorFlags;
     for entity in children_changed_query.iter().chain(removed_children.read()) {
-        let Ok(style_data) = style_data_query.get(entity) else {
+        let Ok(selector_flags) = selector_flags_query.get(entity) else {
             continue;
         };
-        let flags = ElementSelectorFlags::from_bits_truncate(
-            style_data.selector_flags.load(atomic::Ordering::Relaxed),
-        );
 
-        if flags.intersects(
+        if selector_flags.css_selector_flags.intersects(
             ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR
                 | ElementSelectorFlags::RELATIVE_SELECTOR_SEARCH_DIRECTION_ANCESTOR
                 | ElementSelectorFlags::HAS_EMPTY_SELECTOR,
@@ -258,7 +357,7 @@ pub(crate) fn mark_related_nodes_for_recalculation(
         }
 
         for child in children_query.relationship_sources(entity) {
-            if flags.intersects(
+            if selector_flags.css_selector_flags.intersects(
                 ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH
                     | ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR
                     | ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS,
@@ -283,6 +382,7 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
             (
                 Entity,
                 Ref<NodeStyleData>,
+                &NodeStyleSelectorFlags,
                 &NodeStyleMarker,
                 Option<&ChildOf>,
             ),
@@ -296,7 +396,7 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 ) -> Result {
     let nodes_changed_query = queries.p0();
 
-    for (entity, style_data, marker, child_of) in &nodes_changed_query {
+    for (entity, style_data, selector_flags, marker, child_of) in &nodes_changed_query {
         if !style_data.is_changed() && !marker.needs_recalculation() {
             continue;
         }
@@ -305,11 +405,8 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
             to_be_marked.insert(entity);
         }
 
-        let flags = RecalculateOnChangeFlags::from_bits_truncate(
-            style_data
-                .recalculation_flags
-                .load(atomic::Ordering::Relaxed),
-        );
+        let flags = selector_flags.recalculate_on_change_flags.load();
+
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS) {
             if let Some(&ChildOf(parent)) = child_of {
                 to_be_marked.extend(children_query.get(parent)?.iter());
@@ -335,7 +432,8 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 pub(crate) fn mark_as_changed_on_style_sheet_change(
     mut asset_events_reader: EventReader<AssetEvent<StyleSheet>>,
     mut style_query: Query<(
-        &mut NodeStyleData,
+        &NodeStyleData,
+        &mut NodeStyleSelectorFlags,
         &mut NodeStyleMarker,
         &mut NodeProperties,
         &mut NodeVars,
@@ -354,11 +452,11 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         return;
     }
 
-    for (mut style_data, mut marker, mut properties, mut vars) in &mut style_query {
+    for (style_data, mut flags, mut marker, mut properties, mut vars) in &mut style_query {
         if modified_stylesheets.contains(&style_data.effective_style_sheet.id()) {
-            *style_data.selector_flags.get_mut() = Default::default();
-            *style_data.recalculation_flags.get_mut() = Default::default();
+            flags.reset();
 
+            // TODO: Revert setted properties to their default value
             properties.reset();
             vars.clear();
             marker.mark_for_recalculation();
@@ -416,6 +514,84 @@ impl VarResolver for EntityVarResolver<'_, '_, '_> {
     }
 }
 
+#[derive(SystemParam)]
+pub(crate) struct MediaFeaturesParam<'w, 's> {
+    selector_flags_query: Query<'w, 's, &'static NodeStyleSelectorFlags>,
+    cameras_query: Query<'w, 's, &'static Camera>,
+    window_media_features_query: Query<'w, 's, &'static WindowMediaFeatures>,
+    primary_window: Option<Single<'w, Entity, With<PrimaryWindow>>>,
+}
+
+impl<'w, 's> MediaFeaturesParam<'w, 's> {
+    pub fn get_window_media_features(&self, camera: Entity) -> Option<&WindowMediaFeatures> {
+        let primary_window = self.primary_window.as_deref().copied();
+        let camera = self.cameras_query.get(camera).ok()?;
+        if let Some(NormalizedRenderTarget::Window(window)) =
+            camera.target.normalize(primary_window)
+        {
+            self.window_media_features_query.get(window.entity()).ok()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_media_features_provider<'a>(
+        &'a self,
+        entity: Entity,
+        computed_node_target: &'a ComputedNodeTarget,
+    ) -> MediaFeaturesProviderImpl<'a, 'w, 's> {
+        MediaFeaturesProviderImpl {
+            entity,
+            computed_node_target,
+            params: self,
+        }
+    }
+}
+
+pub(crate) struct MediaFeaturesProviderImpl<'a, 'w, 's> {
+    entity: Entity,
+    computed_node_target: &'a ComputedNodeTarget,
+    params: &'a MediaFeaturesParam<'w, 's>,
+}
+
+impl MediaFeaturesProviderImpl<'_, '_, '_> {
+    fn set_flags(&self, flags: DependsOnMediaFeaturesFlags) {
+        if let Ok(selector_flags) = self.params.selector_flags_query.get(self.entity) {
+            selector_flags.depends_on_media_flags.insert(flags);
+        }
+    }
+}
+
+impl MediaFeaturesProvider for MediaFeaturesProviderImpl<'_, '_, '_> {
+    fn get_color_scheme(&self) -> Option<ColorScheme> {
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_WINDOW);
+        self.params
+            .get_window_media_features(self.computed_node_target.camera()?)?
+            .color_scheme
+    }
+
+    fn get_resolution(&self) -> Option<f32> {
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
+        Some(self.computed_node_target.scale_factor())
+    }
+
+    fn get_viewport_width(&self) -> Option<u32> {
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
+        Some(self.computed_node_target.logical_size().as_uvec2().x)
+    }
+
+    fn get_viewport_height(&self) -> Option<u32> {
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
+        Some(self.computed_node_target.logical_size().as_uvec2().y)
+    }
+
+    fn get_aspect_ratio(&self) -> Option<f32> {
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
+        let viewport_size = self.computed_node_target.logical_size();
+        Some(viewport_size.x / viewport_size.y)
+    }
+}
+
 pub(crate) fn calculate_style_and_set_vars(
     style_sheets: Res<Assets<StyleSheet>>,
     mut param_set: ParamSet<(
@@ -424,22 +600,26 @@ pub(crate) fn calculate_style_and_set_vars(
             &NodeStyleData,
             &mut NodeStyleActiveRules,
             &NodeStyleMarker,
+            &ComputedNodeTarget,
             &mut NodeVars,
         )>,
         Query<&mut NodeStyleMarker>,
     )>,
     element_ref_system_param: css_selector::ElementRefSystemParam,
     children_query: Query<&Children>,
+    media_features_param: MediaFeaturesParam,
     mut to_mark_descendants_parallel: Local<bevy::utils::Parallel<Vec<Entity>>>,
 ) {
     let mut styled_entities_query = param_set.p0();
 
     styled_entities_query.par_iter_mut().for_each_init(
         || to_mark_descendants_parallel.borrow_local_mut(),
-        |to_mark_descendants, (name_or_entity, data, mut active_rules, marker, mut vars)| {
+        |to_mark_descendants,
+         (name_or_entity, data, mut active_rules, marker, computed_node_target, mut vars)| {
             if !marker.needs_recalculation() {
                 return;
             }
+
             let entity = name_or_entity.entity;
             let stylesheet_id = data.effective_style_sheet.id();
 
@@ -451,8 +631,10 @@ pub(crate) fn calculate_style_and_set_vars(
             };
 
             let element_ref = css_selector::ElementRef::new(entity, &element_ref_system_param);
-
-            let new_rules = style_sheet.get_matching_ruleset_ids_for_element(&element_ref);
+            let media_provider =
+                media_features_param.get_media_features_provider(entity, computed_node_target);
+            let new_rules =
+                style_sheet.get_matching_ruleset_ids_for_element(&element_ref, &media_provider);
 
             let new_vars = style_sheet.get_vars(&new_rules);
 

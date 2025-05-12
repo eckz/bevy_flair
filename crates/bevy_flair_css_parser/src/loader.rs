@@ -152,7 +152,6 @@ impl AssetLoader for CssStyleLoader {
                 Ok(selectors) => {
                     debug_assert!(!selectors.is_empty());
                     let mut ruleset_builder = builder.new_ruleset();
-                    let mut nested_rulesets = Vec::new();
 
                     let selectors = match parent_selectors {
                         None => selectors,
@@ -222,20 +221,21 @@ impl AssetLoader for CssStyleLoader {
                                 ruleset_builder.add_var(var_name, tokens);
                             }
                             CssRulesetProperty::NestedRuleset(nested_ruleset) => {
-                                nested_rulesets.push(nested_ruleset);
+                                process_ruleset_recursively(
+                                    nested_ruleset,
+                                    Some(&selectors),
+                                    builder,
+                                    report_generator,
+                                );
+                                ruleset_builder = builder.new_ruleset();
+                                for selector in selectors.iter().cloned() {
+                                    ruleset_builder.add_css_selector(selector);
+                                }
                             }
                             CssRulesetProperty::Error(error) => {
                                 report_generator.add_error(error);
                             }
                         }
-                    }
-                    for nested_ruleset in nested_rulesets {
-                        process_ruleset_recursively(
-                            nested_ruleset,
-                            Some(&selectors),
-                            builder,
-                            report_generator,
-                        );
                     }
                 }
                 Err(selectors_error) => {
@@ -246,18 +246,22 @@ impl AssetLoader for CssStyleLoader {
             }
         }
 
-        parse_css(
-            &type_registry,
-            &self.property_registry,
-            &self.shorthand_property_registry,
-            &imports,
-            &contents,
-            |item| match item {
+        fn processor(
+            item: CssStyleSheetItem,
+            builder: &mut StyleSheetBuilder,
+            report_generator: &mut ErrorReportGenerator,
+        ) {
+            match item {
                 CssStyleSheetItem::EmbedStylesheet(style_sheet) => {
                     builder.embed_style_sheet(style_sheet);
                 }
+                CssStyleSheetItem::Inner(items) => {
+                    for item in items {
+                        processor(item, builder, report_generator);
+                    }
+                }
                 CssStyleSheetItem::RuleSet(ruleset) => {
-                    process_ruleset_recursively(ruleset, None, &mut builder, &mut report_generator);
+                    process_ruleset_recursively(ruleset, None, builder, report_generator);
                 }
                 CssStyleSheetItem::FontFace(font_face) => {
                     for error in font_face.errors {
@@ -313,6 +317,17 @@ impl AssetLoader for CssStyleLoader {
                 CssStyleSheetItem::Error(error) => {
                     report_generator.add_error(error);
                 }
+            }
+        }
+
+        parse_css(
+            &type_registry,
+            &self.property_registry,
+            &self.shorthand_property_registry,
+            &imports,
+            &contents,
+            |item| {
+                processor(item, &mut builder, &mut report_generator);
             },
         );
 
@@ -331,6 +346,7 @@ impl AssetLoader for CssStyleLoader {
             }
         }
 
+        builder.remove_all_empty_rulesets();
         Ok(builder.build_with_load_context(&self.property_registry, load_context)?)
     }
 

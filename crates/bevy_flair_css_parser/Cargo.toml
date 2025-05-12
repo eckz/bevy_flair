@@ -27,7 +27,7 @@ bevy_flair_style = { workspace = true, features = ["css_selectors"] }
 
 cssparser = { version = "0.35" }
 cssparser-color = { version = "0.3" }
-selectors = { version = "0.27" }
+selectors = { version = "0.28" }
 
 ariadne = "0.5"
 

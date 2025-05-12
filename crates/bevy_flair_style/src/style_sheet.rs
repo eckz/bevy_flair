@@ -21,6 +21,7 @@ use crate::animations::TransitionOptions;
 #[cfg(feature = "css_selectors")]
 use crate::css_selector::CssSelector;
 
+use crate::media_selector::MediaFeaturesProvider;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::ops::Add;
 use std::sync::Arc;
@@ -328,9 +329,8 @@ pub(crate) struct Ruleset {
     pub(super) transitions: PropertiesHashMap<TransitionOptions>,
 }
 
-// TODO: Add StyleSheetId
 /// ID of a ruleset in a [`StyleSheet`].
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Reflect)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Hash, Debug, Reflect)]
 pub(crate) struct StyleSheetRulesetId(pub(crate) usize);
 
 impl Display for StyleSheetRulesetId {
@@ -357,11 +357,17 @@ impl StyleSheetSelector {
         }
     }
 
-    pub(crate) fn matches<E: StyleMatchableElement>(&self, element: &E) -> bool {
+    pub(crate) fn matches<E: StyleMatchableElement, M: MediaFeaturesProvider>(
+        &self,
+        element: &E,
+        media_provider: &M,
+    ) -> bool {
         match self {
             StyleSheetSelector::SimpleSelector(s) => s.matches(element.borrow()),
             #[cfg(feature = "css_selectors")]
-            StyleSheetSelector::CssSelector(s) => s.matches(element),
+            StyleSheetSelector::CssSelector(s) => {
+                s.matches_media_selector(media_provider) && s.matches_selector(element)
+            }
         }
     }
 }
@@ -533,13 +539,17 @@ impl StyleSheet {
 
     /// Returns ids that matches with the given element.
     /// Results are sorted from less specific to more specific.
-    pub(crate) fn get_matching_ruleset_ids_for_element<E: StyleMatchableElement>(
+    pub(crate) fn get_matching_ruleset_ids_for_element<
+        E: StyleMatchableElement,
+        M: MediaFeaturesProvider,
+    >(
         &self,
         element: &E,
+        media_provider: &M,
     ) -> Vec<StyleSheetRulesetId> {
         self.selectors_to_rulesets
             .iter()
-            .filter_map(|(s, id)| s.matches(element).then_some(*id))
+            .filter_map(|(s, id)| s.matches(element, media_provider).then_some(*id))
             .collect()
     }
 }
@@ -547,7 +557,9 @@ impl StyleSheet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ColorScheme;
     use crate::animations::{AnimationDirection, IterationCount};
+    use crate::media_selector::{MediaRangeSelector, MediaSelector};
     use crate::testing::{entity, simple_selector};
     use bevy::prelude::{Component, Reflect};
     use bevy_flair_core::ComponentProperty;
@@ -649,6 +661,32 @@ mod tests {
 
     const TEST_ANIMATION_NAME: &str = "test-animation";
 
+    #[derive(Default)]
+    struct TestMediaProvider {
+        scheme: Option<ColorScheme>,
+        resolution: Option<f32>,
+        width: Option<u32>,
+        height: Option<u32>,
+    }
+
+    impl MediaFeaturesProvider for TestMediaProvider {
+        fn get_color_scheme(&self) -> Option<ColorScheme> {
+            self.scheme
+        }
+
+        fn get_resolution(&self) -> Option<f32> {
+            self.resolution
+        }
+
+        fn get_viewport_width(&self) -> Option<u32> {
+            self.width
+        }
+
+        fn get_viewport_height(&self) -> Option<u32> {
+            self.height
+        }
+    }
+
     #[test]
     fn test_style_sheet() {
         let mut builder = StyleSheetBuilder::new();
@@ -693,21 +731,29 @@ mod tests {
 
         let style_sheet = builder.build_without_loader(&PROPERTY_REGISTRY).unwrap();
 
+        let media_provider = TestMediaProvider::default();
+
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text)),
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &media_provider),
             vec![rule_any_id]
         );
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text.class_1)),
+            style_sheet
+                .get_matching_ruleset_ids_for_element(element!(Text.class_1), &media_provider),
             vec![rule_any_id, rule_class_id]
         );
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text.class_1 #test_name)),
+            style_sheet.get_matching_ruleset_ids_for_element(
+                element!(Text.class_1 #test_name),
+                &media_provider
+            ),
             vec![rule_any_id, rule_class_id, rule_with_name_id]
         );
         assert_eq!(
-            style_sheet
-                .get_matching_ruleset_ids_for_element(element!(Text.class_1 :hover #test_name)),
+            style_sheet.get_matching_ruleset_ids_for_element(
+                element!(Text.class_1 :hover #test_name),
+                &media_provider
+            ),
             vec![
                 rule_any_id,
                 rule_class_id,
@@ -773,6 +819,133 @@ mod tests {
                 rule_with_name_id
             ]),
             vec![expected_animation]
+        );
+    }
+
+    #[test]
+    fn test_media_selectors() {
+        let mut builder = StyleSheetBuilder::new();
+
+        let any_selector = CssSelector::parse_single("*").unwrap();
+
+        let rule_dark = builder
+            .new_ruleset()
+            .with_css_selector(
+                any_selector
+                    .clone()
+                    .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Dark)),
+            )
+            .with_properties([(TEST_PROPERTY, 0f32)])
+            .id();
+
+        let rule_light = builder
+            .new_ruleset()
+            .with_css_selector(
+                any_selector
+                    .clone()
+                    .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Light)),
+            )
+            .with_properties([(TEST_PROPERTY, 1f32)])
+            .id();
+
+        let rule_min_width_500 = builder
+            .new_ruleset()
+            .with_css_selector(any_selector.clone().with_media_selectors([
+                MediaSelector::ColorScheme(ColorScheme::Light),
+                MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
+            ]))
+            .with_properties([(TEST_PROPERTY, 2f32)])
+            .id();
+
+        let rule_width_exact_600 = builder
+            .new_ruleset()
+            .with_css_selector(any_selector.clone().with_media_selectors([
+                MediaSelector::ColorScheme(ColorScheme::Light),
+                MediaSelector::ViewportWidth(MediaRangeSelector::Exact(600)),
+            ]))
+            .with_properties([(TEST_PROPERTY, 3f32)])
+            .id();
+
+        let rule_aspect_ratio_ge_1 = builder
+            .new_ruleset()
+            .with_css_selector(any_selector.clone().with_media_selectors(
+                MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(1.0)),
+            ))
+            .with_properties([(TEST_PROPERTY, 3f32)])
+            .id();
+
+        let rule_aspect_ratio_le_1 = builder
+            .new_ruleset()
+            .with_css_selector(any_selector.clone().with_media_selectors(
+                MediaSelector::AspectRatio(MediaRangeSelector::LessOrEqual(1.0)),
+            ))
+            .with_properties([(TEST_PROPERTY, 3f32)])
+            .id();
+
+        let style_sheet = builder.build_without_loader(&PROPERTY_REGISTRY).unwrap();
+
+        let dark_media = TestMediaProvider {
+            scheme: Some(ColorScheme::Dark),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &dark_media),
+            vec![rule_dark]
+        );
+
+        let light_media = TestMediaProvider {
+            scheme: Some(ColorScheme::Light),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &light_media),
+            vec![rule_light]
+        );
+
+        let light_500_media = TestMediaProvider {
+            scheme: Some(ColorScheme::Light),
+            width: Some(500),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &light_500_media),
+            vec![rule_light, rule_min_width_500]
+        );
+
+        let light_600_media = TestMediaProvider {
+            scheme: Some(ColorScheme::Light),
+            width: Some(600),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &light_600_media),
+            vec![rule_light, rule_min_width_500, rule_width_exact_600]
+        );
+
+        let resolution_800x600 = TestMediaProvider {
+            width: Some(800),
+            height: Some(600),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &resolution_800x600),
+            vec![rule_aspect_ratio_ge_1]
+        );
+
+        let resolution_600x800 = TestMediaProvider {
+            width: Some(600),
+            height: Some(800),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &resolution_600x800),
+            vec![rule_aspect_ratio_le_1]
         );
     }
 }

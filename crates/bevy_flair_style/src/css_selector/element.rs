@@ -4,9 +4,10 @@ use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
 use selectors::{Element, OpaqueElement, SelectorImpl};
 use std::borrow::Borrow;
-use std::sync::atomic::Ordering;
 
-use crate::components::{NodeStyleData, RecalculateOnChangeFlags, Siblings};
+use crate::components::{
+    NodeStyleData, NodeStyleSelectorFlags, RecalculateOnChangeFlags, Siblings,
+};
 use crate::css_selector::{CssSelectorImpl, InternalPseudoStateSelector};
 
 macro_rules! impl_element_commons {
@@ -92,7 +93,7 @@ macro_rules! impl_element_commons {
 
 #[derive(Debug, SystemParam)]
 pub(crate) struct ElementRefSystemParam<'w, 's> {
-    style_data_query: Query<'w, 's, &'static NodeStyleData>,
+    style_data_query: Query<'w, 's, (&'static NodeStyleData, &'static NodeStyleSelectorFlags)>,
     parent_query: Query<'w, 's, &'static ChildOf>,
     children_query: Query<'w, 's, &'static Children>,
     siblings_query: Query<'w, 's, &'static Siblings>,
@@ -102,6 +103,7 @@ pub(crate) struct ElementRefSystemParam<'w, 's> {
 pub(crate) struct ElementRef<'a> {
     entity: Entity,
     data: &'a NodeStyleData,
+    selector_flags: &'a NodeStyleSelectorFlags,
     queries: &'a ElementRefSystemParam<'a, 'a>,
 }
 
@@ -113,7 +115,7 @@ impl Borrow<NodeStyleData> for ElementRef<'_> {
 
 impl<'a> ElementRef<'a> {
     pub fn new(entity: Entity, queries: &'a ElementRefSystemParam<'a, 'a>) -> Self {
-        let data = queries
+        let (data, selector_flags) = queries
             .style_data_query
             .get(entity)
             .expect("NodeStyleData does not exist for entity");
@@ -121,6 +123,7 @@ impl<'a> ElementRef<'a> {
         Self {
             entity,
             data,
+            selector_flags,
             queries,
         }
     }
@@ -130,13 +133,13 @@ impl<'a> ElementRef<'a> {
         queries: &'a ElementRefSystemParam<'a, 'a>,
         flags: RecalculateOnChangeFlags,
     ) -> Option<Self> {
-        let data = queries.style_data_query.get(entity).ok()?;
-        data.recalculation_flags
-            .fetch_or(flags.bits(), Ordering::Relaxed);
+        let (data, selector_flags) = queries.style_data_query.get(entity).ok()?;
+        selector_flags.recalculate_on_change_flags.insert(flags);
 
         Some(Self {
             entity,
             data,
+            selector_flags,
             queries,
         })
     }
@@ -260,9 +263,7 @@ impl Element for ElementRef<'_> {
             self.entity,
             flags.iter_names().map(|(s, _)| s).collect::<Vec<_>>()
         );
-        self.data
-            .selector_flags
-            .fetch_or(flags.bits(), Ordering::Relaxed);
+        self.selector_flags.css_selector_flags.insert(flags);
     }
 }
 

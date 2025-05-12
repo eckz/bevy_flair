@@ -5,8 +5,8 @@ use crate::animations::{
 };
 
 use crate::{
-    ClassName, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation, StyleSheet,
-    VarTokens,
+    ClassName, ColorScheme, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation,
+    StyleSheet, VarTokens,
 };
 
 use bevy::prelude::*;
@@ -16,10 +16,6 @@ use bevy_flair_core::{
     PropertyValue, ReflectValue,
 };
 use bitflags::bitflags;
-
-use std::collections::BinaryHeap;
-use std::collections::hash_map::Entry;
-use std::convert::Infallible;
 
 use crate::style_sheet::StyleSheetRulesetId;
 use bevy::ecs::component::HookContext;
@@ -31,15 +27,19 @@ use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::collections::BinaryHeap;
+use std::collections::hash_map::Entry;
+use std::convert::Infallible;
 use std::mem;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, atomic};
 use std::time::Duration;
 
 /// Contains information about siblings of an Entity.
 /// This is required to have a faster access to siblings
-#[derive(Clone, Debug, Default, Component, Reflect)]
-#[reflect(Debug, Component)]
+#[derive(Debug, Clone, Default, Component, Reflect)]
+#[reflect(Debug, Clone, Default, Component)]
 pub struct Siblings {
     /// Next sibling or None if this is the last child.
     pub next_sibling: Option<Entity>,
@@ -70,7 +70,7 @@ impl Siblings {
 
 /// Helper component that when an entity needs it's style to be recalculated
 #[derive(Debug, Clone, Component, Reflect)]
-#[reflect(Debug, Default, Component)]
+#[reflect(Debug, Clone, Default, Component)]
 pub struct NodeStyleMarker {
     needs_recalculation: bool,
 }
@@ -97,15 +97,6 @@ impl NodeStyleMarker {
     }
 }
 
-bitflags! {
-    #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
-    pub(crate) struct RecalculateOnChangeFlags: usize {
-        const RECALCULATE_SIBLINGS = 1 << 0;
-        const RECALCULATE_DESCENDANTS = 1 << 1;
-        const RECALCULATE_ASCENDANTS = 1 << 1;
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Reflect, Serialize)]
 pub(crate) struct TypeNameWithPriority {
     priority: u32,
@@ -115,21 +106,113 @@ pub(crate) struct TypeNameWithPriority {
 /// Gathers all data needed to calculate styles.
 /// Selectors will use this struct to decide if the entity is a match or not.
 #[derive(Debug, Clone, Default, Component, Reflect)]
-#[reflect(Debug, Default, Component)]
+#[reflect(Debug, Clone, Default, Component)]
 pub struct NodeStyleActiveRules {
     pub(crate) active_rules: Vec<StyleSheetRulesetId>,
 }
 
 /// Gathers all data needed to calculate styles.
 /// Selectors will use this struct to decide if the entity is a match or not.
-#[derive(Debug, Default, Component, Reflect)]
-#[reflect(Debug, Default, Component)]
+#[derive(Debug, Clone, Default, PartialEq, Component, Reflect)]
+#[component(immutable)]
+#[reflect(Debug, Clone, Default, PartialEq, Component)]
+pub(crate) struct WindowMediaFeatures {
+    pub(crate) color_scheme: Option<ColorScheme>,
+}
+
+impl WindowMediaFeatures {
+    pub fn from_window(window: &Window) -> Self {
+        let color_scheme = window.window_theme.map(Into::into);
+        Self { color_scheme }
+    }
+}
+
+bitflags! {
+    #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
+    pub(crate) struct RecalculateOnChangeFlags: usize {
+        const RECALCULATE_SIBLINGS = 0b001;
+        const RECALCULATE_DESCENDANTS = 0b010;
+        const RECALCULATE_ASCENDANTS = 0b100;
+    }
+}
+
+bitflags! {
+    #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
+    pub(crate) struct DependsOnMediaFeaturesFlags: usize {
+        const DEPENDS_ON_COMPUTE_NODE_TARGET = 0b01;
+        const DEPENDS_ON_WINDOW = 0b10;
+    }
+}
+
+#[derive(Reflect)]
+#[reflect(Debug, Default)]
+pub(crate) struct AtomicFlags<T: bitflags::Flags<Bits = usize>> {
+    value: atomic::AtomicUsize,
+    #[reflect(ignore)]
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T: bitflags::Flags<Bits = usize>> std::fmt::Debug for AtomicFlags<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug_tuple = f.debug_tuple(std::any::type_name::<T>());
+        let flags = self.load();
+        for (name, _) in flags.iter_names() {
+            debug_tuple.field(&name);
+        }
+        debug_tuple.finish()
+    }
+}
+
+impl<T: bitflags::Flags<Bits = usize>> Default for AtomicFlags<T> {
+    fn default() -> Self {
+        Self {
+            value: atomic::AtomicUsize::new(0),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: bitflags::Flags<Bits = usize>> AtomicFlags<T> {
+    pub fn load(&self) -> T {
+        T::from_bits_truncate(self.value.load(Ordering::Relaxed))
+    }
+
+    /// Whether all set bits in a source flags value are also set in a target flags value.
+    pub fn contains(&self, other: T) -> bool {
+        self.load().contains(other)
+    }
+
+    /// Whether any set bits in a source flags value are also set in a target flags value.
+    pub fn intersects(&self, other: T) -> bool {
+        self.load().intersects(other)
+    }
+
+    /// The bitwise or (`|`) of the bits in two flags values.
+    pub fn insert(&self, value: T) {
+        self.value.fetch_or(value.bits(), Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug, Default, Component)]
+// #[reflect(Debug, Default, Component)]
+pub(crate) struct NodeStyleSelectorFlags {
+    pub(crate) css_selector_flags: AtomicFlags<selectors::matching::ElementSelectorFlags>,
+    pub(crate) recalculate_on_change_flags: AtomicFlags<RecalculateOnChangeFlags>,
+    pub(crate) depends_on_media_flags: AtomicFlags<DependsOnMediaFeaturesFlags>,
+}
+
+impl NodeStyleSelectorFlags {
+    pub fn reset(&mut self) {
+        *self = Default::default();
+    }
+}
+
+/// Gathers all data needed to calculate styles.
+/// Selectors will use this struct to decide if the entity is a match or not.
+#[derive(Debug, Clone, Default, Component, Reflect)]
+#[reflect(Debug, Clone, Default, Component)]
 pub struct NodeStyleData {
     pub(crate) effective_style_sheet: Handle<StyleSheet>,
-
-    // TODO: MOVE THIS INTO A FLAGS COMPONENT
-    pub(crate) selector_flags: atomic::AtomicUsize,
-    pub(crate) recalculation_flags: atomic::AtomicUsize,
 
     // Data use for calculate style
     pub(crate) is_root: bool,
@@ -141,26 +224,6 @@ pub struct NodeStyleData {
     pub(crate) pseudo_state: NodePseudoState,
 }
 
-// We need to implement clone manually because of the Atomics
-impl Clone for NodeStyleData {
-    fn clone(&self) -> Self {
-        Self {
-            effective_style_sheet: self.effective_style_sheet.clone(),
-            selector_flags: atomic::AtomicUsize::new(
-                self.selector_flags.load(atomic::Ordering::Relaxed),
-            ),
-            recalculation_flags: atomic::AtomicUsize::new(
-                self.recalculation_flags.load(atomic::Ordering::Relaxed),
-            ),
-            is_root: self.is_root,
-            name: self.name.clone(),
-            classes: self.classes.clone(),
-            type_names: self.type_names.clone(),
-            pseudo_state: self.pseudo_state,
-        }
-    }
-}
-
 impl NodeStyleData {
     pub(crate) fn set_effective_style_sheet(
         &mut self,
@@ -170,8 +233,6 @@ impl NodeStyleData {
             false
         } else {
             self.effective_style_sheet = effective_style_sheet;
-            *self.selector_flags.get_mut() = Default::default();
-            *self.recalculation_flags.get_mut() = Default::default();
             true
         }
     }
@@ -268,6 +329,7 @@ impl NodeStyleData {
 #[require(
     NodeStyleData,
     NodeStyleActiveRules,
+    NodeStyleSelectorFlags,
     NodeStyleMarker,
     NodeVars,
     NodeProperties,

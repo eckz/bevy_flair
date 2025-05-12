@@ -2,6 +2,7 @@
 //! interaction state.
 
 use bevy::text::TextWriter;
+use bevy::window::{PrimaryWindow, WindowTheme};
 use bevy::{
     input_focus::InputDispatchPlugin,
     input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
@@ -18,11 +19,9 @@ fn main() {
             FlairPlugin,
         ))
         .add_systems(Startup, setup)
+        .add_systems(PostStartup, force_window_theme)
         .run();
 }
-
-#[derive(Component)]
-struct Root;
 
 #[derive(Component)]
 struct DarkLightButton;
@@ -37,7 +36,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             Button,
             ClassList::new("dark-light-button"),
             DarkLightButton,
-            children![Text::new("Light")],
+            children![Text::new("???TO_BE_REPLACED???")],
         )
     }
 
@@ -47,7 +46,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             Node::default(),
-            Root,
             NodeStyleSheet::new(asset_server.load("buttons.css")),
             ClassList::empty(),
             TabGroup::new(0),
@@ -63,16 +61,41 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 }
 
-fn dark_light_button_observer(
-    _trigger: Trigger<Pointer<Click>>,
-    mut root: Single<&mut ClassList, With<Root>>,
+fn force_window_theme(
+    mut primary_window: Single<&mut Window, With<PrimaryWindow>>,
     dark_light_button: Single<&Children, With<DarkLightButton>>,
     mut text_writer: TextWriter<Text>,
 ) {
-    root.toggle("dark-mode");
-    let is_dark_mode = root.contains("dark-mode");
+    if primary_window.window_theme.is_none() {
+        primary_window.window_theme = Some(WindowTheme::Light)
+    }
+    let mut text = text_writer.text(dark_light_button[0], 0);
+    text.clear();
+    text.push_str(if primary_window.window_theme == Some(WindowTheme::Dark) {
+        "Dark"
+    } else {
+        "Light"
+    });
+}
+
+fn dark_light_button_observer(
+    _trigger: Trigger<Pointer<Click>>,
+    mut primary_window: Single<&mut Window, With<PrimaryWindow>>,
+    dark_light_button: Single<&Children, With<DarkLightButton>>,
+    mut text_writer: TextWriter<Text>,
+) {
+    let new_window_theme = match primary_window.window_theme {
+        Some(WindowTheme::Light) => WindowTheme::Dark,
+        Some(WindowTheme::Dark) => WindowTheme::Light,
+        None => WindowTheme::Dark,
+    };
+    primary_window.window_theme = Some(new_window_theme);
 
     let mut text = text_writer.text(dark_light_button[0], 0);
     text.clear();
-    text.push_str(if is_dark_mode { "Dark" } else { "Light" });
+    text.push_str(if new_window_theme == WindowTheme::Dark {
+        "Dark"
+    } else {
+        "Light"
+    });
 }
