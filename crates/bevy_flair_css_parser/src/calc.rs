@@ -178,9 +178,7 @@ fn parse_calc_item<T>(
     match peek {
         Token::ParenthesisBlock => {
             parser.expect_parenthesis_block()?;
-            Ok(parser.parse_nested_block(|parser| {
-                parse_calc_inner(parser, value_parser).map_err(|err| err.into_parse_error())
-            })?)
+            parser.parse_nested_block_with(|parser| parse_calc_inner(parser, value_parser))
         }
         Token::Function(name) if name.eq_ignore_ascii_case("calc") => {
             parse_calc_fn(parser, value_parser)
@@ -259,9 +257,7 @@ fn parse_calc_fn<T>(
 ) -> Result<CalcOrValue<T>, CssError> {
     parser.expect_function_matching("calc")?;
 
-    Ok(parser.parse_nested_block(|parser| {
-        parse_calc_inner(parser, value_parser).map_err(|err| err.into_parse_error())
-    })?)
+    parser.parse_nested_block_with(|parser| parse_calc_inner(parser, value_parser))
 }
 
 fn parse_calc_or_value<T>(

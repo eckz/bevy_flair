@@ -6,6 +6,8 @@ mod image;
 mod ui;
 
 pub(crate) use color::parse_color;
+pub(crate) use enums::parse_enum_as_property_value;
+pub(crate) use grid::{parse_grid_track_vec, parse_repeated_grid_track_vec};
 pub(crate) use ui::parse_val;
 
 use crate::error::CssError;

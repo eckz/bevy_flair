@@ -67,9 +67,7 @@ pub fn parse_var_tokens(input: &mut Parser) -> Result<VarTokens, CssError> {
             let is_function = next_token.is_function();
             result.push(next_token);
             if is_function {
-                input.parse_nested_block(|input| {
-                    parse_var_tokens_inner(input, result).map_err(|err| err.into_parse_error())
-                })?;
+                input.parse_nested_block_with(|input| parse_var_tokens_inner(input, result))?;
                 result.push(VarOrToken::Token(VarToken::EndFunction));
             }
         }

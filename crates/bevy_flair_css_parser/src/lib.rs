@@ -122,6 +122,22 @@ pub trait ParserExt<'a> {
 
     /// Expects the next token to be an identifier, and returns it wrapped over a [`Located`].
     fn expect_located_ident(&mut self) -> Result<LocatedStr<'a>, BasicParseError<'a>>;
+
+    /// Convenience method to work with [`parse_nested_block`] and [`CssError`].
+    ///
+    /// [`parse_nested_block`]: Parser::parse_nested_block
+    fn parse_nested_block_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
+        &mut self,
+        f: F,
+    ) -> Result<T, CssError>;
+
+    /// Convenience method to work with [`try_parse`] and [`CssError`].
+    ///
+    /// [`try_parse`]: Parser::try_parse
+    fn try_parse_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
+        &mut self,
+        f: F,
+    ) -> Result<T, CssError>;
 }
 
 impl<'a> ParserExt<'a> for Parser<'a, '_> {
@@ -160,6 +176,22 @@ impl<'a> ParserExt<'a> for Parser<'a, '_> {
 
     fn expect_located_ident(&mut self) -> Result<LocatedStr<'a>, BasicParseError<'a>> {
         self.located(|parser| parser.expect_ident_cloned())
+    }
+
+    fn parse_nested_block_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
+        &mut self,
+        f: F,
+    ) -> Result<T, CssError> {
+        self.parse_nested_block(move |parser| f(parser).map_err(|err| err.into_parse_error()))
+            .map_err(CssError::from)
+    }
+
+    fn try_parse_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
+        &mut self,
+        f: F,
+    ) -> Result<T, CssError> {
+        self.try_parse(move |parser| f(parser).map_err(|err| err.into_parse_error()))
+            .map_err(CssError::from)
     }
 }
 

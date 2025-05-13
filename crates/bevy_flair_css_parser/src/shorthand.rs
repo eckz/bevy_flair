@@ -1,18 +1,23 @@
 use crate::calc::{Calculable, parse_calc_property_value_with};
-use crate::reflect::{parse_color, parse_val};
-use crate::utils::parse_property_value_with;
-use crate::{CssError, ReflectParseCssEnum};
+use crate::reflect::{
+    parse_color, parse_enum_as_property_value, parse_grid_track_vec, parse_repeated_grid_track_vec,
+    parse_val,
+};
+use crate::utils::{parse_none, parse_property_value_with};
+use crate::{CssError, ParserExt};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
-use bevy_reflect::FromType;
-use bevy_ui::{OverflowAxis, Val};
+use bevy_ui::{
+    AlignItems, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis, RepeatedGridTrack, Val,
+};
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::{SmolStr, format_smolstr};
 use std::borrow::Cow;
+use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -168,8 +173,14 @@ fn parse_four_calc_values<T: Calculable>(
     let mut values = SmallVec::<[PropertyValue; 4]>::new();
 
     values.push(parse_calc_property_value_with(parser, &mut value_parser)?);
-    while !parser.is_exhausted() && values.len() < 4 {
-        values.push(parse_calc_property_value_with(parser, &mut value_parser)?);
+    while values.len() < 4 {
+        if let Ok(value) = parser
+            .try_parse_with(|parser| parse_calc_property_value_with(parser, &mut value_parser))
+        {
+            values.push(value);
+        } else {
+            break;
+        }
     }
 
     Ok(match values.as_slice() {
@@ -179,6 +190,45 @@ fn parse_four_calc_values<T: Calculable>(
         [a, b, c, d] => [a.clone(), b.clone(), c.clone(), d.clone()],
         _ => unreachable!(),
     })
+}
+
+type SimpleShorthandProperty = (
+    ComponentPropertyRef,
+    bool,
+    fn(&mut Parser) -> Result<PropertyValue, CssError>,
+);
+
+// Works with simple shorthands that are just a concatenation of other properties
+fn parse_simple_shorthand_property<const N: usize>(
+    parser: &mut Parser,
+    properties: [SimpleShorthandProperty; N],
+) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    let mut properties = VecDeque::from_iter(properties);
+    let (first_property_ref, _, first_property_parser) = properties
+        .pop_front()
+        .expect("Shorthand properties are empty");
+
+    let mut result = vec![(first_property_ref, first_property_parser(parser)?)];
+
+    for (property_ref, use_previous, property_parser) in properties {
+        let parse_result = parser.try_parse_with(property_parser);
+
+        match parse_result {
+            Ok(property_value) => {
+                result.push((property_ref, property_value));
+            }
+            Err(_) => {
+                if use_previous {
+                    let last_value = result.last().unwrap().1.clone();
+                    result.push((property_ref, last_value));
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 fn parse_ui_rect(
@@ -222,23 +272,25 @@ fn ui_rect_sub_properties(css_name: &'static str) -> Vec<ComponentPropertyRef> {
     ]
 }
 
-const BORDER_LEFT_WIDTH: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-left-width"));
-const BORDER_RIGHT_WIDTH: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-right-width"));
-const BORDER_BOTTOM_WIDTH: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-bottom-width"));
-const BORDER_TOP_WIDTH: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-top-width"));
+macro_rules! define_css_properties {
+    ($(const $name:ident = $css_name:literal;)*) => {
+        $(
+            const $name: ComponentPropertyRef =
+                 ComponentPropertyRef::CssName(SmolStr::new_static($css_name));
+        )*
+    };
+}
 
-const BORDER_TOP_LEFT_RADIUS: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-top-left-radius"));
-const BORDER_TOP_RIGHT_RADIUS: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-top-right-radius"));
-const BORDER_BOTTOM_LEFT_RADIUS: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-bottom-left-radius"));
-const BORDER_BOTTOM_RIGHT_RADIUS: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-bottom-right-radius"));
+define_css_properties! {
+    const BORDER_LEFT_WIDTH = "border-left-width";
+    const BORDER_RIGHT_WIDTH = "border-right-width";
+    const BORDER_BOTTOM_WIDTH = "border-bottom-width";
+    const BORDER_TOP_WIDTH = "border-top-width";
+    const BORDER_TOP_LEFT_RADIUS = "border-top-left-radius";
+    const BORDER_TOP_RIGHT_RADIUS = "border-top-right-radius";
+    const BORDER_BOTTOM_LEFT_RADIUS = "border-bottom-left-radius";
+    const BORDER_BOTTOM_RIGHT_RADIUS = "border-bottom-right-radius";
+}
 
 fn parse_border_radius(
     parser: &mut Parser,
@@ -253,53 +305,48 @@ fn parse_border_radius(
     ])
 }
 
-const OVERFLOW_X: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("overflow-x"));
-const OVERFLOW_Y: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("overflow-y"));
+define_css_properties! {
+    const OVERFLOW_X = "overflow-x";
+    const OVERFLOW_Y = "overflow-y";
+}
 
 /// Parses the `overflow` shorthand into `overflow-x` and `overflow-y`.
 fn parse_overflow(
     parser: &mut Parser,
 ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
-    let parse_overflow_axis = <ReflectParseCssEnum as FromType<OverflowAxis>>::from_type().0;
-    let first_value = parse_overflow_axis(parser)?;
-
-    if parser.is_exhausted() {
-        Ok(vec![
-            (OVERFLOW_X, first_value.clone()),
-            (OVERFLOW_Y, first_value),
-        ])
-    } else {
-        let second_value = parse_overflow_axis(parser)?;
-        Ok(vec![(OVERFLOW_X, first_value), (OVERFLOW_Y, second_value)])
-    }
+    let parse_overflow_axis = parse_enum_as_property_value::<OverflowAxis>;
+    parse_simple_shorthand_property(
+        parser,
+        [
+            (OVERFLOW_X, false, parse_overflow_axis),
+            (OVERFLOW_Y, true, parse_overflow_axis),
+        ],
+    )
 }
 
-const BORDER_COLOR: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("border-color"));
+define_css_properties! {
+    const BORDER_COLOR = "border-color";
+}
 
 fn parse_border(
     parser: &mut Parser,
 ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
     let width = parse_calc_property_value_with(parser, parse_val)?;
-    if parser.is_exhausted() {
-        Ok(vec![
-            (BORDER_LEFT_WIDTH, width.clone()),
-            (BORDER_RIGHT_WIDTH, width.clone()),
-            (BORDER_BOTTOM_WIDTH, width.clone()),
-            (BORDER_TOP_WIDTH, width),
-        ])
-    } else {
-        let color = parse_property_value_with(parser, parse_color)?;
-        Ok(vec![
-            (BORDER_LEFT_WIDTH, width.clone()),
-            (BORDER_RIGHT_WIDTH, width.clone()),
-            (BORDER_BOTTOM_WIDTH, width.clone()),
-            (BORDER_TOP_WIDTH, width),
-            (BORDER_COLOR, color.map(ReflectValue::Color)),
-        ])
+
+    let mut result = vec![
+        (BORDER_LEFT_WIDTH, width.clone()),
+        (BORDER_RIGHT_WIDTH, width.clone()),
+        (BORDER_BOTTOM_WIDTH, width.clone()),
+        (BORDER_TOP_WIDTH, width),
+    ];
+
+    if let Ok(color) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
+    {
+        result.push((BORDER_COLOR, color.map(ReflectValue::Color)));
     }
+
+    Ok(result)
 }
 
 fn parse_border_width(
@@ -314,11 +361,10 @@ fn parse_border_width(
     ])
 }
 
-const OUTLINE_WIDTH: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("outline-width"));
-
-const OUTLINE_COLOR: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("outline-color"));
+define_css_properties! {
+    const OUTLINE_WIDTH = "outline-width";
+    const OUTLINE_COLOR = "outline-color";
+}
 
 fn parse_outline(
     parser: &mut Parser,
@@ -342,25 +388,23 @@ fn parse_outline(
     }
 
     let width = parse_calc_property_value_with(parser, parse_ident_or_val)?;
-    if parser.is_exhausted() {
-        Ok(vec![(OUTLINE_WIDTH, width)])
-    } else {
-        let color = parse_property_value_with(parser, parse_color)?;
-        Ok(vec![
-            (OUTLINE_WIDTH, width),
-            (OUTLINE_COLOR, color.map(ReflectValue::Color)),
-        ])
+
+    let mut result = vec![(OUTLINE_WIDTH, width)];
+
+    if let Ok(color) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
+    {
+        result.push((OUTLINE_COLOR, color.map(ReflectValue::Color)));
     }
+
+    Ok(result)
 }
 
-const FLEX_GROW: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("flex-grow"));
-
-const FLEX_SHRINK: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("flex-shrink"));
-
-const FLEX_BASIS: ComponentPropertyRef =
-    ComponentPropertyRef::CssName(SmolStr::new_static("flex-basis"));
+define_css_properties! {
+    const FLEX_GROW = "flex-grow";
+    const FLEX_SHRINK = "flex-shrink";
+    const FLEX_BASIS = "flex-basis";
+}
 
 fn parse_flex(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
     fn final_result(
@@ -402,7 +446,7 @@ fn parse_flex(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, Property
             .try_parse(|parser| parser.expect_number())
             .unwrap_or(1.0);
         let flex_basis = parser
-            .try_parse(|parser| parse_val(parser).map_err(|err| err.into_parse_error()))
+            .try_parse_with(parse_val)
             .unwrap_or(Val::Percent(0.0));
 
         return final_result((flex_grow, flex_shrink, flex_basis));
@@ -413,6 +457,158 @@ fn parse_flex(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, Property
     let (flex_grow, flex_shrink) = (1.0, 1.0);
 
     final_result((flex_grow, flex_shrink, flex_basis))
+}
+
+define_css_properties! {
+    const ALIGN_ITEMS = "align-items";
+    const JUSTIFY_ITEMS = "justify-items";
+}
+
+/// Parses the `place-items` shorthand into `align-items` and `justify-items`.
+fn parse_place_items(
+    parser: &mut Parser,
+) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    parse_simple_shorthand_property(
+        parser,
+        [
+            (
+                ALIGN_ITEMS,
+                false,
+                parse_enum_as_property_value::<AlignItems>,
+            ),
+            (
+                JUSTIFY_ITEMS,
+                false,
+                parse_enum_as_property_value::<JustifyItems>,
+            ),
+        ],
+    )
+}
+
+define_css_properties! {
+    const COLUMN_GAP = "column-gap";
+    const ROW_GAP = "row-gap";
+}
+
+pub(crate) fn parse_val_as_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
+    parse_calc_property_value_with(parser, parse_val)
+}
+
+/// Parses the `gap` shorthand into `row-gap` and `column-gap`.
+fn parse_gap(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    parse_simple_shorthand_property(
+        parser,
+        [
+            (COLUMN_GAP, false, parse_val_as_property_value),
+            (ROW_GAP, true, parse_val_as_property_value),
+        ],
+    )
+}
+
+define_css_properties! {
+    const GRID_AUTO_FLOW = "grid-auto-flow";
+    const GRID_TEMPLATE_ROWS = "grid-template-rows";
+    const GRID_TEMPLATE_COLUMNS = "grid-template-columns";
+    const GRID_AUTO_ROWS = "grid-auto-rows";
+    const GRID_AUTO_COLUMNS = "grid-auto-columns";
+}
+
+/// Parses the `grid-template` shorthand into `grid-template-rows` / `grid-template-columns`.
+fn parse_grid_template(
+    parser: &mut Parser,
+) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    if let Ok(default_value) = parse_none::<Vec<RepeatedGridTrack>>(parser) {
+        let default_property_value = PropertyValue::Value(ReflectValue::new(default_value));
+        return Ok(vec![
+            (GRID_TEMPLATE_ROWS, default_property_value.clone()),
+            (GRID_TEMPLATE_COLUMNS, default_property_value),
+        ]);
+    }
+
+    let template_rows = parse_property_value_with(parser, parse_repeated_grid_track_vec)?;
+    parser.expect_delim('/')?;
+    let template_columns = parse_property_value_with(parser, parse_repeated_grid_track_vec)?;
+
+    Ok(vec![
+        (GRID_TEMPLATE_ROWS, template_rows),
+        (GRID_TEMPLATE_COLUMNS, template_columns),
+    ])
+}
+
+// Parses `grid`
+// Possible values:
+//   <'grid-template'>
+//   <'grid-template-rows'> / [ auto-flow && dense? ] <'grid-auto-columns'>?
+//   [ auto-flow && dense? ] <'grid-auto-rows'>? / <'grid-template-columns'>
+fn parse_grid(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    if let Ok(grid_template) = parser.try_parse_with(parse_grid_template) {
+        return Ok(grid_template);
+    }
+
+    fn auto_grid_track() -> PropertyValue {
+        let auto: Vec<GridTrack> = GridTrack::auto();
+        PropertyValue::Value(ReflectValue::new(auto))
+    }
+
+    fn none_repeated_grid_track() -> PropertyValue {
+        PropertyValue::Value(ReflectValue::new(Vec::<RepeatedGridTrack>::new()))
+    }
+
+    fn parse_auto_flow(
+        parser: &mut Parser,
+        non_dense: GridAutoFlow,
+        dense: GridAutoFlow,
+    ) -> Result<PropertyValue, CssError> {
+        parser.expect_ident_matching("auto-flow")?;
+
+        let is_dense = parser
+            .try_parse(|parser| parser.expect_ident_matching("dense"))
+            .is_ok();
+
+        let result = if is_dense { dense } else { non_dense };
+
+        Ok(PropertyValue::Value(ReflectValue::new(result)))
+    }
+
+    // <'grid-template-rows'> / [ auto-flow && dense? ] <'grid-auto-columns'>?
+    if let Ok(result) = parser.try_parse_with(|parser| {
+        let grid_template_rows = parse_property_value_with(parser, parse_repeated_grid_track_vec)?;
+        parser.expect_delim('/')?;
+        let auto_flow = parse_auto_flow(parser, GridAutoFlow::Column, GridAutoFlow::ColumnDense)?;
+
+        let grid_auto_columns = parser
+            .try_parse_with(|parser| parse_property_value_with(parser, parse_grid_track_vec))
+            .unwrap_or_else(|_| auto_grid_track());
+
+        Ok(vec![
+            (GRID_AUTO_FLOW, auto_flow),
+            (GRID_TEMPLATE_ROWS, grid_template_rows),
+            (GRID_TEMPLATE_COLUMNS, none_repeated_grid_track()),
+            (GRID_AUTO_ROWS, auto_grid_track()),
+            (GRID_AUTO_COLUMNS, grid_auto_columns),
+        ])
+    }) {
+        return Ok(result);
+    }
+
+    // [ auto-flow && dense? ] <'grid-auto-rows'>? / <'grid-template-columns'>
+    let auto_flow = parse_auto_flow(parser, GridAutoFlow::Row, GridAutoFlow::RowDense)?;
+
+    let grid_auto_rows = parser
+        .try_parse_with(|parser| parse_property_value_with(parser, parse_grid_track_vec))
+        .unwrap_or_else(|_| auto_grid_track());
+
+    parser.expect_delim('/')?;
+
+    let grid_template_columns = parse_property_value_with(parser, parse_repeated_grid_track_vec)?;
+
+    Ok(vec![
+        (GRID_AUTO_FLOW, auto_flow),
+        (GRID_TEMPLATE_ROWS, none_repeated_grid_track()),
+        (GRID_TEMPLATE_COLUMNS, grid_template_columns),
+        (GRID_AUTO_ROWS, grid_auto_rows),
+        (GRID_AUTO_COLUMNS, auto_grid_track()),
+    ])
 }
 
 pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandPropertyRegistry) {
@@ -456,6 +652,28 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         parse_border_width,
     );
     registry.register_new("flex", [FLEX_GROW, FLEX_SHRINK, FLEX_BASIS], parse_flex);
+    registry.register_new(
+        "place-items",
+        [ALIGN_ITEMS, JUSTIFY_ITEMS],
+        parse_place_items,
+    );
+    registry.register_new("gap", [COLUMN_GAP, ROW_GAP], parse_gap);
+    registry.register_new(
+        "grid-template",
+        [GRID_TEMPLATE_ROWS, GRID_TEMPLATE_COLUMNS],
+        parse_grid_template,
+    );
+    registry.register_new(
+        "grid",
+        [
+            GRID_TEMPLATE_ROWS,
+            GRID_TEMPLATE_COLUMNS,
+            GRID_AUTO_FLOW,
+            GRID_AUTO_ROWS,
+            GRID_AUTO_COLUMNS,
+        ],
+        parse_grid,
+    );
 }
 
 /// A plugin that registers common CSS shorthand properties.
@@ -501,6 +719,7 @@ mod tests {
     use bevy_color::Color;
     use bevy_color::palettes::css;
 
+    use bevy_ui::{GridTrack, RepeatedGridTrack};
     use std::sync::LazyLock;
 
     static REGISTRY: LazyLock<ShorthandPropertyRegistry> = LazyLock::new(|| {
@@ -633,6 +852,109 @@ mod tests {
             "flex-grow" => 2.0,
             "flex-shrink" => 1.0,
             "flex-basis" => Val::Percent(10.0),
+        });
+    }
+
+    #[test]
+    fn test_place_items() {
+        test_shorthand_property!("place-items", "center center", {
+            "align-items" => AlignItems::Center,
+            "justify-items" => JustifyItems::Center,
+        });
+
+        test_shorthand_property!("place-items", "flex-start", {
+            "align-items" => AlignItems::FlexStart,
+        });
+
+        test_shorthand_property!("place-items", "flex-end stretch", {
+            "align-items" => AlignItems::FlexEnd,
+            "justify-items" => JustifyItems::Stretch,
+        });
+    }
+
+    #[test]
+    fn test_gap() {
+        test_shorthand_property!("gap", "20px", {
+            "column-gap" => Val::Px(20.0),
+            "row-gap" => Val::Px(20.0),
+        });
+
+        test_shorthand_property!("gap", "calc(20px * 2)", {
+            "column-gap" => Val::Px(40.0),
+            "row-gap" => Val::Px(40.0),
+        });
+
+        test_shorthand_property!("gap", "20px 10px", {
+            "column-gap" => Val::Px(20.0),
+            "row-gap" => Val::Px(10.0),
+        });
+
+        test_shorthand_property!("gap", "20px calc(10px * 3)", {
+            "column-gap" => Val::Px(20.0),
+            "row-gap" => Val::Px(30.0),
+        });
+    }
+
+    #[test]
+    fn test_grid_template() {
+        test_shorthand_property!("grid-template", "none", {
+            "grid-template-rows" => Vec::<RepeatedGridTrack>::new(),
+            "grid-template-columns" => Vec::<RepeatedGridTrack>::new(),
+        });
+
+        let rows: Vec<RepeatedGridTrack> =
+            RepeatedGridTrack::repeat_many(3, [GridTrack::px(200.0)]);
+        let columns: Vec<RepeatedGridTrack> =
+            RepeatedGridTrack::repeat_many(10, [GridTrack::flex(1.0)]);
+
+        test_shorthand_property!("grid-template", "repeat(3, 200px) / repeat(10, 1fr)", {
+            "grid-template-rows" => rows,
+            "grid-template-columns" => columns,
+        });
+    }
+
+    #[test]
+    fn test_grid() {
+        test_shorthand_property!("grid", "none", {
+            "grid-template-rows" => Vec::<RepeatedGridTrack>::new(),
+            "grid-template-columns" => Vec::<RepeatedGridTrack>::new(),
+        });
+
+        let grid_template_rows: Vec<RepeatedGridTrack> =
+            RepeatedGridTrack::repeat_many(5, [GridTrack::px(100.0)]);
+        let grid_template_columns: Vec<RepeatedGridTrack> =
+            RepeatedGridTrack::repeat_many(10, [GridTrack::flex(1.0)]);
+
+        test_shorthand_property!("grid", "repeat(5, 100px) / repeat(10, 1fr)", {
+            "grid-template-rows" => grid_template_rows,
+            "grid-template-columns" => grid_template_columns,
+        });
+
+        let grid_template_rows: Vec<RepeatedGridTrack> = GridTrack::px(200.0);
+        let grid_template_columns: Vec<RepeatedGridTrack> = Vec::new();
+        let grid_auto_rows: Vec<GridTrack> = GridTrack::auto();
+        let grid_auto_columns: Vec<GridTrack> = GridTrack::auto();
+
+        test_shorthand_property!("grid", "200px / auto-flow", {
+            "grid-auto-flow" => GridAutoFlow::Column,
+            "grid-template-rows" => grid_template_rows,
+            "grid-template-columns" => grid_template_columns,
+            "grid-auto-rows" => grid_auto_rows,
+            "grid-auto-columns" => grid_auto_columns,
+        });
+
+        let grid_template_rows: Vec<RepeatedGridTrack> = Vec::new();
+        let grid_template_columns: Vec<RepeatedGridTrack> =
+            vec![GridTrack::flex(1.0), GridTrack::flex(2.0)];
+        let grid_auto_rows: Vec<GridTrack> = GridTrack::auto();
+        let grid_auto_columns: Vec<GridTrack> = GridTrack::auto();
+
+        test_shorthand_property!("grid", "auto-flow dense / 1fr 2fr", {
+            "grid-auto-flow" => GridAutoFlow::RowDense,
+            "grid-template-rows" => grid_template_rows,
+            "grid-template-columns" => grid_template_columns,
+            "grid-auto-rows" => grid_auto_rows,
+            "grid-auto-columns" => grid_auto_columns,
         });
     }
 }

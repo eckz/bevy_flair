@@ -3,7 +3,7 @@ use crate::error::CssError;
 use crate::error_codes::enums as error_codes;
 use crate::reflect::ReflectParseCssEnum;
 use crate::utils::parse_property_value_with;
-use bevy_flair_core::ReflectValue;
+use bevy_flair_core::{PropertyValue, ReflectValue};
 use bevy_reflect::{
     DynamicEnum, DynamicVariant, Enum, FromReflect, FromType, TypeInfo, Typed, VariantInfo,
 };
@@ -76,12 +76,18 @@ pub fn parse_enum_value<T: FromReflect + Typed + Enum>(
     }
 }
 
+pub fn parse_enum_as_property_value<T: FromReflect + Typed + Enum>(
+    parser: &mut Parser,
+) -> Result<PropertyValue, CssError> {
+    parse_property_value_with(parser, parse_enum_value::<T>)
+}
+
 impl<T> FromType<T> for ReflectParseCssEnum
 where
     T: FromReflect + Typed + Enum,
 {
     fn from_type() -> Self {
-        Self(|parser| parse_property_value_with(parser, parse_enum_value::<T>))
+        Self(parse_enum_as_property_value::<T>)
     }
 }
 

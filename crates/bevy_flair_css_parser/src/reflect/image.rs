@@ -80,9 +80,7 @@ fn parse_image_mode(parser: &mut Parser) -> Result<NodeImageMode, CssError> {
                 tile_x,
                 tile_y,
                 stretch_value,
-            } = parser.parse_nested_block(|parser| {
-                parse_tiled_params(parser).map_err(|err| err.into_parse_error())
-            })?;
+            } = parser.parse_nested_block_with(parse_tiled_params)?;
 
             NodeImageMode::Tiled {
                 tile_x,
@@ -91,9 +89,7 @@ fn parse_image_mode(parser: &mut Parser) -> Result<NodeImageMode, CssError> {
             }
         }
         Token::Function(name) if name.eq_ignore_ascii_case("sliced") => {
-            let texture_slicer = parser.parse_nested_block(|parser| {
-                parse_sliced_params(parser).map_err(|err| err.into_parse_error())
-            })?;
+            let texture_slicer = parser.parse_nested_block_with(parse_sliced_params)?;
 
             NodeImageMode::Sliced(texture_slicer)
         }

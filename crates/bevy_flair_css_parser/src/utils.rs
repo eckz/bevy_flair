@@ -22,3 +22,21 @@ pub fn parse_property_value_with<T>(
     };
     value_parser(parser).map(PropertyValue::Value)
 }
+
+pub fn parse_many<T, F: FnMut(&mut Parser) -> Result<T, CssError>>(
+    parser: &mut Parser,
+    mut value_parser: F,
+) -> Result<Vec<T>, CssError> {
+    let mut result: Vec<T> = vec![value_parser(parser)?];
+    while let Ok(next_value) = parser.try_parse_with(&mut value_parser) {
+        result.push(next_value);
+    }
+    Ok(result)
+}
+
+pub fn parse_none<T: Default>(parser: &mut Parser) -> Result<T, CssError> {
+    parser.try_parse(|parser| {
+        parser.expect_ident_matching("none")?;
+        Ok(T::default())
+    })
+}

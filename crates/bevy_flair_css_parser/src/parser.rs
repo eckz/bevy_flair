@@ -342,16 +342,14 @@ fn parse_easing_function(parser: &mut Parser) -> Result<EasingFunction, CssError
             match_ignore_ascii_case! { &function_name,
                 "linear" => Ok(
                     EasingFunction::LinearPoints(
-                        parser.parse_nested_block(|parser|
-                            parse_easing_linear_parameters(parser).map_err(|err| err.into_parse_error())
-                        )?
+                        parser.parse_nested_block_with(parse_easing_linear_parameters)?
                     )
                 ),
                 "steps" => {
-                    Ok(parser.parse_nested_block(|parser| parse_easing_steps_parameters(parser).map_err(|err| err.into_parse_error()))?)
+                    parser.parse_nested_block_with(parse_easing_steps_parameters)
                 },
                 "cubic-bezier" => {
-                    Ok(parser.parse_nested_block(|parser| parse_easing_cubic_bezier_parameters(parser).map_err(|err| err.into_parse_error()))?)
+                    parser.parse_nested_block_with(parse_easing_cubic_bezier_parameters)
                 },
                 _ =>
                     Err(CssError::new_located(
@@ -613,9 +611,7 @@ fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError
     }
 
     parser.expect_parenthesis_block()?;
-    let first_selector = parser.parse_nested_block(|parser| {
-        parse_media_selector_atom(parser).map_err(|err| err.into_parse_error())
-    })?;
+    let first_selector = parser.parse_nested_block_with(parse_media_selector_atom)?;
 
     let mut selectors = vec![first_selector];
 
@@ -623,9 +619,7 @@ fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError
         parser.expect_ident_matching("and")?;
         parser.expect_parenthesis_block()?;
 
-        parser.parse_nested_block(|parser| {
-            parse_media_selector_atom(parser).map_err(|err| err.into_parse_error())
-        })
+        parser.parse_nested_block_with(parse_media_selector_atom)
     }) {
         selectors.push(media_selector);
     }

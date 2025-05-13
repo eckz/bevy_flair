@@ -1,6 +1,6 @@
 use crate::error::CssError;
 use crate::error_codes::grid as error_codes;
-use crate::utils::parse_property_value_with;
+use crate::utils::{parse_many, parse_none, parse_property_value_with};
 use crate::{Located, ParserExt, ReflectParseCss};
 
 use bevy_flair_core::ReflectValue;
@@ -186,7 +186,7 @@ fn parse_grid_track_type<T: GridTrackType>(token: Located<Token>) -> Result<T, C
 fn parse_grid_track(token: Located<Token>, parser: &mut Parser) -> Result<GridTrack, CssError> {
     Ok(match &*token {
         Token::Function(name) if name.eq_ignore_ascii_case("fit-content") => parser
-            .parse_nested_block(|parser| {
+            .parse_nested_block_with(|parser| {
                 let next = parser.located_next()?;
 
                 Ok(match &*next {
@@ -202,31 +202,31 @@ fn parse_grid_track(token: Located<Token>, parser: &mut Parser) -> Result<GridTr
                             &next,
                             error_codes::INVALID_FIT_CONTENT_TOKEN,
                             "Expected a percentage, a number, or a number with pixels",
-                        )
-                        .into_parse_error());
+                        ));
                     }
                 })
             })?,
-        Token::Function(name) if name.eq_ignore_ascii_case("minmax") => {
-            parser.parse_nested_block(|parser| {
-                let min = parse_grid_track_type(parser.located_next()?)
-                    .map_err(|err| err.into_parse_error())?;
+        Token::Function(name) if name.eq_ignore_ascii_case("minmax") => parser
+            .parse_nested_block_with(|parser| {
+                let min = parse_grid_track_type(parser.located_next()?)?;
+
                 parser.expect_comma()?;
-                let max = parse_grid_track_type(parser.located_next()?)
-                    .map_err(|err| err.into_parse_error())?;
+                let max = parse_grid_track_type(parser.located_next()?)?;
                 Ok(GridTrack::minmax(min, max))
-            })?
-        }
+            })?,
         _ => return parse_grid_track_type(token),
     })
 }
 
-fn parse_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    let mut result: Vec<GridTrack> = Vec::new();
-    while !parser.is_exhausted() {
-        let next = parser.located_next()?;
-        result.push(parse_grid_track(next, parser)?);
+pub(crate) fn parse_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    if let Ok(none_value) = parse_none::<Vec<GridTrack>>(parser) {
+        return Ok(ReflectValue::new(none_value));
     }
+
+    let result: Vec<GridTrack> = parse_many(parser, |parser| {
+        let next = parser.located_next()?;
+        parse_grid_track(next, parser)
+    })?;
     Ok(ReflectValue::new(result))
 }
 
@@ -267,32 +267,29 @@ fn parse_repeat_function_args(parser: &mut Parser) -> Result<RepeatedGridTrack, 
 
     parser.expect_comma()?;
 
-    let mut grid_tracks: Vec<GridTrack> = Vec::new();
-    while !parser.is_exhausted() {
+    let grid_tracks: Vec<GridTrack> = parse_many(parser, |parser| {
         let next = parser.located_next()?;
-        grid_tracks.push(parse_grid_track(next, parser)?);
-    }
+        parse_grid_track(next, parser)
+    })?;
 
     Ok(RepeatedGridTrack::repeat_many(repetition, grid_tracks))
 }
 
-fn parse_repeated_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    let mut result: Vec<RepeatedGridTrack> = Vec::new();
-    while !parser.is_exhausted() {
+pub(crate) fn parse_repeated_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    if let Ok(none_value) = parse_none::<Vec<RepeatedGridTrack>>(parser) {
+        return Ok(ReflectValue::new(none_value));
+    }
+
+    let result: Vec<RepeatedGridTrack> = parse_many(parser, |parser: &mut Parser| {
         let next = parser.located_next()?;
 
         match &*next {
             Token::Function(name) if name.as_ref().eq_ignore_ascii_case("repeat") => {
-                let repeat_grid_track = parser.parse_nested_block(|parser| {
-                    parse_repeat_function_args(parser).map_err(|err| err.into_parse_error())
-                })?;
-                result.push(repeat_grid_track);
+                parser.parse_nested_block_with(parse_repeat_function_args)
             }
-            _ => {
-                result.push(parse_grid_track(next, parser)?.into());
-            }
+            _ => parse_grid_track(next, parser).map(Into::into),
         }
-    }
+    })?;
     Ok(ReflectValue::new(result))
 }
 
@@ -382,6 +379,8 @@ mod tests {
 
     #[test]
     fn test_repeated_grid_track_vec() {
+        assert_eq!(test_parse_css::<Vec<RepeatedGridTrack>>("none"), vec![],);
+
         assert_eq!(
             test_parse_css::<Vec<RepeatedGridTrack>>("100px"),
             vec![GridTrack::px(100.0)],
@@ -416,6 +415,8 @@ mod tests {
 
     #[test]
     fn test_grid_track_vec() {
+        assert_eq!(test_parse_css::<Vec<GridTrack>>("none"), vec![]);
+
         assert_eq!(
             test_parse_css::<Vec<GridTrack>>("150px"),
             vec![GridTrack::px(150.0)]
