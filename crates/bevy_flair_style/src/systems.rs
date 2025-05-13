@@ -4,20 +4,24 @@ use crate::components::{
     Siblings, WindowMediaFeatures,
 };
 use crate::{ColorScheme, GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
-use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
+use bevy_ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
 use std::iter;
 
-use bevy::prelude::*;
+use bevy_asset::prelude::*;
+use bevy_ecs::prelude::*;
 
 use crate::media_selector::MediaFeaturesProvider;
-use bevy::ecs::system::SystemParam;
-use bevy::input_focus::{InputFocus, InputFocusVisible};
-use bevy::render::camera::NormalizedRenderTarget;
-use bevy::window::{PrimaryWindow, WindowEvent};
+use bevy_ecs::system::SystemParam;
 use bevy_flair_core::*;
+use bevy_input_focus::{InputFocus, InputFocusVisible};
+use bevy_render::camera::{Camera, NormalizedRenderTarget};
+use bevy_time::Time;
+use bevy_ui::prelude::*;
+use bevy_window::{PrimaryWindow, Window, WindowEvent};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use std::sync::Arc;
+use tracing::{debug, info, trace, warn};
 
 pub(crate) fn sync_siblings_system(
     mut siblings_param_set: ParamSet<(
@@ -608,7 +612,7 @@ pub(crate) fn calculate_style_and_set_vars(
     element_ref_system_param: css_selector::ElementRefSystemParam,
     children_query: Query<&Children>,
     media_features_param: MediaFeaturesParam,
-    mut to_mark_descendants_parallel: Local<bevy::utils::Parallel<Vec<Entity>>>,
+    mut to_mark_descendants_parallel: Local<bevy_utils::Parallel<Vec<Entity>>>,
 ) {
     let mut styled_entities_query = param_set.p0();
 
@@ -674,7 +678,7 @@ pub(crate) fn set_style_properties(
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
     mut global_change_detection: ResMut<GlobalChangeDetection>,
-    mut any_property_change_parallel: Local<bevy::utils::Parallel<bool>>,
+    mut any_property_change_parallel: Local<bevy_utils::Parallel<bool>>,
 ) {
     let type_registry = app_type_registry.read();
 
@@ -729,8 +733,8 @@ pub(crate) fn set_style_properties(
 }
 
 mod custom_descendants_iter {
-    use bevy::ecs::query::{QueryData, QueryFilter};
-    use bevy::prelude::*;
+    use bevy_ecs::prelude::*;
+    use bevy_ecs::query::{QueryData, QueryFilter};
 
     /// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
     ///
@@ -938,6 +942,7 @@ pub(crate) fn apply_properties(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_app::prelude::*;
     use std::sync::{Arc, Mutex, PoisonError};
 
     #[test]

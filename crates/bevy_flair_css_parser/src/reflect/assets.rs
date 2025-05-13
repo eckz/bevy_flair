@@ -2,12 +2,12 @@ use crate::error::CssError;
 
 use crate::ReflectParseCss;
 use crate::utils::parse_property_value_with;
-use bevy::asset::Handle;
-use bevy::prelude::Image;
-use bevy::reflect::{FromType, TypePath};
-use bevy::text::Font;
+use bevy_asset::Handle;
 use bevy_flair_core::ReflectValue;
 use bevy_flair_style::{AssetPathPlaceHolder, FontTypePlaceholder};
+use bevy_image::Image;
+use bevy_reflect::{FromType, TypePath};
+use bevy_text::Font;
 use cssparser::Parser;
 
 fn parse_asset_path<A: TypePath>(parser: &mut Parser) -> Result<ReflectValue, CssError> {
@@ -39,10 +39,10 @@ impl FromType<Handle<Font>> for ReflectParseCss {
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css_2;
-    use bevy::asset::Handle;
-    use bevy::image::Image;
-    use bevy::text::Font;
+    use bevy_asset::Handle;
     use bevy_flair_style::{AssetPathPlaceHolder, FontTypePlaceholder};
+    use bevy_image::Image;
+    use bevy_text::Font;
 
     #[test]
     fn test_font() {

@@ -2,13 +2,12 @@ use crate::calc::{Calculable, parse_calc_property_value_with};
 use crate::reflect::{parse_color, parse_val};
 use crate::utils::parse_property_value_with;
 use crate::{CssError, ReflectParseCssEnum};
-use bevy::app::{App, Plugin};
-use bevy::log::warn;
-use bevy::prelude::{Resource, Val};
-use bevy::reflect::FromType;
-use bevy::ui::OverflowAxis;
+use bevy_app::{App, Plugin};
+use bevy_ecs::prelude::Resource;
 use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
+use bevy_reflect::FromType;
+use bevy_ui::{OverflowAxis, Val};
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -17,6 +16,7 @@ use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
 use std::sync::Arc;
+use tracing::warn;
 
 /// Function signature used to parse a CSS shorthand property into multiple component properties.
 pub type ShorthandParseFn =
@@ -498,8 +498,8 @@ impl Plugin for ShorthandPropertiesPlugin {
 mod tests {
     use super::*;
     use crate::testing::parse_content_with;
-    use bevy::color::Color;
-    use bevy::color::palettes::css;
+    use bevy_color::Color;
+    use bevy_color::palettes::css;
 
     use std::sync::LazyLock;
 

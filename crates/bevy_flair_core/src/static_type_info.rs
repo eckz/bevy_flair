@@ -1,4 +1,4 @@
-use bevy::reflect::*;
+use bevy_reflect::*;
 use std::fmt;
 use std::fmt::Display;
 

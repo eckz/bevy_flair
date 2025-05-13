@@ -1,13 +1,12 @@
-use bevy::reflect::FromType;
-use bevy::sprite::{BorderRect, TextureSlicer};
-
 use crate::error::CssError;
 use crate::error_codes::image as error_codes;
 use crate::reflect::ui::{parse_f32, parse_four_values};
 use crate::utils::parse_property_value_with;
 use crate::{ParserExt, ReflectParseCss};
-use bevy::ui::widget::NodeImageMode;
 use bevy_flair_core::ReflectValue;
+use bevy_reflect::FromType;
+use bevy_ui::prelude::{BorderRect, TextureSlicer};
+use bevy_ui::widget::NodeImageMode;
 use cssparser::{Parser, Token};
 
 struct TiledParams {
@@ -121,8 +120,9 @@ impl FromType<NodeImageMode> for ReflectParseCss {
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
-    use bevy::sprite::{BorderRect, TextureSlicer};
-    use bevy::ui::widget::NodeImageMode;
+    use bevy_ui::prelude::{BorderRect, TextureSlicer};
+
+    use bevy_ui::widget::NodeImageMode;
 
     #[test]
     fn test_image_mode() {

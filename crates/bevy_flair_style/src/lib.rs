@@ -3,8 +3,12 @@
 //!
 //! This crate contains all the necessary components, systems and plugins to style your UI.
 
-use bevy::prelude::*;
+use bevy_app::prelude::*;
+use bevy_asset::prelude::*;
+use bevy_ecs::prelude::*;
 use bevy_flair_core::*;
+use bevy_reflect::prelude::*;
+use bevy_ui::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Write;
@@ -142,11 +146,11 @@ pub enum ColorScheme {
     Dark,
 }
 
-impl From<bevy::window::WindowTheme> for ColorScheme {
-    fn from(theme: bevy::window::WindowTheme) -> Self {
+impl From<bevy_window::WindowTheme> for ColorScheme {
+    fn from(theme: bevy_window::WindowTheme) -> Self {
         match theme {
-            bevy::window::WindowTheme::Light => Self::Light,
-            bevy::window::WindowTheme::Dark => Self::Dark,
+            bevy_window::WindowTheme::Light => Self::Light,
+            bevy_window::WindowTheme::Dark => Self::Dark,
         }
     }
 }
@@ -226,7 +230,7 @@ impl Plugin for FlairStylePlugin {
                         StyleSystemSets::CalculateStyles,
                         StyleSystemSets::SetStyleProperties,
                         StyleSystemSets::ComputeProperties,
-                        StyleSystemSets::ApplyProperties.before(bevy::ui::UiSystem::Layout),
+                        StyleSystemSets::ApplyProperties.before(bevy_ui::UiSystem::Layout),
                     )
                         .chain(),
                     StyleSystemSets::TickAnimations.before(StyleSystemSets::SetStyleProperties),
@@ -266,7 +270,7 @@ impl Plugin for FlairStylePlugin {
                         systems::mark_related_nodes_for_recalculation,
                         systems::mark_changed_nodes_for_recalculation,
                         systems::mark_nodes_for_recalculation_on_computed_node_target_change
-                            .after(bevy::ui::UiSystem::Prepare),
+                            .after(bevy_ui::UiSystem::Prepare),
                         systems::mark_nodes_for_recalculation_on_window_media_features_change,
                     )
                         .chain()
@@ -345,10 +349,10 @@ impl<T: Component> Plugin for TrackTypeNameComponentPlugin<T> {
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
-    use bevy::app::App;
-    use bevy::asset::weak_handle;
-    use bevy::ecs::system::RunSystemOnce;
-    use bevy::ui::Node;
+    use bevy_app::App;
+    use bevy_asset::weak_handle;
+    use bevy_ecs::system::RunSystemOnce;
+    use bevy_ui::Node;
 
     const TEST_STYLE_SHEET: NodeStyleSheet =
         NodeStyleSheet::new(weak_handle!("fe981062-17ce-46e4-999a-5a61ea8fe722"));
@@ -399,7 +403,7 @@ mod tests {
             let all_entities = query!($app, Entity, With<NodeStyleData>);
             let type_registry = $app.world().resource::<AppTypeRegistry>().0.read();
 
-            let mut scene_builder = bevy::scene::DynamicSceneBuilder::from_world($app.world());
+            let mut scene_builder = bevy_scene::DynamicSceneBuilder::from_world($app.world());
             scene_builder = scene_builder
                 .allow_component::<Name>()
                 .allow_component::<ChildOf>()
@@ -411,7 +415,7 @@ mod tests {
             ;
 
             let scene = scene_builder.build();
-            let scene_serializer = bevy::scene::serde::SceneSerializer::new(&scene, &type_registry);
+            let scene_serializer = bevy_scene::serde::SceneSerializer::new(&scene, &type_registry);
 
             insta::assert_ron_snapshot!(scene_serializer);
         }};
@@ -423,10 +427,10 @@ mod tests {
         app.init_resource::<PropertyRegistry>();
 
         app.add_plugins((
-            bevy::time::TimePlugin,
-            WindowPlugin {
+            bevy_time::TimePlugin,
+            bevy_window::WindowPlugin {
                 primary_window: None,
-                ..default()
+                ..Default::default()
             },
             AssetPlugin::default(),
             BevyUiPropertiesPlugin,

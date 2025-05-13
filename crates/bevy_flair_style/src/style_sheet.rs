@@ -2,11 +2,7 @@ use crate::{
     ResolveTokensError, VarName, VarToken, VarTokens, builder::StyleSheetBuilder,
     simple_selector::SimpleSelector,
 };
-use bevy::{
-    asset::Asset,
-    prelude::TypePath,
-    reflect::{FromReflect, Reflect},
-};
+
 use bevy_flair_core::*;
 use std::borrow::Borrow;
 use std::cmp;
@@ -22,6 +18,8 @@ use crate::animations::TransitionOptions;
 use crate::css_selector::CssSelector;
 
 use crate::media_selector::MediaFeaturesProvider;
+use bevy_asset::Asset;
+use bevy_reflect::{FromReflect, Reflect, TypePath};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::ops::Add;
 use std::sync::Arc;
@@ -297,7 +295,6 @@ impl AnimationKeyframesBuilder {
 /// This parser is used to convert a sequence of var tokens into a list of defined properties.
 ///
 /// The result is a `Vec` of `(ComponentPropertyRef, PropertyValue)` pairs, or an error if parsing fails.
-/// ```
 pub type DynamicParseVarTokens = Arc<
     dyn Fn(
             &[VarToken],
@@ -561,7 +558,7 @@ mod tests {
     use crate::animations::{AnimationDirection, IterationCount};
     use crate::media_selector::{MediaRangeSelector, MediaSelector};
     use crate::testing::{entity, simple_selector};
-    use bevy::prelude::{Component, Reflect};
+    use bevy_ecs::component::Component;
     use bevy_flair_core::ComponentProperty;
     use std::sync::LazyLock;
     use std::time::Duration;

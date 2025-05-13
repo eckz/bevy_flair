@@ -2,10 +2,10 @@ use crate::ReflectParseCss;
 use crate::error::CssError;
 use crate::error_codes::color as error_codes;
 use crate::utils::parse_property_value_with;
-use bevy::color::{Alpha, Color};
-use bevy::math::FloatExt;
-use bevy::reflect::FromType;
+use bevy_color::{Alpha, Color};
 use bevy_flair_core::ReflectValue;
+use bevy_math::FloatExt;
+use bevy_reflect::FromType;
 use cssparser::color::PredefinedColorSpace;
 use cssparser::{Parser, ToCss};
 use cssparser_color::FromParsedColor;
@@ -185,16 +185,16 @@ impl FromType<Color> for ReflectParseCss {
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
-    use bevy::color::Color;
+    use bevy_color::Color;
 
     macro_rules! color_approx_eq {
         ($left:expr, $right:expr) => {
-            let left_srgba: bevy::color::Srgba = $left.into();
-            let right_srgba: bevy::color::Srgba = $right.into();
+            let left_srgba: bevy_color::Srgba = $left.into();
+            let right_srgba: bevy_color::Srgba = $right.into();
 
             approx::assert_abs_diff_eq!(
-                bevy::color::ColorToComponents::to_f32_array(left_srgba).as_slice(),
-                bevy::color::ColorToComponents::to_f32_array(right_srgba).as_slice(),
+                bevy_color::ColorToComponents::to_f32_array(left_srgba).as_slice(),
+                bevy_color::ColorToComponents::to_f32_array(right_srgba).as_slice(),
                 epsilon = 0.001,
             )
         };
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_color_name() {
-        use bevy::color::palettes::css;
+        use bevy_color::palettes::css;
 
         for (name, color) in [
             ("red", css::RED),

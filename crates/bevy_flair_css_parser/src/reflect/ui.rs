@@ -1,6 +1,5 @@
-use bevy::prelude::ShadowStyle;
-use bevy::reflect::FromType;
-use bevy::ui::{BoxShadow, Val, ZIndex};
+use bevy_reflect::FromType;
+use bevy_ui::{BoxShadow, ShadowStyle, Val, ZIndex};
 
 use crate::calc::parse_calc_property_value_with;
 use crate::error::CssError;
@@ -169,8 +168,8 @@ impl FromType<BoxShadow> for ReflectParseCss {
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
-    use bevy::color::palettes::css;
-    use bevy::ui::{BoxShadow, ShadowStyle, Val, ZIndex};
+    use bevy_color::palettes::css;
+    use bevy_ui::{BoxShadow, ShadowStyle, Val, ZIndex};
 
     #[test]
     fn test_val() {

@@ -1,12 +1,12 @@
 use crate::ToCss;
-use bevy::prelude::*;
+
 use std::fmt;
 
+use derive_more::{Deref, DerefMut};
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 use std::fmt::Write;
 use std::sync::Arc;
-
 use thiserror::Error;
 
 /// Represents a token used in variable resolution, based on CSS token types.
@@ -104,7 +104,6 @@ impl ToCss for VarOrToken {
 /// This is the main type used for processing and resolving variable-based tokens.
 #[derive(PartialEq, Debug, Clone, Default, Deref, DerefMut)]
 pub struct VarTokens(SmallVec<[VarOrToken; 2]>);
-
 impl FromIterator<VarOrToken> for VarTokens {
     fn from_iter<T: IntoIterator<Item = VarOrToken>>(iter: T) -> Self {
         Self(SmallVec::from_iter(iter))

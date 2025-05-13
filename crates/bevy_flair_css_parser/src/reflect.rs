@@ -9,10 +9,10 @@ pub(crate) use color::parse_color;
 pub(crate) use ui::parse_val;
 
 use crate::error::CssError;
-use bevy::app::{App, Plugin};
-use bevy::ui::widget::NodeImageMode;
+use bevy_app::{App, Plugin};
 use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyValue};
 use bevy_flair_style::{DynamicParseVarTokens, ToCss};
+use bevy_ui::widget::NodeImageMode;
 
 /// A function that parses a CSS type.
 /// When the function succeeds, it should return a [`bevy_flair_core::ReflectValue`].
@@ -91,7 +91,7 @@ macro_rules! register_type_data {
 
 impl Plugin for ReflectParsePlugin {
     fn build(&self, app: &mut App) {
-        use bevy::ui::*;
+        use bevy_ui::*;
 
         register_type_data!(
             app,
@@ -99,10 +99,10 @@ impl Plugin for ReflectParsePlugin {
             (
                 f32,
                 Val,
-                bevy::color::Color,
+                bevy_color::Color,
                 ZIndex,
-                bevy::asset::Handle<bevy::image::Image>,
-                bevy::asset::Handle<bevy::text::Font>,
+                bevy_asset::Handle<bevy_image::Image>,
+                bevy_asset::Handle<bevy_text::Font>,
                 Vec<RepeatedGridTrack>,
                 Vec<GridTrack>,
                 GridPlacement,
@@ -137,7 +137,7 @@ pub(crate) mod testing {
     use crate::reflect::ReflectParseCssEnum;
     use crate::testing::parse_content_with;
     use crate::{PropertyValueParseFn, ReflectParseCss};
-    use bevy::reflect::{FromReflect, FromType};
+    use bevy_reflect::{FromReflect, FromType};
 
     #[inline(always)]
     #[track_caller]

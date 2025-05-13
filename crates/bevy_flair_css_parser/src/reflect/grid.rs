@@ -2,12 +2,13 @@ use crate::error::CssError;
 use crate::error_codes::grid as error_codes;
 use crate::utils::parse_property_value_with;
 use crate::{Located, ParserExt, ReflectParseCss};
-use bevy::prelude::MinTrackSizingFunction;
-use bevy::reflect::{FromType, TypePath};
-use bevy::ui::{
-    GridPlacement, GridTrack, GridTrackRepetition, MaxTrackSizingFunction, RepeatedGridTrack,
-};
+
 use bevy_flair_core::ReflectValue;
+use bevy_reflect::{FromType, TypePath};
+use bevy_ui::{
+    GridPlacement, GridTrack, GridTrackRepetition, MaxTrackSizingFunction, MinTrackSizingFunction,
+    RepeatedGridTrack,
+};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 
 trait GridTrackType: TypePath + Sized {
@@ -377,7 +378,7 @@ impl FromType<GridPlacement> for ReflectParseCss {
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
-    use bevy::ui::*;
+    use bevy_ui::*;
 
     #[test]
     fn test_repeated_grid_track_vec() {

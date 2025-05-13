@@ -5,19 +5,19 @@ use crate::parser::{
     AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
     CssTransitionProperty, parse_css,
 };
-use bevy::asset::io::Reader;
-use bevy::asset::{AssetLoader, AsyncReadExt, LoadContext, LoadDirectError};
-use bevy::log::{error, warn};
-use bevy::reflect::TypeRegistryArc;
+use bevy_asset::io::Reader;
+use bevy_asset::{AssetLoader, AsyncReadExt, LoadContext, LoadDirectError};
 use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertyRegistry, PropertyValue};
 use bevy_flair_style::css_selector::CssSelector;
 use bevy_flair_style::{
     AnimationKeyframesBuilder, StyleBuilderProperty, StyleSheet, StyleSheetBuilder,
     StyleSheetBuilderError,
 };
+use bevy_reflect::TypeRegistryArc;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{error, warn};
 
 /// Error that could happen while loading a CSS stylesheet using [`CssStyleLoaderError`].
 #[derive(Debug, Error)]

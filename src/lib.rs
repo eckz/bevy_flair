@@ -1,7 +1,7 @@
 #[doc = include_str!("../README.md")]
-use bevy::app::{App, Plugin};
-use bevy::asset::AssetApp;
-use bevy::ecs::reflect::AppTypeRegistry;
+use bevy_app::{App, Plugin};
+use bevy_asset::AssetApp;
+use bevy_ecs::reflect::AppTypeRegistry;
 use bevy_flair_core::{BevyUiPropertiesPlugin, PropertyRegistry};
 use bevy_flair_css_parser::{
     CssStyleLoader, ReflectParsePlugin, ShorthandPropertiesPlugin, ShorthandPropertyRegistry,

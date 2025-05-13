@@ -1,15 +1,14 @@
 //! # Bevy Flair CSS Parser
 //! Includes a CSS parser and a Bevy plugin for parsing CSS files as assets.
 
-use bevy::prelude::Deref;
 use cssparser::{BasicParseError, CowRcStr, Parser, Token};
-use std::fmt::{Debug, Display, Formatter};
-use std::ops::Range;
-
+use derive_more::Deref;
 pub use error::*;
 pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Range;
 
 mod error;
 mod parser;

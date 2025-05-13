@@ -1,5 +1,5 @@
 use crate::ReflectValue;
-use bevy::reflect::Reflect;
+use bevy_reflect::Reflect;
 use std::fmt::Debug;
 
 /// Generic property value that can be used to represent a value that can be inherited,

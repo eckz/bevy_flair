@@ -1,8 +1,8 @@
-use bevy::math::Vec2;
-use bevy::math::cubic_splines::CubicSegment;
-use bevy::math::curve::cores::*;
-use bevy::math::curve::*;
-use bevy::reflect::Reflect;
+use bevy_math::Vec2;
+use bevy_math::cubic_splines::CubicSegment;
+use bevy_math::curve::cores::*;
+use bevy_math::curve::*;
+use bevy_reflect::Reflect;
 
 /// A [`Curve`] whose sample space is timing is modified by a cubic bezier function.
 #[derive(Copy, Clone, Debug, Reflect)]

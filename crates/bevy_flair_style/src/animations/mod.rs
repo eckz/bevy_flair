@@ -5,10 +5,12 @@ mod curves;
 mod easing;
 mod reflect;
 
-use bevy::prelude::*;
+use bevy_reflect::prelude::*;
 
 use crate::animations::reflect::BoxedReflectCurve;
 use bevy_flair_core::ReflectValue;
+use bevy_math::Curve;
+use bevy_time::{Timer, TimerMode};
 pub use easing::*;
 pub use reflect::{ReflectAnimatable, ReflectAnimationsPlugin};
 use serde::{Deserialize, Serialize};
@@ -118,7 +120,7 @@ impl From<TransitionOptions> for AnimationOptions {
         AnimationOptions {
             duration: value.duration,
             initial_delay: value.initial_delay,
-            ..default()
+            ..Default::default()
         }
     }
 }
@@ -569,7 +571,7 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::reflect::FromType;
+    use bevy_reflect::FromType;
 
     const ONE_SECOND: Duration = Duration::from_secs(1);
     const HALF_SECOND: Duration = Duration::from_millis(500);

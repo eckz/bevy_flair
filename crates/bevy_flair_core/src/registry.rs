@@ -1,13 +1,15 @@
 use crate::component_property::ComponentProperty;
 use crate::sub_properties::ReflectCreateSubProperties;
 use crate::{PropertyMap, PropertyValue};
-use bevy::prelude::*;
-use bevy::reflect::{TypeRegistry, Typed};
+use bevy_ecs::prelude::*;
+use bevy_reflect::prelude::*;
+use bevy_reflect::{TypeRegistry, Typed};
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use std::borrow::Cow;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::debug;
 
 /// Extension trait for getting property references from a struct.
 pub trait ReflectPropertyRefExt {
@@ -110,7 +112,7 @@ pub struct ResolvePropertyError(String);
 ///
 /// # Example
 /// ```
-/// # use bevy::prelude::*;
+/// # use bevy_ui::Node;
 /// # use bevy_flair_core::*;
 /// let mut property_registry = PropertyRegistry::default();
 /// property_registry.register(ComponentProperty::new::<Node>(".width"), PropertyValue::None);
@@ -274,9 +276,9 @@ impl PropertyRegistry {
     ///
     /// # Example
     /// ```
-    /// # use bevy::prelude::*;
+    /// # use bevy_ui::prelude::*;
     /// # use bevy_flair_core::*;
-    /// # let mut type_registry = bevy::reflect::TypeRegistry::new();
+    /// # let mut type_registry = bevy_reflect::TypeRegistry::new();
     /// # type_registry.register::<Node>();
     /// # type_registry.register::<UiRect>();
     /// # type_registry.register_type_data::<UiRect, ReflectCreateSubProperties>();
@@ -328,6 +330,7 @@ impl PropertyRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_ui::UiRect;
 
     #[derive(Reflect, Component)]
     struct TestComponent {

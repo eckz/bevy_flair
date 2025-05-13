@@ -1,14 +1,15 @@
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
-use selectors::attr::CaseSensitivity;
-use selectors::context::MatchingContext;
-use selectors::{Element, OpaqueElement, SelectorImpl};
-use std::borrow::Borrow;
+use bevy_ecs::prelude::*;
+use bevy_ecs::system::SystemParam;
 
 use crate::components::{
     NodeStyleData, NodeStyleSelectorFlags, RecalculateOnChangeFlags, Siblings,
 };
 use crate::css_selector::{CssSelectorImpl, InternalPseudoStateSelector};
+use selectors::attr::CaseSensitivity;
+use selectors::context::MatchingContext;
+use selectors::{Element, OpaqueElement, SelectorImpl};
+use std::borrow::Borrow;
+use tracing::trace;
 
 macro_rules! impl_element_commons {
     () => {

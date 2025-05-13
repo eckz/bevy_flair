@@ -1,6 +1,6 @@
 use crate::ComponentProperty;
 
-use bevy::reflect::*;
+use bevy_reflect::*;
 
 type IntoSubPropertiesFn = fn(&str, &ComponentProperty) -> Vec<(String, ComponentProperty)>;
 
@@ -12,7 +12,8 @@ type IntoSubPropertiesFn = fn(&str, &ComponentProperty) -> Vec<(String, Componen
 ///
 /// # Example
 /// ```
-/// # use bevy::prelude::*;
+/// # use bevy_ecs::prelude::*;
+/// # use bevy_reflect::*;
 /// # use bevy_flair_core::*;
 /// #[derive(Default, Component, Reflect)]
 /// struct MySubStruct {
@@ -25,7 +26,7 @@ type IntoSubPropertiesFn = fn(&str, &ComponentProperty) -> Vec<(String, Componen
 /// }
 ///
 /// let property = ComponentProperty::new::<MyComponent>(".inner");
-/// let reflect_create_sub_properties = <ReflectCreateSubProperties as bevy::reflect::FromType<MySubStruct>>::from_type();
+/// let reflect_create_sub_properties = <ReflectCreateSubProperties as FromType<MySubStruct>>::from_type();
 /// let sub_properties = reflect_create_sub_properties.create_sub_properties_with_css("inner", &property);
 /// assert_eq!(sub_properties, vec![
 ///     ("inner-left".into(), ComponentProperty::new::<MyComponent>(".inner.left")),

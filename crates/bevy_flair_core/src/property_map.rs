@@ -1,7 +1,7 @@
 //! Contains implementation of a map that has a value for every possible property.
 
 use crate::ComponentPropertyId;
-use bevy::prelude::Reflect;
+use bevy_reflect::Reflect;
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, IndexMut};
 use std::ptr::NonNull;

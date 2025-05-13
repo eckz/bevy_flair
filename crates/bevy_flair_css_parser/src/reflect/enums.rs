@@ -3,9 +3,10 @@ use crate::error::CssError;
 use crate::error_codes::enums as error_codes;
 use crate::reflect::ReflectParseCssEnum;
 use crate::utils::parse_property_value_with;
-use bevy::prelude::FromReflect;
-use bevy::reflect::{DynamicEnum, DynamicVariant, Enum, FromType, TypeInfo, Typed, VariantInfo};
 use bevy_flair_core::ReflectValue;
+use bevy_reflect::{
+    DynamicEnum, DynamicVariant, Enum, FromReflect, FromType, TypeInfo, Typed, VariantInfo,
+};
 use cssparser::Parser;
 use std::borrow::Cow;
 
@@ -87,8 +88,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_enum;
-    use bevy::reflect::Reflect;
-    use bevy::ui::{BoxSizing, Display};
+    use bevy_reflect::Reflect;
+    use bevy_ui::{BoxSizing, Display};
 
     #[derive(Reflect, PartialEq, Debug)]
     enum CustomEnum {

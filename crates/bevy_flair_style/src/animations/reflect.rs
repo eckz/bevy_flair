@@ -1,12 +1,15 @@
 use crate::ReflectValue;
 
-use bevy::prelude::*;
-use bevy::reflect::FromType;
-
 use crate::animations::EasingFunction;
 use crate::animations::curves::{LinearCurve, UnevenSampleEasedCurve};
+use bevy_app::{App, Plugin};
+use bevy_color::{Color, Mix};
+use bevy_math::{Curve, FloatExt, StableInterpolate, curve::CurveExt};
+use bevy_reflect::{FromReflect, FromType};
+use bevy_ui::Val;
 use std::any::type_name;
 use std::sync::Arc;
+use tracing::warn;
 
 pub type BoxedCurve<T> = Arc<dyn Curve<T> + Send + Sync + 'static>;
 pub type BoxedReflectCurve = BoxedCurve<ReflectValue>;
@@ -23,9 +26,9 @@ type CreateKeyFramedAnimationFn = fn(&[(f32, ReflectValue, EasingFunction)]) -> 
 ///
 /// # Example
 /// ```
-/// # use bevy::prelude::*;
-/// # use bevy::color::palettes;
-/// # use bevy::reflect::FromType;
+/// # use bevy_color::Color;
+/// # use bevy_color::palettes;
+/// # use bevy_reflect::FromType;
 /// # use bevy_flair_core::*;
 /// # use bevy_flair_style::*;
 /// # use bevy_flair_style::animations::ReflectAnimatable;

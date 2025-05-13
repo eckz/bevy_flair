@@ -1,10 +1,10 @@
 use crate::{CssError, ParserExt};
-use bevy::reflect::{FromReflect, TypePath};
 use bevy_flair_core::{PropertyValue, ReflectValue};
+use bevy_reflect::{FromReflect, TypePath};
 
 use cssparser::{Parser, Token};
 
-use bevy::ui::Val;
+use bevy_ui::Val;
 use smallvec::SmallVec;
 use std::convert::Infallible;
 use std::fmt::{Debug, Display};
@@ -300,8 +300,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::ui::Val;
     use bevy_flair_core::ComputedValue;
+    use bevy_ui::Val;
     use cssparser::ParserInput;
 
     use std::backtrace::BacktraceStatus;

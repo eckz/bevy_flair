@@ -17,27 +17,48 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bevy = { version = "0.16", default-features = false, features = [
-    "std",
-    "bevy_ui",
-    "bevy_log"
-] }
+bevy_app = { version = "0.16.0" }
+bevy_asset = { version = "0.16.0" }
+bevy_color = { version = "0.16.0" }
+bevy_ecs = { version = "0.16.0" }
+bevy_image = {  version = "0.16.0" }
+bevy_input_focus = {  version = "0.16.0" }
+bevy_math = { version = "0.16.0" }
+bevy_reflect = { version = "0.16.0" }
+bevy_render = { version = "0.16.0" }
+bevy_scene = { version = "0.16.0" }
+bevy_text = { version = "0.16.0" }
+bevy_time = { version = "0.16.0" }
+bevy_ui = { version = "0.16.0" }
+bevy_utils = { version = "0.16.0" }
+bevy_window = { version = "0.16.0" }
+
 bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.2.0" }
 bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.2.0" }
 bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.2.0" }
 
+cssparser = { version = "0.35" }
+cssparser-color = { version = "0.3" }
+selectors = { version = "0.28" }
+
 [dependencies]
-bevy = { workspace = true }
+bevy_app = { workspace = true }
+bevy_asset = { workspace = true }
+bevy_ecs = { workspace = true }
+
 bevy_flair_core = { workspace = true }
 bevy_flair_style = { workspace = true }
 bevy_flair_css_parser = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports"] }
-bevy = { workspace = true, features = [
+bevy = { version = "0.16", features = [
+    "std",
     "bevy_ui",
     "bevy_text",
+    "bevy_log",
     "bevy_picking",
+    "bevy_input_focus",
     "bevy_ui_picking_backend",
     "bevy_winit",
     "bevy_gilrs",

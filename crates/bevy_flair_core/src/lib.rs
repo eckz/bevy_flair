@@ -8,7 +8,10 @@ mod registry;
 mod static_type_info;
 mod sub_properties;
 
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+use bevy_ecs::reflect::AppTypeRegistry;
+use bevy_text::prelude::*;
+use bevy_ui::prelude::*;
 
 pub use component_property::*;
 pub use property_map::PropertyMap;
@@ -47,7 +50,7 @@ macro_rules! default_properties {
         );
     };
     ($($($sub_property:ident)? $css:literal $($default_value:ident)? { $($tt:tt)* },)*) => {
-        pub(crate) fn register_bevy_ui_properties(registry: &mut PropertyRegistry, type_registry: &bevy::reflect::TypeRegistry) {
+        pub(crate) fn register_bevy_ui_properties(registry: &mut PropertyRegistry, type_registry: &bevy_reflect::TypeRegistry) {
             $(
                 default_properties!(@register $($sub_property)*
                     registry,
@@ -175,10 +178,9 @@ impl Plugin for BevyUiPropertiesPlugin {
 #[cfg(test)]
 mod tests {
     use crate::{BevyUiPropertiesPlugin, PropertyRegistry};
-    use bevy::app::App;
-    use bevy::reflect::PartialReflect;
-    use bevy::ui::{Node, UiPlugin, UiRect, Val};
-    use bevy::utils::default;
+    use bevy_app::App;
+    use bevy_reflect::PartialReflect;
+    use bevy_ui::{Node, UiPlugin, UiRect, Val};
 
     #[test]
     fn registers_sub_properties() {
@@ -199,9 +201,9 @@ mod tests {
             margin: UiRect {
                 left: Val::Px(12.0),
                 top: Val::Px(50.0),
-                ..default()
+                ..Default::default()
             },
-            ..default()
+            ..Default::default()
         });
 
         let margin_left = property_registry.get_property(

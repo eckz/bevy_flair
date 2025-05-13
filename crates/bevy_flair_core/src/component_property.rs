@@ -1,10 +1,10 @@
 use crate::static_type_info::static_type_info;
 use crate::{ComponentPropertyId, ComponentPropertyRef};
-use bevy::ecs::component::Mutable;
-use bevy::ecs::world::FilteredEntityRef;
-use bevy::prelude::*;
-use bevy::reflect::*;
-use bevy::utils::TypeIdMap;
+use bevy_ecs::component::Mutable;
+use bevy_ecs::prelude::*;
+use bevy_ecs::world::FilteredEntityRef;
+use bevy_reflect::*;
+use bevy_utils::TypeIdMap;
 use std::fmt;
 use std::fmt::{Debug, Display};
 use std::hash::{BuildHasherDefault, Hash, Hasher};
@@ -185,7 +185,8 @@ impl EntityCommand for NewComponentsQueue {
 /// # Example
 ///
 /// ```
-/// # use bevy::prelude::*;
+/// # use bevy_ecs::prelude::*;
+/// # use bevy_reflect::prelude::*;
 /// # use bevy_flair_core::*;
 ///
 /// #[derive(Default, Component, Reflect)]
@@ -261,7 +262,8 @@ impl ComponentProperty {
     /// Creates a new sup-property out of this property
     /// # Example
     /// ```
-    /// # use bevy::prelude::*;
+    /// # use bevy_ui::prelude::*;
+    /// # use bevy_reflect::prelude::*;
     /// # use bevy_flair_core::*;
     /// let margin_property = ComponentProperty::new::<Node>("margin");
     ///
@@ -300,7 +302,7 @@ impl ComponentProperty {
     /// Returns a list of possible sub-properties of this property.
     /// # Example
     /// ```
-    /// # use bevy::prelude::*;
+    /// # use bevy_ui::Node;
     /// # use bevy_flair_core::*;
     /// let margin_property = ComponentProperty::new::<Node>("margin");
     /// let sub_properties = margin_property.sub_properties().unwrap();
@@ -336,7 +338,7 @@ impl ComponentProperty {
     ///
     /// # Example
     /// ```
-    /// # use bevy::prelude::*;
+    /// # use bevy_ui::Node;
     /// # use bevy_flair_core::*;
     ///
     /// let display_property = ComponentProperty::new::<Node>("display");
@@ -352,7 +354,8 @@ impl ComponentProperty {
     /// Returns the [`TypeInfo`] of the component used by this property.
     /// # Example
     /// ```
-    /// # use bevy::prelude::*;
+    /// # use bevy_ui::Node;
+    /// # use bevy_reflect::TypePath;
     /// # use bevy_flair_core::*;
     ///
     /// let display_property = ComponentProperty::new::<Node>("display");
@@ -366,7 +369,7 @@ impl ComponentProperty {
     /// Returns the [`TypeInfo`] of the value pointed by this property.
     /// # Example
     /// ```
-    /// # use bevy::prelude::*;
+    /// # use bevy_ui::Node;
     /// # use bevy_flair_core::*;
     ///
     /// let overflow_property = ComponentProperty::new::<Node>("overflow");
@@ -542,8 +545,8 @@ pub type PropertiesHashSet =
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::ecs::world::World;
-    use bevy::math::Vec3;
+    use bevy_ecs::world::World;
+    use bevy_math::Vec3;
 
     #[derive(PartialEq, Debug, Component, Reflect)]
     struct Struct {

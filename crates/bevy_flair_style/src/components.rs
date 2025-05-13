@@ -9,20 +9,24 @@ use crate::{
     StyleSheet, VarTokens,
 };
 
-use bevy::prelude::*;
-use bevy::reflect::TypeRegistry;
+use bevy_ecs::prelude::*;
 use bevy_flair_core::{
     ComponentPropertyId, ComputedValue, PropertiesHashMap, PropertyMap, PropertyRegistry,
     PropertyValue, ReflectValue,
 };
+use bevy_reflect::prelude::*;
 use bitflags::bitflags;
 
 use crate::style_sheet::StyleSheetRulesetId;
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
-use bevy::reflect::serde::{
+use bevy_asset::{AssetId, Handle};
+use bevy_ecs::component::HookContext;
+use bevy_ecs::world::DeferredWorld;
+use bevy_reflect::TypeRegistry;
+use bevy_reflect::serde::{
     ReflectSerializeWithRegistry, SerializeWithRegistry, TypedReflectSerializer,
 };
+use bevy_window::Window;
+use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::ser::SerializeMap;
@@ -35,6 +39,7 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, atomic};
 use std::time::Duration;
+use tracing::{trace, warn};
 
 /// Contains information about siblings of an Entity.
 /// This is required to have a faster access to siblings
@@ -309,7 +314,9 @@ impl NodeStyleData {
 ///
 /// # Example
 /// ```
-/// # use bevy::prelude::*;
+/// # use bevy_ecs::prelude::*;
+/// # use bevy_asset::prelude::*;
+/// # use bevy_ui::Node;
 /// # use bevy_flair_style::components::NodeStyleSheet;
 ///
 /// fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -1079,6 +1086,7 @@ impl std::fmt::Display for ClassList {
 mod tests {
     use super::*;
     use bevy_flair_core::{ComponentProperty, ComponentPropertyRef, PropertyValue};
+    use bevy_reflect::TypeRegistry;
     use std::sync::LazyLock;
 
     #[derive(Component, Reflect)]

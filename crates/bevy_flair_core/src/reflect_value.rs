@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy::reflect::serde::{
-    ReflectSerializeWithRegistry, ReflectSerializer, SerializeWithRegistry,
-};
-use bevy::reflect::{TypeInfo, TypeRegistry, Typed};
+use bevy_color::Color;
+use bevy_reflect::prelude::*;
+use bevy_reflect::serde::{ReflectSerializeWithRegistry, ReflectSerializer, SerializeWithRegistry};
+use bevy_reflect::{TypeInfo, TypeRegistry, Typed};
+use bevy_ui::Val;
 use serde::{Serialize, Serializer};
 use std::{
     any::{Any, TypeId},

@@ -5,24 +5,22 @@ use crate::{
     simple_selector::SimpleSelector,
     style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
 };
-use bevy::log::warn;
-use bevy::prelude::{Component, FromReflect};
-use bevy::reflect::{Reflect, ReflectFromReflect, Struct, TypeRegistry, Typed};
 
-use bevy::{
-    asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError},
-    image::Image,
-    text::Font,
-};
-use bevy_flair_core::*;
-use rustc_hash::FxHashMap;
-use std::sync::Arc;
-use std::{fmt::Debug, marker::PhantomData, mem};
-use thiserror::Error;
+use bevy_reflect::{FromReflect, Reflect, ReflectFromReflect, Struct, TypeRegistry, Typed};
 
 #[cfg(feature = "css_selectors")]
 use crate::css_selector::CssSelector;
 use crate::style_sheet::RulesetProperty;
+use bevy_asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError};
+use bevy_ecs::component::Component;
+use bevy_flair_core::*;
+use bevy_image::Image;
+use bevy_text::Font;
+use rustc_hash::FxHashMap;
+use std::sync::Arc;
+use std::{fmt::Debug, marker::PhantomData, mem};
+use thiserror::Error;
+use tracing::warn;
 
 /// Possible errors that could happen while trying to build a stylesheet.
 #[derive(Debug, Error)]

@@ -8,8 +8,6 @@ use crate::reflect::ReflectParseCssEnum;
 use crate::vars::parse_var_tokens;
 use crate::{CssParseResult, LocatedStr, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
 use crate::{ReflectParseCss, error_codes};
-use bevy::math::Vec2;
-use bevy::reflect::TypeRegistry;
 use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyRegistry, PropertyValue};
 use bevy_flair_style::animations::{
     AnimationDirection, AnimationOptions, EasingFunction, IterationCount, StepPosition,
@@ -19,6 +17,8 @@ use bevy_flair_style::{
     ColorScheme, DynamicParseVarTokens, MediaRangeSelector, MediaSelector, MediaSelectors,
     StyleSheet, VarTokens,
 };
+use bevy_math::Vec2;
+use bevy_reflect::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Debug;
 use std::num::NonZeroU32;
@@ -1379,10 +1379,11 @@ pub fn parse_css<F>(
 mod tests {
     use super::*;
     use crate::utils::parse_property_value_with;
-    use bevy::prelude::Component;
-    use bevy::reflect::*;
+
+    use bevy_ecs::component::Component;
     use bevy_flair_core::*;
     use bevy_flair_style::{ToCss, VarOrToken, VarToken};
+    use bevy_reflect::*;
     use indoc::indoc;
     use std::sync::LazyLock;
 

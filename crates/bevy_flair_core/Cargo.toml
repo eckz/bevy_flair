@@ -16,9 +16,19 @@ missing_docs = "warn"
 [dependencies]
 thiserror = "2.0"
 serde = "1.0"
+tracing = "0.1"
 rustc-hash = "2.1"
 
 # Same version as bevy so it implements reflect
 smol_str = "0.2"
 
-bevy = { workspace = true }
+bevy_app = { workspace = true }
+bevy_color = { workspace = true }
+bevy_ecs = { workspace = true }
+bevy_reflect = { workspace = true }
+bevy_text = { workspace = true }
+bevy_ui = { workspace = true }
+bevy_utils = { workspace = true }
+
+[dev-dependencies]
+bevy_math = { workspace = true }

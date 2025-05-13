@@ -1,11 +1,11 @@
-use bevy::math::{
+use bevy_math::{
     Vec2,
     curve::{
         Curve, Interval, UnevenSampleAutoCurve,
         easing::{EaseFunction as BevyEaseFunction, JumpAt},
     },
 };
-use bevy::reflect::Reflect;
+use bevy_reflect::Reflect;
 
 use crate::animations::curves::CubicBezierEaseCurve;
 use serde::{Deserialize, Serialize};
