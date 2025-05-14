@@ -5,10 +5,37 @@ use crate::reflect::ReflectParseCssEnum;
 use crate::utils::parse_property_value_with;
 use bevy_flair_core::{PropertyValue, ReflectValue};
 use bevy_reflect::{
-    DynamicEnum, DynamicVariant, Enum, FromReflect, FromType, TypeInfo, Typed, VariantInfo,
+    DynamicEnum, DynamicVariant, Enum, EnumInfo, FromReflect, FromType, TypeInfo, Typed,
+    VariantInfo,
 };
 use cssparser::Parser;
 use std::borrow::Cow;
+
+fn enum_variants(enum_info: &EnumInfo) -> impl Iterator<Item = &'static str> {
+    enum_info
+        .iter()
+        .filter_map(|v| v.as_unit_variant().ok())
+        .map(|v| v.name())
+}
+
+fn enum_variant_to_css_case(s: &str) -> String {
+    let mut css_name = String::new();
+
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i != 0 {
+                css_name.push('-');
+            }
+            for lower in c.to_lowercase() {
+                css_name.push(lower);
+            }
+        } else {
+            css_name.push(c);
+        }
+    }
+
+    css_name
+}
 
 fn create_unit_enum_from_reflection<T: FromReflect + Typed>(
     enum_variant: &str,
@@ -24,15 +51,15 @@ fn create_unit_enum_from_reflection<T: FromReflect + Typed>(
             Cow::Borrowed(enum_variant)
         };
 
-        let TypeInfo::Enum(enum_type) = type_info else {
+        let TypeInfo::Enum(enum_info) = type_info else {
             return Err(format!("Type '{type_path}' is not an enum",));
         };
 
-        for variant in enum_type.iter() {
+        for variant in enum_info.iter() {
             if variant.name().eq_ignore_ascii_case(&enum_variant) {
                 let VariantInfo::Unit(unit_variant_info) = variant else {
                     return Err(format!(
-                        "Variant '{enum_variant}' for type '{type_path}' is of type {variant_type:?}",
+                        "Variant '{enum_variant}' for type '{type_path}' is of type {variant_type:?} when it should be an Unit variant",
                         variant_type = variant.variant_type()
                     ));
                 };
@@ -44,8 +71,13 @@ fn create_unit_enum_from_reflection<T: FromReflect + Typed>(
             }
         }
 
+        let all_variants = enum_variants(enum_info)
+            .map(|variant_name| format!("'{}'", enum_variant_to_css_case(variant_name)))
+            .collect::<Vec<_>>()
+            .join(" | ");
+
         Err(format!(
-            "Variant '{enum_variant}' for type '{type_path}' not found",
+            "Variant '{enum_variant}' for type '{type_path}' not found.\nExpected one of the following variants: {all_variants}",
         ))
     }
 

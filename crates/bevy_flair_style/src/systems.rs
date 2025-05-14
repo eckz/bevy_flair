@@ -15,6 +15,7 @@ use bevy_ecs::system::SystemParam;
 use bevy_flair_core::*;
 use bevy_input_focus::{InputFocus, InputFocusVisible};
 use bevy_render::camera::{Camera, NormalizedRenderTarget};
+use bevy_text::{TextColor, TextFont, TextLayout};
 use bevy_time::Time;
 use bevy_ui::prelude::*;
 use bevy_window::{PrimaryWindow, Window, WindowEvent};
@@ -434,8 +435,11 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 }
 
 pub(crate) fn mark_as_changed_on_style_sheet_change(
+    mut commands: Commands,
     mut asset_events_reader: EventReader<AssetEvent<StyleSheet>>,
     mut style_query: Query<(
+        Entity,
+        Has<Text>,
         &NodeStyleData,
         &mut NodeStyleSelectorFlags,
         &mut NodeStyleMarker,
@@ -456,14 +460,43 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         return;
     }
 
-    for (style_data, mut flags, mut marker, mut properties, mut vars) in &mut style_query {
+    for (entity, has_text, style_data, mut flags, mut marker, mut properties, mut vars) in
+        &mut style_query
+    {
         if modified_stylesheets.contains(&style_data.effective_style_sheet.id()) {
             flags.reset();
 
-            // TODO: Revert setted properties to their default value
             properties.reset();
             vars.clear();
             marker.mark_for_recalculation();
+
+            // We insert the Node and its required component default values, so the UI is reset
+            // This might cause issues if some properties are handled manually, but this makes sure
+            // that all properties are unapplied, for example during development it's common to add a
+            // property like `outline` and remove it, in those cases, the Outline would keep the last value
+            // causing confusion.
+            // TODO: Emit an event when this happens
+            commands
+                .entity(entity)
+                .try_insert((
+                    Node::default(),
+                    BackgroundColor::default(),
+                    BorderColor::default(),
+                    BorderRadius::default(),
+                    ZIndex::default(),
+                ))
+                .try_remove::<(Outline, BoxShadow)>();
+
+            if has_text {
+                commands
+                    .entity(entity)
+                    .try_insert((
+                        TextColor::default(),
+                        TextFont::default(),
+                        TextLayout::default(),
+                    ))
+                    .try_remove::<(TextShadow,)>();
+            }
         }
     }
 }

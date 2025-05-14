@@ -113,16 +113,16 @@ default_properties! {
     "grid-column" { Node[".grid_column"] },
 
     // Misc components
-    "border-color" { insert_if_missing: BorderColor[".0"] },
-    "background-color" { insert_if_missing: BackgroundColor[".0"] },
+    "border-color" { BorderColor[".0"] },
+    "background-color" { BackgroundColor[".0"] },
     // We need to manually register all border-radius sub-properties
-    "border-top-left-radius" { insert_if_missing: BorderRadius[".top_left"] },
-    "border-top-right-radius" { insert_if_missing: BorderRadius[".top_right"] },
-    "border-bottom-left-radius" { insert_if_missing: BorderRadius[".bottom_left"] },
-    "border-bottom-right-radius" { insert_if_missing: BorderRadius[".bottom_right"] },
+    "border-top-left-radius" { BorderRadius[".top_left"] },
+    "border-top-right-radius" { BorderRadius[".top_right"] },
+    "border-bottom-left-radius" { BorderRadius[".bottom_left"] },
+    "border-bottom-right-radius" { BorderRadius[".bottom_right"] },
     sub_properties "outline" { insert_if_missing: Outline[""] },
     "box-shadow" { insert_if_missing: BoxShadow[""] },
-    "z-index" { insert_if_missing: ZIndex[""] },
+    "z-index" { ZIndex[""] },
 
     // UiImage properties.
     // Note: The `-bevy-` css properties are not standard.
@@ -135,7 +135,7 @@ default_properties! {
     "font-family" inherit { TextFont[".font"] },
     "font-size" inherit { TextFont[".font_size"] },
     "line-height" inherit { TextFont[".line_height"] },
-    "font-smooth" inherit { TextFont[".font_smoothing"] },
+    "-bevy-font-smooth" inherit { TextFont[".font_smoothing"] },
     "text-align" inherit { TextLayout[".justify"] },
     // There is no equivalent in css for bevy LineBreak
     "-bevy-line-break" inherit { TextLayout[".linebreak"] },
