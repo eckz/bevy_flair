@@ -54,24 +54,27 @@ Button {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 150px;
-    height: 65px;
     border-width: 5px;
     margin: 15px 0;
 
-    @media (min-width: 500px) {
-        width: 200px;
+    width: 200px;
+    max-width: 90%;
+    height: 65px;
+
+    @media (min-width: 600px) {
+        width: 300px;
     }
 
-    @media (min-width: 800px) {
-        width: 250px;
+    @media (min-width: 800px) and (min-height: 600px) {
+        width: 400px;
+        height: 80px;
     }
 
     background-color: var(--button-bg);
     border-color: var(--button-border);
     border-radius: var(--button-border-radius);
 
-    transition: border-radius 0.6s ease-in-out, border-color 0.3s, background-color 0.3s, outline-color 0.3s, width 0.4s;
+    transition: border-radius 0.6s ease-in-out, border-color 0.4s, background-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
 
     outline: 3px transparent;
 
@@ -94,7 +97,7 @@ Button {
     }
 
     Text {
-        transition: color 0.6s;
+        transition: color 0.4s;
     }
 }
 
