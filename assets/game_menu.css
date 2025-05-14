@@ -51,7 +51,7 @@
     border-radius: 2px;
 
     background-image: url("panel-border-030.png");
-    background-image-mode: sliced(20.0px);
+    -bevy-image-mode: sliced(20.0px);
 }
 
 Button {
@@ -84,7 +84,7 @@ Button, #floating_borders {
     top: var(--floating-borders-top);
     transition: top 0.6s;
     background-image: url("panel-border-010.png");
-    background-image-mode: sliced(20.0px);
+    -bevy-image-mode: sliced(20.0px);
 }
 
 Button:nth-child(2):focus ~ #floating_borders {

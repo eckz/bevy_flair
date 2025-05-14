@@ -16,7 +16,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
   - All [`Node`] properties are supported.
   - Components [`BorderColor`], [`BackgroundColor`], [`BorderRadius`], [`Outline`], [`BoxShadow`] and [`ZIndex`] 
     are supported, and inserted automatically when the corresponding property is used (e.g. using `background-color: red` will automatically insert the [`BackgroundColor`] component )  
-- Use of non-standard css to support [`ImageNode`] (e.g: `background-image: url("panel-border-030.png")`, `background-image-mode: sliced(20.0px)`).
+- Use of non-standard css to support [`ImageNode`] (e.g: `background-image: url("panel-border-030.png")`, `-bevy-image-mode: sliced(20.0px)`).
 - Color parsing. (e.g. `red`,`#ff0000`,`rgb(255 0 0)`,`hsl(0 100% 50% / 50%)`,`oklch(40.1% 0.123 21.57)`)
 - Most common css selectors works by default (Thanks to [selectors] crate).
   - `:root` selector

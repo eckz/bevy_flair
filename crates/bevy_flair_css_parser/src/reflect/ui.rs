@@ -1,16 +1,12 @@
-use bevy_color::Color;
-use bevy_math::Vec2;
-use bevy_reflect::FromType;
-use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, TextShadow, Val, ZIndex};
-
 use crate::calc::{parse_calc_property_value_with, parse_calc_value};
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
-use crate::reflect::parse_color;
-use crate::utils::{parse_property_value_with, try_parse_none_with_value};
+use crate::utils::parse_property_value_with;
 use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
+use bevy_reflect::FromType;
+use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, ZIndex};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
 
@@ -44,7 +40,11 @@ pub(crate) fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
                 "vmin" => Val::VMin(*value),
                 "vmax" => Val::VMax(*value),
                 _ => {
-                    return Err(CssError::new_located(&next,  error_codes::UNEXPECTED_VAL_TOKEN, format!("Dimension {unit} is not recognized. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax'")));
+                    return Err(CssError::new_located(
+                        &next,
+                        error_codes::UNEXPECTED_VAL_TOKEN,
+                        format!("Dimension '{unit}' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax'")
+                    ));
                 }
             }
         }
@@ -174,39 +174,6 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     Ok(ReflectValue::new(BoxShadow(styles)))
 }
 
-const NONE_TEXT_SHADOW: TextShadow = TextShadow {
-    offset: Vec2::ZERO,
-    color: Color::NONE,
-};
-
-fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Some(none_value) = try_parse_none_with_value::<TextShadow>(parser, NONE_TEXT_SHADOW) {
-        return Ok(ReflectValue::new(none_value));
-    }
-
-    if let Ok(color) = parser.try_parse_with(parse_color) {
-        let offset_x = parse_calc_value(parser, parse_f32)?;
-        let offset_y = parse_calc_value(parser, parse_f32)?;
-
-        Ok(ReflectValue::new(TextShadow {
-            offset: Vec2::new(offset_x, offset_y),
-            color,
-        }))
-    } else {
-        let offset_x = parse_calc_value(parser, parse_f32)?;
-        let offset_y = parse_calc_value(parser, parse_f32)?;
-
-        let color = parser
-            .try_parse_with(parse_color)
-            .unwrap_or_else(|_| TextShadow::default().color);
-
-        Ok(ReflectValue::new(TextShadow {
-            offset: Vec2::new(offset_x, offset_y),
-            color,
-        }))
-    }
-}
-
 impl FromType<f32> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_f32))
@@ -243,20 +210,11 @@ impl FromType<BoxShadow> for ReflectParseCss {
     }
 }
 
-impl FromType<TextShadow> for ReflectParseCss {
-    fn from_type() -> Self {
-        Self(|parser| parse_property_value_with(parser, parse_text_shadow))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
     use bevy_color::palettes::css;
-    use bevy_math::Vec2;
-    use bevy_ui::{
-        BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, TextShadow, Val, ZIndex,
-    };
+    use bevy_ui::{BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, Val, ZIndex};
 
     #[test]
     fn test_val() {
@@ -345,33 +303,5 @@ mod tests {
                 color: css::WHITE.into(),
             })
         );
-    }
-
-    #[test]
-    fn test_text_shadow() {
-        // TODO: TextShadow does not implement PartialEq. Try to upstream it to bevy.
-        assert!(matches!(
-            test_parse_css::<TextShadow>("10px 5px"),
-            TextShadow {
-                offset: Vec2 { x: 10.0, y: 5.0 },
-                ..
-            }
-        ));
-
-        assert!(matches!(
-            test_parse_css::<TextShadow>("10px 5px teal"),
-            TextShadow {
-                offset: Vec2 { x: 10.0, y: 5.0 },
-                color
-            } if color == css::TEAL.into()
-        ));
-
-        assert!(matches!(
-            test_parse_css::<TextShadow>("white calc(10px * 2) 5px"),
-            TextShadow {
-                offset: Vec2 { x: 20.0, y: 5.0 },
-                color
-            } if color == css::WHITE.into()
-        ));
     }
 }

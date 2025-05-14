@@ -81,7 +81,7 @@ default_properties! {
     "min-height" { Node[".min_height"] },
     "max-width" { Node[".max_width"] },
     "max-height" { Node[".max_height"] },
-    // TODO: pub aspect_ratio: Option<f32>,
+    "aspect-ratio" { Node[".aspect_ratio"] },
     "align-items" { Node[".align_items"] },
     "justify-items" { Node[".justify_items"] },
     "align-self" { Node[".align_self"] },
@@ -124,16 +124,23 @@ default_properties! {
     "box-shadow" { insert_if_missing: BoxShadow[""] },
     "z-index" { insert_if_missing: ZIndex[""] },
 
+    // UiImage properties.
+    // Note: The `-bevy-` css properties are not standard.
+    "background-image" { insert_if_missing: ImageNode[".image"] },
+    "-bevy-image-color" { insert_if_missing: ImageNode[".color"] },
+    "-bevy-image-mode" { insert_if_missing: ImageNode[".image_mode"] },
+
     // Text fields
     "color" inherit { TextColor[".0"] },
     "font-family" inherit { TextFont[".font"] },
     "font-size" inherit { TextFont[".font_size"] },
+    "line-height" inherit { TextFont[".line_height"] },
+    "font-smooth" inherit { TextFont[".font_smoothing"] },
+    "text-align" inherit { TextLayout[".justify"] },
+    // There is no equivalent in css for bevy LineBreak
+    "-bevy-line-break" inherit { TextLayout[".linebreak"] },
 
-    // UiImage properties.
-    // Note: The `--bevy-` css properties are not standard.
-    "background-image" { insert_if_missing: ImageNode[".image"] },
-    "--bevy-image-color" { insert_if_missing: ImageNode[".color"] },
-    "background-image-mode" { insert_if_missing: ImageNode[".image_mode"] },
+    // Misc text components
     "text-shadow" { insert_if_missing: TextShadow[""] },
 }
 

@@ -3,6 +3,7 @@ mod color;
 mod enums;
 mod grid;
 mod image;
+mod text;
 mod ui;
 
 pub(crate) use color::parse_color;
@@ -14,6 +15,7 @@ use crate::error::CssError;
 use bevy_app::{App, Plugin};
 use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyValue};
 use bevy_flair_style::{DynamicParseVarTokens, ToCss};
+use bevy_text::{FontSmoothing, JustifyText, LineBreak, LineHeight};
 use bevy_ui::widget::NodeImageMode;
 
 /// A function that parses a CSS type.
@@ -102,6 +104,8 @@ impl Plugin for ReflectParsePlugin {
                 f32,
                 Val,
                 bevy_color::Color,
+                OverflowClipMargin,
+                Option<f32>,
                 ZIndex,
                 bevy_asset::Handle<bevy_image::Image>,
                 bevy_asset::Handle<bevy_text::Font>,
@@ -109,6 +113,9 @@ impl Plugin for ReflectParsePlugin {
                 Vec<GridTrack>,
                 GridPlacement,
                 NodeImageMode,
+                BoxShadow,
+                LineHeight,
+                TextShadow,
             )
         );
 
@@ -129,6 +136,9 @@ impl Plugin for ReflectParsePlugin {
                 FlexDirection,
                 FlexWrap,
                 GridAutoFlow,
+                FontSmoothing,
+                JustifyText,
+                LineBreak,
             )
         );
     }
