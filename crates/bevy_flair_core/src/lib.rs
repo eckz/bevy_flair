@@ -70,7 +70,7 @@ default_properties! {
     "box-sizing" { Node[".box_sizing"] },
     "position" { Node[".position_type"] },
     sub_properties "overflow" { Node[".overflow"] },
-    // TODO: pub overflow_clip_margin: OverflowClipMargin
+    "overflow-clip-margin" { Node[".overflow_clip_margin"] },
     "left" { Node[".left"] },
     "right" { Node[".right"] },
     "top" { Node[".top"] },
@@ -130,12 +130,11 @@ default_properties! {
     "font-size" inherit { TextFont[".font_size"] },
 
     // UiImage properties.
-    // Note: The `image-` css properties are not standard.
+    // Note: The `--bevy-` css properties are not standard.
     "background-image" { insert_if_missing: ImageNode[".image"] },
-    "image-color" { insert_if_missing: ImageNode[".color"] },
+    "--bevy-image-color" { insert_if_missing: ImageNode[".color"] },
     "background-image-mode" { insert_if_missing: ImageNode[".image_mode"] },
-
-    // TODO: text-shadow
+    "text-shadow" { insert_if_missing: TextShadow[""] },
 }
 
 /// Register all Bevy UI properties

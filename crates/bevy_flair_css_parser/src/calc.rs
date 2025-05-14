@@ -275,22 +275,31 @@ fn parse_calc_or_value<T>(
     value_parser(parser).map(CalcOrValue::Value)
 }
 
-pub fn parse_calc_property_value_with<T>(
+pub fn parse_calc_value<T>(
     parser: &mut Parser,
     mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<PropertyValue, CssError>
+) -> Result<T, CssError>
 where
     T: Calculable + FromReflect,
 {
     let calc_or_value = parser.located(|parser| parse_calc_or_value(parser, &mut value_parser))?;
-    match calc_or_value.calc_value() {
-        Ok(value) => Ok(PropertyValue::Value(ReflectValue::new(value))),
-        Err(calc_err) => Err(CssError::new_located(
+    calc_or_value.calc_value().map_err(|calc_err| {
+        CssError::new_located(
             &calc_or_value,
             crate::error_codes::calc::CALC_ERROR,
             calc_err.to_string(),
-        )),
-    }
+        )
+    })
+}
+
+pub fn parse_calc_property_value_with<T>(
+    parser: &mut Parser,
+    value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+) -> Result<PropertyValue, CssError>
+where
+    T: Calculable + FromReflect,
+{
+    parse_calc_value(parser, value_parser).map(|v| PropertyValue::Value(ReflectValue::new(v)))
 }
 
 #[cfg(test)]

@@ -34,9 +34,20 @@ pub fn parse_many<T, F: FnMut(&mut Parser) -> Result<T, CssError>>(
     Ok(result)
 }
 
-pub fn parse_none<T: Default>(parser: &mut Parser) -> Result<T, CssError> {
-    parser.try_parse(|parser| {
-        parser.expect_ident_matching("none")?;
-        Ok(T::default())
-    })
+pub fn try_parse_none<T: Default>(parser: &mut Parser) -> Option<T> {
+    parser
+        .try_parse_with(|parser| {
+            parser.expect_ident_matching("none")?;
+            Ok(T::default())
+        })
+        .ok()
+}
+
+pub fn try_parse_none_with_value<T>(parser: &mut Parser, none_value: T) -> Option<T> {
+    parser
+        .try_parse_with(move |parser| {
+            parser.expect_ident_matching("none")?;
+            Ok(none_value)
+        })
+        .ok()
 }

@@ -1,10 +1,14 @@
+use bevy_color::Color;
+use bevy_math::Vec2;
 use bevy_reflect::FromType;
-use bevy_ui::{BoxShadow, ShadowStyle, Val, ZIndex};
+use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, TextShadow, Val, ZIndex};
 
-use crate::calc::parse_calc_property_value_with;
+use crate::calc::{parse_calc_property_value_with, parse_calc_value};
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
-use crate::utils::parse_property_value_with;
+use crate::reflect::enums::parse_enum_value;
+use crate::reflect::parse_color;
+use crate::utils::{parse_property_value_with, try_parse_none_with_value};
 use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
 use cssparser::{Parser, Token, match_ignore_ascii_case};
@@ -52,6 +56,37 @@ pub(crate) fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
             ));
         }
     })
+}
+
+fn parse_overflow_clip_margin(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    if let Ok(margin) = parser.try_parse_with(|parser| parse_calc_value(parser, parse_f32)) {
+        return Ok(ReflectValue::new(OverflowClipMargin {
+            margin,
+            ..OverflowClipMargin::DEFAULT
+        }));
+    }
+    let visual_box = parse_enum_value(parser)?;
+    let margin = parse_calc_value(parser, parse_f32)?;
+    Ok(ReflectValue::new(OverflowClipMargin { visual_box, margin }))
+}
+
+fn parse_aspect_ratio(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    if let Ok(()) = parser.try_parse_with(|parser| {
+        parser.expect_ident_matching("auto")?;
+        Ok(())
+    }) {
+        let auto_value: Option<f32> = None;
+        return Ok(ReflectValue::new(auto_value));
+    }
+    let dividend = parse_calc_value(parser, parse_f32)?;
+    let divisor = parser
+        .try_parse_with(|parser| {
+            parser.expect_delim('/')?;
+            parse_calc_value(parser, parse_f32)
+        })
+        .unwrap_or(1.0);
+    let auto_value: Option<f32> = Some(dividend / divisor);
+    Ok(ReflectValue::new(auto_value))
 }
 
 pub(crate) fn parse_four_values<T: Copy>(
@@ -139,7 +174,38 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     Ok(ReflectValue::new(BoxShadow(styles)))
 }
 
-// TODO: OverflowClipMargin
+const NONE_TEXT_SHADOW: TextShadow = TextShadow {
+    offset: Vec2::ZERO,
+    color: Color::NONE,
+};
+
+fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    if let Some(none_value) = try_parse_none_with_value::<TextShadow>(parser, NONE_TEXT_SHADOW) {
+        return Ok(ReflectValue::new(none_value));
+    }
+
+    if let Ok(color) = parser.try_parse_with(parse_color) {
+        let offset_x = parse_calc_value(parser, parse_f32)?;
+        let offset_y = parse_calc_value(parser, parse_f32)?;
+
+        Ok(ReflectValue::new(TextShadow {
+            offset: Vec2::new(offset_x, offset_y),
+            color,
+        }))
+    } else {
+        let offset_x = parse_calc_value(parser, parse_f32)?;
+        let offset_y = parse_calc_value(parser, parse_f32)?;
+
+        let color = parser
+            .try_parse_with(parse_color)
+            .unwrap_or_else(|_| TextShadow::default().color);
+
+        Ok(ReflectValue::new(TextShadow {
+            offset: Vec2::new(offset_x, offset_y),
+            color,
+        }))
+    }
+}
 
 impl FromType<f32> for ReflectParseCss {
     fn from_type() -> Self {
@@ -150,6 +216,18 @@ impl FromType<f32> for ReflectParseCss {
 impl FromType<Val> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_val))
+    }
+}
+
+impl FromType<OverflowClipMargin> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| parse_property_value_with(parser, parse_overflow_clip_margin))
+    }
+}
+
+impl FromType<Option<f32>> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| parse_property_value_with(parser, parse_aspect_ratio))
     }
 }
 
@@ -165,11 +243,20 @@ impl FromType<BoxShadow> for ReflectParseCss {
     }
 }
 
+impl FromType<TextShadow> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| parse_property_value_with(parser, parse_text_shadow))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
     use bevy_color::palettes::css;
-    use bevy_ui::{BoxShadow, ShadowStyle, Val, ZIndex};
+    use bevy_math::Vec2;
+    use bevy_ui::{
+        BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, TextShadow, Val, ZIndex,
+    };
 
     #[test]
     fn test_val() {
@@ -186,6 +273,38 @@ mod tests {
     #[test]
     fn test_val_with_calc() {
         assert_eq!(test_parse_css::<Val>("calc(15px * 2)"), Val::Px(30.0));
+    }
+
+    #[test]
+    fn test_overflow_clip_margin() {
+        assert_eq!(
+            test_parse_css::<OverflowClipMargin>("2px"),
+            OverflowClipMargin {
+                margin: 2.0,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            test_parse_css::<OverflowClipMargin>("content-box 5px"),
+            OverflowClipMargin {
+                margin: 5.0,
+                visual_box: OverflowClipBox::ContentBox
+            }
+        );
+        assert_eq!(
+            test_parse_css::<OverflowClipMargin>("border-box 10px"),
+            OverflowClipMargin {
+                margin: 10.0,
+                visual_box: OverflowClipBox::BorderBox
+            }
+        );
+    }
+
+    #[test]
+    fn test_aspect_ratio() {
+        assert_eq!(test_parse_css::<Option<f32>>("auto"), None);
+        assert_eq!(test_parse_css::<Option<f32>>("0.5"), Some(0.5));
+        assert_eq!(test_parse_css::<Option<f32>>("16 / 9"), Some(16.0 / 9.0));
     }
 
     #[test]
@@ -226,5 +345,33 @@ mod tests {
                 color: css::WHITE.into(),
             })
         );
+    }
+
+    #[test]
+    fn test_text_shadow() {
+        // TODO: TextShadow does not implement PartialEq. Try to upstream it to bevy.
+        assert!(matches!(
+            test_parse_css::<TextShadow>("10px 5px"),
+            TextShadow {
+                offset: Vec2 { x: 10.0, y: 5.0 },
+                ..
+            }
+        ));
+
+        assert!(matches!(
+            test_parse_css::<TextShadow>("10px 5px teal"),
+            TextShadow {
+                offset: Vec2 { x: 10.0, y: 5.0 },
+                color
+            } if color == css::TEAL.into()
+        ));
+
+        assert!(matches!(
+            test_parse_css::<TextShadow>("white calc(10px * 2) 5px"),
+            TextShadow {
+                offset: Vec2 { x: 20.0, y: 5.0 },
+                color
+            } if color == css::WHITE.into()
+        ));
     }
 }

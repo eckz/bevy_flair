@@ -61,25 +61,16 @@ fn create_unit_enum_from_reflection<T: FromReflect + Typed>(
 }
 
 // TODO: Print all possible valid values?
-pub fn parse_enum_value<T: FromReflect + Typed + Enum>(
-    parser: &mut Parser,
-) -> Result<ReflectValue, CssError> {
+pub fn parse_enum_value<T: FromReflect + Typed + Enum>(parser: &mut Parser) -> Result<T, CssError> {
     let ident = parser.expect_located_ident()?;
-    let result = create_unit_enum_from_reflection::<T>(ident.as_ref());
-    match result {
-        Ok(value) => Ok(ReflectValue::new(value)),
-        Err(error) => Err(CssError::new_located(
-            &ident,
-            error_codes::INVALID_ENUM_VALUE,
-            error,
-        )),
-    }
+    create_unit_enum_from_reflection::<T>(ident.as_ref())
+        .map_err(|err| CssError::new_located(&ident, error_codes::INVALID_ENUM_VALUE, err))
 }
 
 pub fn parse_enum_as_property_value<T: FromReflect + Typed + Enum>(
     parser: &mut Parser,
 ) -> Result<PropertyValue, CssError> {
-    parse_property_value_with(parser, parse_enum_value::<T>)
+    parse_property_value_with(parser, parse_enum_value::<T>).map(|p| p.map(ReflectValue::new))
 }
 
 impl<T> FromType<T> for ReflectParseCssEnum

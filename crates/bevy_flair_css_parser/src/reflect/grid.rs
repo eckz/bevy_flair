@@ -1,6 +1,6 @@
 use crate::error::CssError;
 use crate::error_codes::grid as error_codes;
-use crate::utils::{parse_many, parse_none, parse_property_value_with};
+use crate::utils::{parse_many, parse_property_value_with, try_parse_none};
 use crate::{Located, ParserExt, ReflectParseCss};
 
 use bevy_flair_core::ReflectValue;
@@ -219,7 +219,7 @@ fn parse_grid_track(token: Located<Token>, parser: &mut Parser) -> Result<GridTr
 }
 
 pub(crate) fn parse_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Ok(none_value) = parse_none::<Vec<GridTrack>>(parser) {
+    if let Some(none_value) = try_parse_none::<Vec<GridTrack>>(parser) {
         return Ok(ReflectValue::new(none_value));
     }
 
@@ -276,7 +276,7 @@ fn parse_repeat_function_args(parser: &mut Parser) -> Result<RepeatedGridTrack, 
 }
 
 pub(crate) fn parse_repeated_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Ok(none_value) = parse_none::<Vec<RepeatedGridTrack>>(parser) {
+    if let Some(none_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
         return Ok(ReflectValue::new(none_value));
     }
 

@@ -3,7 +3,7 @@ use crate::reflect::{
     parse_color, parse_enum_as_property_value, parse_grid_track_vec, parse_repeated_grid_track_vec,
     parse_val,
 };
-use crate::utils::{parse_none, parse_property_value_with};
+use crate::utils::{parse_property_value_with, try_parse_none};
 use crate::{CssError, ParserExt};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
@@ -517,7 +517,7 @@ define_css_properties! {
 fn parse_grid_template(
     parser: &mut Parser,
 ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
-    if let Ok(default_value) = parse_none::<Vec<RepeatedGridTrack>>(parser) {
+    if let Some(default_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
         let default_property_value = PropertyValue::Value(ReflectValue::new(default_value));
         return Ok(vec![
             (GRID_TEMPLATE_ROWS, default_property_value.clone()),
