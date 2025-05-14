@@ -115,18 +115,13 @@ fn main() {
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
-
-    commands
-        .spawn((
-            Node::default(),
-            NodeStyleSheet::new(asset_server.load("my_stylesheet.css")),
-        ))
-        .with_children(|parent| {
-            parent
-                .spawn((Button, Node::default()))
-                .with_child(Text::new("Button"));
-        });
+    commands.spawn((
+        Node::default(),
+        NodeStyleSheet::new(asset_server.load("my_stylesheet.css")),
+        children![(Button, children![Text::new("Button")])],
+    ));
 }
+
 ```
 
 Save your css file under `assets/my_stylesheet.css`:
@@ -138,7 +133,10 @@ Save your css file under `assets/my_stylesheet.css`:
   height: 100%;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
+
+  /* font-size and color are inherited */
+  font-size: 35px;
+  color: rgb(30% 30% 30%);
 }
 
 Button {
@@ -147,21 +145,23 @@ Button {
   justify-content: center;
   width: 150px;
   height: 65px;
-  background-color: rgb(15%, 15.0%, 15.0%);
-  border-radius: 30px;
-  transition: background-color 0.3s;
+  background-color: rgb(15%, 15%, 15%);
+  border-radius: 10px;
+  transition: background-color 0.5s;
 
   &:hover {
-    background-color: rgb(25.0%, 25.0%, 25.0%);
+    color: #ddd;
+    background-color: rgb(30%, 30%, 25%);
   }
 
   &:active {
-    background-color: rgb(35.0%, 75.0%, 35.0%);
+    color: #ddd;
+    background-color: rgb(35%, 65%, 35%);
   }
 
   Text {
-    font-size: 35px;
-    color: rgb(30% 30% 30%);
+    /* Color transitions need to happen in the text element */
+    transition: color 0.5s;
   }
 }
 ```
