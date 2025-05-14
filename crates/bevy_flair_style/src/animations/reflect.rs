@@ -3,7 +3,7 @@ use crate::ReflectValue;
 use crate::animations::EasingFunction;
 use crate::animations::curves::{LinearCurve, UnevenSampleEasedCurve};
 use bevy_app::{App, Plugin};
-use bevy_color::{Color, Mix};
+use bevy_color::{Color, Mix, Oklaba};
 use bevy_math::{Curve, FloatExt, StableInterpolate, curve::CurveExt};
 use bevy_reflect::{FromReflect, FromType};
 use bevy_ui::Val;
@@ -26,23 +26,22 @@ type CreateKeyFramedAnimationFn = fn(&[(f32, ReflectValue, EasingFunction)]) -> 
 ///
 /// # Example
 /// ```
-/// # use bevy_color::Color;
-/// # use bevy_color::palettes;
 /// # use bevy_reflect::FromType;
+/// # use bevy_ui::Val;
 /// # use bevy_flair_core::*;
 /// # use bevy_flair_style::*;
 /// # use bevy_flair_style::animations::ReflectAnimatable;
 ///
-/// let reflect_animatable = <ReflectAnimatable as FromType<Color>>::from_type();
+/// let reflect_animatable = <ReflectAnimatable as FromType<Val>>::from_type();
 ///
-/// let from = ReflectValue::Color(palettes::basic::RED.into());
-/// let to = ReflectValue::Color(palettes::basic::BLUE.into());
+/// let from = ReflectValue::Val(Val::Px(10.0));
+/// let to = ReflectValue::Val(Val::Px(20.0));
 ///
 /// let curve = reflect_animatable.create_property_transition_curve(Some(from.clone()), to.clone());
 ///
 /// assert_eq!(curve.sample(0.0), Some(from));
 /// assert_eq!(curve.sample(1.0), Some(to));
-/// assert_eq!(curve.sample(0.5), Some(ReflectValue::Color(Color::srgb(0.5, 0.0, 0.5))));
+/// assert_eq!(curve.sample(0.5), Some(ReflectValue::Val(Val::Px(15.0))));
 /// ```
 #[derive(Debug, Clone)]
 pub struct ReflectAnimatable {
@@ -169,14 +168,21 @@ fn val_interpolate(a: &Val, b: &Val, t: f32) -> Val {
     a
 }
 
+/* Interpolate colors in Oklab*/
+fn color_interpolate(a: &Color, b: &Color, t: f32) -> Color {
+    let a: Oklaba = (*a).into();
+    let b: Oklaba = (*b).into();
+    a.mix(&b, t).into()
+}
+
 impl FromType<Color> for ReflectAnimatable {
     fn from_type() -> Self {
         ReflectAnimatable {
             create_property_transition_fn: |start, end| {
-                create_property_transition_with::<Color, _>(start, end, Mix::mix)
+                create_property_transition_with::<Color, _>(start, end, color_interpolate)
             },
             create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<Color, _>(keyframes, Mix::mix)
+                create_keyframe_animation_with::<Color, _>(keyframes, color_interpolate)
             },
         }
     }
