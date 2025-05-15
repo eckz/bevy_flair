@@ -352,6 +352,16 @@ fn parse_border(
 fn parse_border_width(
     parser: &mut Parser,
 ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+    if let Ok(width) = parser.try_parse_with(parse_width_ident) {
+        let width = PropertyValue::Value(ReflectValue::Val(width));
+        return Ok(vec![
+            (BORDER_LEFT_WIDTH, width.clone()),
+            (BORDER_RIGHT_WIDTH, width.clone()),
+            (BORDER_TOP_WIDTH, width.clone()),
+            (BORDER_BOTTOM_WIDTH, width),
+        ]);
+    }
+
     let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
     Ok(vec![
         (BORDER_LEFT_WIDTH, left),
@@ -366,21 +376,21 @@ define_css_properties! {
     const OUTLINE_COLOR = "outline-color";
 }
 
+fn parse_width_ident(parser: &mut Parser) -> Result<Val, CssError> {
+    let ident = parser.expect_ident()?;
+    Ok(match_ignore_ascii_case! { ident.as_ref(),
+        "none" => Val::ZERO,
+        "thin" => Val::Px(1.0),
+        "medium" => Val::Px(2.0),
+        "thick" => Val::Px(5.0),
+        // This error does not matter much because it will be ignored
+        _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
+    })
+}
+
 fn parse_outline(
     parser: &mut Parser,
 ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
-    fn parse_width_ident(parser: &mut Parser) -> Result<Val, CssError> {
-        let ident = parser.expect_ident()?;
-        Ok(match_ignore_ascii_case! { ident.as_ref(),
-            "none" => Val::ZERO,
-            "thin" => Val::Px(1.0),
-            "medium" => Val::Px(2.0),
-            "thick" => Val::Px(5.0),
-            // This error does not matter much because it will be ignored
-            _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
-        })
-    }
-
     fn parse_ident_or_val(parser: &mut Parser) -> Result<Val, CssError> {
         parser
             .try_parse(parse_width_ident)
@@ -791,6 +801,13 @@ mod tests {
             "border-right-width" => Val::Percent(5.0),
             "border-bottom-width" => Val::Px(3.0),
             "border-top-width" => Val::Px(3.0),
+        });
+
+        test_shorthand_property!("border-width", "thin", {
+            "border-left-width" => Val::Px(1.0),
+            "border-right-width" => Val::Px(1.0),
+            "border-bottom-width" => Val::Px(1.0),
+            "border-top-width" => Val::Px(1.0),
         });
 
         test_shorthand_property!("border-radius", "10px 5%", {

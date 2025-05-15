@@ -74,6 +74,7 @@ fn panic_on_load_error(mut events: EventReader<AssetLoadFailedEvent<StyleSheet>>
 
 pub(crate) static ASSETS_DIR: LazyLock<Dir> = LazyLock::new(|| Dir::new("assets".into()));
 
+#[allow(unused_macros)]
 macro_rules! include_assets {
     ($($file_name:literal),* $(,)?) => {
         $(
@@ -142,4 +143,5 @@ pub(crate) fn test_app() -> App {
     app
 }
 
+#[allow(unused_imports)]
 pub(crate) use include_assets;

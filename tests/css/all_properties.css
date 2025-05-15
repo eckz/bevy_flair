@@ -1,0 +1,59 @@
+
+Node {
+    display: block;
+    box-sizing: content-box;
+    position: absolute;
+    overflow: clip;
+    overflow-clip-margin: padding-box 5px;
+    left: 10px;
+    right: 20%;
+    top: calc(20% * 2);
+    bottom: 100vh;
+    width: calc(calc(100vw / 2) - 20vw);
+    height: 10vmin;
+    min-width: 10vmax;
+    min-height: auto;
+    max-width: 100px;
+    max-height: 1px;
+    aspect-ratio: 20 / 2;
+    align-items: flex-start;
+    justify-items: baseline;
+    align-self: flex-end;
+    justify-self: stretch;
+    align-content: space-evenly;
+    justify-content: space-around;
+    margin: 0 30vw;
+    padding: calc(20% * 2) 0;
+    border-width: thin;
+    flex-direction: column-reverse;
+    flex-wrap: wrap-reverse;
+    flex: 2 1 10%;
+    gap: calc(30px * 2);
+    grid-auto-flow: column;
+    grid-template: repeat(3, 100px) / repeat(8, 1fr) fit-content(20px);
+    grid-auto-rows: auto;
+    grid-auto-columns: 20px minmax(10px, max-content);
+    grid-row: 1 / 2;
+    grid-column: 1 / span 3;
+    
+    border-color: blue;
+    background-color: black;
+    border-radius: 10px;
+    outline: 3px red;
+    outline-offset: -1px;
+    z-index: 2;
+    box-shadow: -2px -3px 10px 20px green;
+    -bevy-image-color: yellow;
+    -bevy-image-mode: stretch;
+}
+
+Text {
+    color: blue;
+    font-size: 3px;
+    line-height: 120%;
+    -bevy-font-smooth: none;
+    text-align: center;
+    -bevy-line-break: any-character;
+    
+    text-shadow: red 8px 9px;
+}
