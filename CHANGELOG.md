@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3] - 16-May-2025
+
+### Added
+
+- Support for `@media` queries.
+  - The following properties are supported: `prefers-color-scheme`, `width`, `height`, `resolution`, `aspect-ratio`.
+- Support for the css properties:
+  - `grid`
+  - `gap`
+  - `grid-template`
+  - `place-items`
+  - `text-shadow`
+  - `overflow-clip-margin`
+  - `aspect-ratio`
+  - `line-height`
+  - `font-smooth`
+  - `text-align`
+  - `-bevy-line-break`
+- Adding transition events. New events are emitted when a transition starts, ends or gets replaced.
+- Support for `initial` property value.
+  - Things like `flex: initial` should work.
+
+### Fixed
+- Some properties were not supporting `inherit`. Now all properties do support it.
+
+### Changed
+- `bevy_flair` doesn't depend on `bevy` crate, now it depends directly on individual crates, like `bevy_ui`.
+- Color interpolation happens in Oklab color space, independently of the defined color space.
+- Removed `SimpleSelector`. Use `CssSelector`.
+- All non-standard css properties are prefixed with `-bevy`.
+  - For example `background-image-mode` now is called `-bevy-image-mode`
+
 ## [0.2] - 30-Apr-2025
 
 ### Added

@@ -43,6 +43,8 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 - Font loading support using [`@font-face`].
 - Animated property changes using [`transition`].
 - Custom animations using [`@keyframes`].
+- Support for [`@media`] queries.
+  - The following properties are supported: `prefers-color-scheme`, `width`, `height`, `resolution`, `aspect-ratio`.
 - Different stylesheets per subtree. With the use of a different [`NodeStyleSheet`] per subtree. It's even possible to not apply any style for a given subtree.
 - Supports for custom properties. (Example TBA)
 - Supports for custom parsing. (Example TBA)
@@ -68,6 +70,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 [`@font-face`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face
 [`calc()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/calc
 [`var()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/var
+[`@media`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@media
 
 ## Missing features and limitations
 
@@ -76,7 +79,6 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 - Global stylesheets. It's not possible to define a stylesheet that is applied everywhere.
 - Inline css. Right now it's not possible to define css directly in code. It has to be defined directly into an asset with the `.css` extension. 
   It wouldn't be as easy as creating a simple macro for it, but it most definitely something to be considered.
-- Support for `@media` queries. It could be interesting to see what features make sense to implement.
 - Support for `!important`.
   - I don't really know if it's something people use nowadays.
     One possible first step would be detected the presence of an `!important` and ignore it (with a warning) instead of throwing a parse error.
@@ -166,7 +168,7 @@ Button {
 }
 ```
 
-You can see more examples in the [examples folder](https://github.com/eckz/bevy_flair/tree/main/examples).
+Another good place to start are the examples in the [examples folder](https://github.com/eckz/bevy_flair/tree/main/examples).
 
 ## Project goals
 
@@ -188,6 +190,7 @@ You can see more examples in the [examples folder](https://github.com/eckz/bevy_
   - If you want to use any fancy macro to spawn your bevy UI elements, or if you want to do it in a manual way, it should not matter, it should work the same way.
 - Define a default style.
   - By default, if a property is not defined, such property will not be modified. This means that is up to the author to set up fallback styling if it's needed.
+  - There is support for `initial` values, which sets the Bevy's default value, but it's not the default behaviour.
 - Support all css features / properties.
   - CSS is a vast specification, so there are plenty of features that might not make sense to support.
 - Being consistent with the css standard.
@@ -204,7 +207,7 @@ You can see more examples in the [examples folder](https://github.com/eckz/bevy_
 
 | bevy | bevy_flair |
 |------|------------|
-| 0.16 | 0.2        |
+| 0.16 | 0.2, 0.3   |
 | 0.15 | 0.1        |
 
 
