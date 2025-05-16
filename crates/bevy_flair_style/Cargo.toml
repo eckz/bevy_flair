@@ -44,17 +44,9 @@ bevy_window = { workspace = true }
 tracing = "0.1"
 bevy_flair_core = { workspace = true }
 
-cssparser = { workspace = true, optional = true }
-selectors = { workspace = true, optional = true }
-precomputed-hash = { version = "0.1", optional = true }
-
-[features]
-default = ["css_selectors"]
-css_selectors = [
-    "dep:selectors",
-    "dep:cssparser",
-    "dep:precomputed-hash"
-]
+cssparser = { workspace = true }
+selectors = { workspace = true }
+precomputed-hash = { version = "0.1" }
 
 [dev-dependencies]
 bevy_scene = { workspace = true }

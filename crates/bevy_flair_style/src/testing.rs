@@ -1,43 +1,7 @@
-macro_rules! simple_selector {
-    (@consume ($selector:ident)) => {
+macro_rules! css_selector {
+    ($selector:literal) => {
+        crate::css_selector::CssSelector::parse_single($selector).expect("Invalid css_selector")
     };
-    (@consume ($selector:ident) * $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::AnyType);
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    (@consume ($selector:ident) .$class:ident $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::HasClassName(smol_str::SmolStr::new_static(stringify!($class))));
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    (@consume ($selector:ident) #$name:ident $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::HasId(smol_str::SmolStr::new_static(stringify!($name))));
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    (@consume ($selector:ident) $type_name:ident $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::HasTypeName(smol_str::SmolStr::new_static(stringify!($type_name))));
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    (@consume ($selector:ident) :root $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::IsRoot);
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    (@consume ($selector:ident) :hover $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::MatchesPseudoState(crate::NodePseudoStateSelector::Hovered));
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    (@consume ($selector:ident) :active $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::MatchesPseudoState(crate::NodePseudoStateSelector::Pressed));
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    (@consume ($selector:ident) :focus $($rest:tt)*) => {
-        $selector = $selector.and(crate::simple_selector::SimpleSelector::MatchesPseudoState(crate::NodePseudoStateSelector::Focused));
-        simple_selector!(@consume ($selector) $($rest)*);
-    };
-    ($($rest:tt)*) => {{
-        let mut selector = crate::simple_selector::SimpleSelector::Empty;
-        simple_selector!(@consume (selector) $($rest)*);
-        selector
-    }}
 }
 
 macro_rules! entity {
@@ -79,5 +43,5 @@ macro_rules! entity {
     }};
 }
 
+pub(crate) use css_selector;
 pub(crate) use entity;
-pub(crate) use simple_selector;

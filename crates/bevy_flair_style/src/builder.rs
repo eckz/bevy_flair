@@ -1,19 +1,16 @@
 use crate::animations::AnimationOptions;
 use crate::animations::TransitionOptions;
 use crate::{
-    AnimationKeyframes, DynamicParseVarTokens, StyleSheetSelector, VarName, VarTokens,
-    simple_selector::SimpleSelector,
+    AnimationKeyframes, DynamicParseVarTokens, VarName, VarTokens,
     style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
 };
 
-use bevy_reflect::{FromReflect, Reflect};
-
-#[cfg(feature = "css_selectors")]
 use crate::css_selector::CssSelector;
 use crate::style_sheet::RulesetProperty;
 use bevy_asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError};
 use bevy_flair_core::*;
 use bevy_image::Image;
+use bevy_reflect::{FromReflect, Reflect};
 use bevy_text::Font;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -230,8 +227,6 @@ impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
 pub struct RulesetBuilder<'a> {
     ruleset_id: StyleSheetRulesetId,
     ruleset: &'a mut BuilderRuleset,
-    simple_selectors_to_rulesets: &'a mut Vec<(SimpleSelector, StyleSheetRulesetId)>,
-    #[cfg(feature = "css_selectors")]
     css_selectors_to_rulesets: &'a mut Vec<(CssSelector, StyleSheetRulesetId)>,
 }
 
@@ -255,20 +250,6 @@ impl RulesetBuilder<'_> {
         self.ruleset.animations.extend(other.animations);
     }
 
-    /// Add a [`SimpleSelector`] for the current ruleset.
-    pub fn add_simple_selector(&mut self, cond: impl Into<SimpleSelector>) -> &mut Self {
-        self.simple_selectors_to_rulesets
-            .push((cond.into(), self.ruleset_id));
-        self
-    }
-
-    /// Add a [`SimpleSelector`] for the current ruleset.
-    pub fn with_simple_selector(mut self, cond: impl Into<SimpleSelector>) -> Self {
-        self.add_simple_selector(cond);
-        self
-    }
-
-    #[cfg(feature = "css_selectors")]
     /// Add a [`CssSelector`] for the current ruleset.
     pub fn add_css_selector(&mut self, selector: CssSelector) -> &mut Self {
         self.css_selectors_to_rulesets
@@ -276,7 +257,6 @@ impl RulesetBuilder<'_> {
         self
     }
 
-    #[cfg(feature = "css_selectors")]
     /// Add a [`CssSelector`] for the current ruleset.
     pub fn with_css_selector(mut self, selector: CssSelector) -> Self {
         self.add_css_selector(selector);
@@ -453,8 +433,6 @@ pub struct StyleSheetBuilder {
     font_faces: Vec<StyleFontFace>,
     rulesets: Vec<BuilderRuleset>,
     animation_keyframes: FxHashMap<Arc<str>, Vec<(ComponentPropertyRef, AnimationKeyframes)>>,
-    simple_selectors_to_rulesets: Vec<(SimpleSelector, StyleSheetRulesetId)>,
-    #[cfg(feature = "css_selectors")]
     css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
 }
 
@@ -482,20 +460,12 @@ impl StyleSheetBuilder {
             new_rule_set.add_values_from_ruleset(ruleset);
 
             other
-                .selectors_to_rulesets
+                .css_selectors_to_rulesets
                 .iter()
                 .filter(|(_, id)| *id == other_id)
                 .for_each(|(selector, _)| {
                     let selector = selector.clone();
-                    match selector {
-                        StyleSheetSelector::SimpleSelector(selector) => {
-                            new_rule_set.add_simple_selector(selector);
-                        }
-                        #[cfg(feature = "css_selectors")]
-                        StyleSheetSelector::CssSelector(selector) => {
-                            new_rule_set.add_css_selector(selector);
-                        }
-                    }
+                    new_rule_set.add_css_selector(selector);
                 })
         }
 
@@ -610,15 +580,6 @@ impl StyleSheetBuilder {
             let ruleset_id = StyleSheetRulesetId(ruleset_id);
 
             if self
-                .simple_selectors_to_rulesets
-                .iter()
-                .any(|(_, r)| *r == ruleset_id)
-            {
-                continue;
-            }
-
-            #[cfg(feature = "css_selectors")]
-            if self
                 .css_selectors_to_rulesets
                 .iter()
                 .any(|(_, r)| *r == ruleset_id)
@@ -662,7 +623,6 @@ impl StyleSheetBuilder {
         RulesetBuilder {
             ruleset_id,
             ruleset: &mut self.rulesets[ruleset_id.0],
-            simple_selectors_to_rulesets: &mut self.simple_selectors_to_rulesets,
             css_selectors_to_rulesets: &mut self.css_selectors_to_rulesets,
         }
     }
@@ -675,17 +635,9 @@ impl StyleSheetBuilder {
 
         self.rulesets.remove(id_to_remove.0);
 
-        self.simple_selectors_to_rulesets
-            .retain(|(_, id)| *id != id_to_remove);
-
         self.css_selectors_to_rulesets
             .retain(|(_, id)| *id != id_to_remove);
 
-        for (_, id) in &mut self.simple_selectors_to_rulesets {
-            if *id > id_to_remove {
-                id.0 -= 1;
-            }
-        }
         for (_, id) in &mut self.css_selectors_to_rulesets {
             if *id > id_to_remove {
                 id.0 -= 1;
@@ -784,24 +736,11 @@ impl StyleSheetBuilder {
         self.resolve_asset_handles_with_loader(loader)?;
         self.run_all_validations()?;
 
-        let mut selectors_to_rulesets = Vec::new();
-
-        selectors_to_rulesets.extend(
-            self.simple_selectors_to_rulesets
-                .into_iter()
-                .map(|(s, r)| (StyleSheetSelector::SimpleSelector(s), r)),
-        );
-
-        #[cfg(feature = "css_selectors")]
-        selectors_to_rulesets.extend(
-            self.css_selectors_to_rulesets
-                .into_iter()
-                .map(|(s, r)| (StyleSheetSelector::CssSelector(s), r)),
-        );
+        let mut css_selectors_to_rulesets = self.css_selectors_to_rulesets;
 
         // These sort puts more specific rules at the end.
         // It's important to use the stable sort, because we want to keep the order for equal elements
-        selectors_to_rulesets.sort_by(|(a, _), (b, _)| a.specificity().cmp(&b.specificity()));
+        css_selectors_to_rulesets.sort_by(|(a, _), (b, _)| a.specificity().cmp(&b.specificity()));
 
         let rulesets = self
             .rulesets
@@ -829,7 +768,7 @@ impl StyleSheetBuilder {
         Ok(StyleSheet {
             rulesets,
             animation_keyframes,
-            selectors_to_rulesets,
+            css_selectors_to_rulesets,
         })
     }
 

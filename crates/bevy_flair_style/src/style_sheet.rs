@@ -1,116 +1,34 @@
-use crate::{
-    ResolveTokensError, VarName, VarToken, VarTokens, builder::StyleSheetBuilder,
-    simple_selector::SimpleSelector,
-};
+use crate::{ResolveTokensError, VarName, VarToken, VarTokens, builder::StyleSheetBuilder};
 
 use bevy_flair_core::*;
 use std::borrow::Borrow;
-use std::cmp;
 use std::cmp::PartialEq;
-use std::fmt::{Display, Write};
+use std::fmt::Display;
 
 use crate::animations::{AnimationOptions, EasingFunction};
 use crate::components::NodeStyleData;
 use std::ops::Deref;
 
 use crate::animations::TransitionOptions;
-#[cfg(feature = "css_selectors")]
 use crate::css_selector::CssSelector;
 
 use crate::media_selector::MediaFeaturesProvider;
 use bevy_asset::Asset;
 use bevy_reflect::{FromReflect, Reflect, TypePath};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::ops::Add;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::error;
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug)]
-pub(crate) struct SelectorSpecificity {
-    id_selectors: u32,
-    class_like_selectors: u32,
-    element_selectors: u32,
-}
-
-impl Add for SelectorSpecificity {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            id_selectors: self.id_selectors + rhs.id_selectors,
-            class_like_selectors: self.class_like_selectors + rhs.class_like_selectors,
-            element_selectors: self.element_selectors + rhs.element_selectors,
-        }
-    }
-}
-
-impl std::iter::Sum for SelectorSpecificity {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::ZERO, Self::add)
-    }
-}
-
-impl SelectorSpecificity {
-    pub const ZERO: Self = Self {
-        id_selectors: 0,
-        class_like_selectors: 0,
-        element_selectors: 0,
-    };
-    pub const ONE_ID_COLUMN: Self = Self {
-        id_selectors: 1,
-        class_like_selectors: 0,
-        element_selectors: 0,
-    };
-    pub const ONE_CLASS_COLUMN: Self = Self {
-        id_selectors: 0,
-        class_like_selectors: 1,
-        element_selectors: 0,
-    };
-    pub const ONE_TYPE_COLUMN: Self = Self {
-        id_selectors: 0,
-        class_like_selectors: 0,
-        element_selectors: 1,
-    };
-}
-
-const MAX_10BIT: u32 = (1u32 << 10) - 1;
-
-impl From<u32> for SelectorSpecificity {
-    #[inline]
-    fn from(value: u32) -> SelectorSpecificity {
-        assert!(value <= (MAX_10BIT << 20) | (MAX_10BIT << 10) | MAX_10BIT);
-        SelectorSpecificity {
-            id_selectors: value >> 20,
-            class_like_selectors: (value >> 10) & MAX_10BIT,
-            element_selectors: value & MAX_10BIT,
-        }
-    }
-}
-
-impl From<SelectorSpecificity> for u32 {
-    #[inline]
-    fn from(specificity: SelectorSpecificity) -> u32 {
-        (cmp::min(specificity.id_selectors, MAX_10BIT) << 20)
-            | (cmp::min(specificity.class_like_selectors, MAX_10BIT) << 10)
-            | cmp::min(specificity.element_selectors, MAX_10BIT)
-    }
-}
-
-#[cfg(feature = "css_selectors")]
 pub(crate) trait StyleMatchableElement:
     selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<NodeStyleData>
 {
 }
 
-#[cfg(feature = "css_selectors")]
 impl<T> StyleMatchableElement for T where
     T: selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<NodeStyleData>
 {
 }
-
-#[cfg(not(feature = "css_selectors"))]
-pub(crate) type StyleMatchableElement: Borrow<NodeStyleData>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ResolvedAnimation {
@@ -336,39 +254,6 @@ impl Display for StyleSheetRulesetId {
     }
 }
 
-/// A selector that can be used to match elements in a [`StyleSheet`].
-/// It can be represented by a [`SimpleSelector`] or a [`CssSelector`].
-#[derive(Debug, Clone)]
-pub(crate) enum StyleSheetSelector {
-    SimpleSelector(SimpleSelector),
-    #[cfg(feature = "css_selectors")]
-    CssSelector(CssSelector),
-}
-
-impl StyleSheetSelector {
-    pub(crate) fn specificity(&self) -> u32 {
-        match self {
-            StyleSheetSelector::SimpleSelector(s) => s.specificity().into(),
-            #[cfg(feature = "css_selectors")]
-            StyleSheetSelector::CssSelector(s) => s.specificity(),
-        }
-    }
-
-    pub(crate) fn matches<E: StyleMatchableElement, M: MediaFeaturesProvider>(
-        &self,
-        element: &E,
-        media_provider: &M,
-    ) -> bool {
-        match self {
-            StyleSheetSelector::SimpleSelector(s) => s.matches(element.borrow()),
-            #[cfg(feature = "css_selectors")]
-            StyleSheetSelector::CssSelector(s) => {
-                s.matches_media_selector(media_provider) && s.matches_selector(element)
-            }
-        }
-    }
-}
-
 /// Trait for resolving variable names to their associated [`VarTokens`].
 ///
 /// A `VarResolver` is typically used during the dynamic evaluation of styles, where variable
@@ -387,16 +272,6 @@ pub(crate) trait VarResolver {
     fn get_var_tokens(&self, var_name: &str) -> Option<&'_ VarTokens>;
 }
 
-impl crate::ToCss for StyleSheetSelector {
-    fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
-        match self {
-            StyleSheetSelector::SimpleSelector(selector) => crate::ToCss::to_css(selector, dest),
-            #[cfg(feature = "css_selectors")]
-            StyleSheetSelector::CssSelector(selector) => crate::ToCss::to_css(selector, dest),
-        }
-    }
-}
-
 /// Represents a collection of styles that can be applied to elements,
 /// storing rules for various style properties.
 #[derive(Debug, Clone, TypePath, Asset)]
@@ -404,7 +279,7 @@ pub struct StyleSheet {
     pub(super) rulesets: Vec<Ruleset>,
     pub(super) animation_keyframes:
         FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
-    pub(super) selectors_to_rulesets: Vec<(StyleSheetSelector, StyleSheetRulesetId)>,
+    pub(super) css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
 }
 
 impl StyleSheet {
@@ -544,9 +419,12 @@ impl StyleSheet {
         element: &E,
         media_provider: &M,
     ) -> Vec<StyleSheetRulesetId> {
-        self.selectors_to_rulesets
+        self.css_selectors_to_rulesets
             .iter()
-            .filter_map(|(s, id)| s.matches(element, media_provider).then_some(*id))
+            .filter_map(|(s, id)| {
+                (s.matches_media_selector(media_provider) && s.matches_selector(element))
+                    .then_some(*id)
+            })
             .collect()
     }
 }
@@ -557,7 +435,7 @@ mod tests {
     use crate::ColorScheme;
     use crate::animations::{AnimationDirection, IterationCount};
     use crate::media_selector::{MediaRangeSelector, MediaSelector};
-    use crate::testing::{entity, simple_selector};
+    use crate::testing::{css_selector, entity};
     use bevy_ecs::component::Component;
     use bevy_flair_core::ComponentProperty;
     use std::sync::LazyLock;
@@ -703,26 +581,26 @@ mod tests {
 
         let rule_with_name_id = builder
             .new_ruleset()
-            .with_simple_selector(simple_selector!(#test_name))
+            .with_css_selector(css_selector!("#test_name"))
             .with_property_transitions([TEST_PROPERTY], TRANSITION_OPTIONS)
             .with_animation(TEST_ANIMATION_NAME, ANIMATION_OPTIONS)
             .id();
 
         let rule_class_id = builder
             .new_ruleset()
-            .with_simple_selector(simple_selector!(.class_1))
+            .with_css_selector(css_selector!(".class_1"))
             .with_properties([(TEST_PROPERTY, 2f32)])
             .id();
 
         let rule_class_with_hover_id = builder
             .new_ruleset()
-            .with_simple_selector(simple_selector!(.class_1:hover))
+            .with_css_selector(css_selector!(".class_1:hover"))
             .with_properties([(TEST_PROPERTY, 4f32)])
             .id();
 
         let rule_any_id = builder
             .new_ruleset()
-            .with_simple_selector(simple_selector!(*))
+            .with_css_selector(css_selector!("*"))
             .with_properties([(TEST_PROPERTY, 0f32)])
             .id();
 

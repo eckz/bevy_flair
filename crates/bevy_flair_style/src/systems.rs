@@ -337,7 +337,6 @@ pub(crate) fn mark_nodes_for_recalculation_on_computed_node_target_change(
     }
 }
 
-#[cfg(feature = "css_selectors")]
 pub(crate) fn mark_related_nodes_for_recalculation(
     children_changed_query: Query<Entity, Changed<Children>>,
     selector_flags_query: Query<&NodeStyleSelectorFlags>,

@@ -15,7 +15,6 @@ use std::fmt::Write;
 
 mod builder;
 pub mod components;
-mod simple_selector;
 mod style_sheet;
 
 pub mod animations;
@@ -23,7 +22,6 @@ pub mod animations;
 #[cfg(test)]
 mod testing;
 
-#[cfg(feature = "css_selectors")]
 pub mod css_selector;
 
 mod media_selector;
@@ -35,13 +33,11 @@ use crate::components::*;
 
 pub use builder::*;
 pub use media_selector::*;
-pub use simple_selector::*;
 pub use style_sheet::*;
 pub use vars::*;
 
 pub(crate) type IdName = smol_str::SmolStr;
 pub(crate) type ClassName = smol_str::SmolStr;
-pub(crate) type TypeName = smol_str::SmolStr;
 pub(crate) type VarName = std::sync::Arc<str>;
 
 /// Trait for things the can serialize themselves in CSS syntax.
