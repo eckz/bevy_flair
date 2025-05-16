@@ -732,7 +732,7 @@ pub(crate) fn set_style_properties(
 
             properties.set_transition_options(style_sheet.get_transition_options(new_rules));
 
-            let mut property_values = property_registry.get_default_values();
+            let mut property_values = property_registry.get_unset_values_map();
             style_sheet.get_property_values(
                 new_rules,
                 &property_registry,

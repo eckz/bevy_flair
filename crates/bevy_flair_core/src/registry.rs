@@ -97,8 +97,8 @@ impl From<ComponentPropertyId> for usize {
 #[derive(Debug, Default)]
 struct PropertyRegistryInner {
     properties: Vec<ComponentProperty>,
-    // Default values are set to either PropertyValue::None or PropertyValue::Inherited
-    default_values: Vec<PropertyValue>,
+    // Unset values are set to either PropertyValue::None, PropertyValue::Inherited or PropertyValue::Initial
+    unset_values: Vec<PropertyValue>,
     css_names: FxHashMap<Cow<'static, str>, ComponentPropertyId>,
     canonical_names: FxHashMap<String, ComponentPropertyId>,
 }
@@ -170,10 +170,10 @@ impl PropertyRegistry {
         PropertyMap(new_map.into())
     }
 
-    /// Get the default values map.
-    pub fn get_default_values(&self) -> PropertyMap<PropertyValue> {
+    /// Get the unset values map.
+    pub fn get_unset_values_map(&self) -> PropertyMap<PropertyValue> {
         PropertyMap(FromIterator::from_iter(
-            self.inner.default_values.iter().cloned(),
+            self.inner.unset_values.iter().cloned(),
         ))
     }
 
@@ -188,21 +188,21 @@ impl PropertyRegistry {
     pub fn register(
         &mut self,
         property: ComponentProperty,
-        default_value: PropertyValue,
+        unset_value: PropertyValue,
     ) -> ComponentPropertyId {
         let inner = self.inner_mut();
         let canonical_name = property.canonical_name();
         let id = ComponentPropertyId(inner.properties.len() as u32);
 
         debug_assert!(matches!(
-            default_value,
+            unset_value,
             PropertyValue::Inherit | PropertyValue::Initial | PropertyValue::None
         ));
-        debug_assert_eq!(inner.properties.len(), inner.default_values.len());
+        debug_assert_eq!(inner.properties.len(), inner.unset_values.len());
 
         assert!(
             matches!(
-                default_value,
+                unset_value,
                 PropertyValue::None | PropertyValue::Inherit | PropertyValue::Value(_)
             ),
             "Invalid default value for '{canonical_name}'"
@@ -220,7 +220,7 @@ impl PropertyRegistry {
         debug!("Registered property: {property}");
 
         inner.properties.push(property);
-        inner.default_values.push(default_value);
+        inner.unset_values.push(unset_value);
 
         id
     }
@@ -233,7 +233,7 @@ impl PropertyRegistry {
         &mut self,
         css_name: impl Into<Cow<'static, str>>,
         property: ComponentProperty,
-        default_value: PropertyValue,
+        unset_value: PropertyValue,
     ) -> ComponentPropertyId {
         let css_name = css_name.into();
 
@@ -244,7 +244,7 @@ impl PropertyRegistry {
             );
         }
 
-        let id = self.register(property, default_value);
+        let id = self.register(property, unset_value);
         let inner = self.inner_mut();
         inner.css_names.insert(css_name, id);
 
@@ -257,16 +257,16 @@ impl PropertyRegistry {
         &mut self,
         css_name: String,
         property: ComponentProperty,
-        default_value: PropertyValue,
+        unset_value: PropertyValue,
         type_registry: &TypeRegistry,
     ) {
         if type_registry
             .get(property.value_type_info().type_id())
             .is_some_and(|r| r.contains::<ReflectCreateSubProperties>())
         {
-            self.register_sub_properties(css_name, property, default_value, type_registry);
+            self.register_sub_properties(css_name, property, unset_value, type_registry);
         } else {
-            self.register_with_css(css_name, property, default_value);
+            self.register_with_css(css_name, property, unset_value);
         };
     }
 
@@ -301,7 +301,7 @@ impl PropertyRegistry {
         &mut self,
         css_name: impl Into<Cow<'static, str>>,
         parent_property: ComponentProperty,
-        default_value: PropertyValue,
+        unset_value: PropertyValue,
         type_registry: &TypeRegistry,
     ) {
         let css_name = css_name.into();
@@ -322,7 +322,7 @@ impl PropertyRegistry {
             self.register_sub_property(
                 sub_property_css_name,
                 sub_property,
-                default_value.clone(),
+                unset_value.clone(),
                 type_registry,
             );
         }
@@ -341,7 +341,7 @@ impl PropertyRegistry {
                 let component_type_id = property.component_type_info.type_id();
                 let value_type_id = property.value_type_info.type_id();
 
-                let component_default_value = component_defaults.entry(component_type_id).or_insert_with(|| {
+                let component_unset_value = component_defaults.entry(component_type_id).or_insert_with(|| {
                     type_registry
                         .get(component_type_id)
                         .and_then(|r| r.data::<ReflectDefault>())
@@ -364,7 +364,7 @@ impl PropertyRegistry {
                         );
                     });
 
-                let initial_value = reflect_from_reflect.from_reflect(property.get_value(&**component_default_value)).unwrap_or_else(|| {
+                let initial_value = reflect_from_reflect.from_reflect(property.get_value(&**component_unset_value)).unwrap_or_else(|| {
                     panic!(
                         "Type '{type_path}' could not be built using FromReflect",
                         type_path = property.value_type_info.type_path()

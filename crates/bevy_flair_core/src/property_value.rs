@@ -2,6 +2,17 @@ use crate::ReflectValue;
 use bevy_reflect::Reflect;
 use std::fmt::Debug;
 
+macro_rules! map_property_values {
+    ($pv:expr, $on_value:expr) => {
+        match $pv {
+            PropertyValue::None => PropertyValue::None,
+            PropertyValue::Inherit => PropertyValue::Inherit,
+            PropertyValue::Initial => PropertyValue::Initial,
+            PropertyValue::Value(value) => PropertyValue::Value(($on_value)(value)),
+        }
+    };
+}
+
 /// Generic property value that can be used to represent a value that can be inherited,
 /// set to a specific value, or reference a var.
 #[derive(Clone, PartialEq, Debug)]
@@ -19,32 +30,17 @@ pub enum PropertyValue<T = ReflectValue> {
 impl<T> PropertyValue<T> {
     /// Return new [`PropertyValue`] with the value as a reference.
     pub fn as_ref(&self) -> PropertyValue<&T> {
-        match self {
-            PropertyValue::None => PropertyValue::None,
-            PropertyValue::Inherit => PropertyValue::Inherit,
-            PropertyValue::Initial => PropertyValue::Initial,
-            PropertyValue::Value(value) => PropertyValue::Value(value),
-        }
+        map_property_values!(self, |v| v)
     }
 
     /// Return new [`PropertyValue`] with the value as a mutable reference.
     pub fn as_mut(&mut self) -> PropertyValue<&mut T> {
-        match self {
-            PropertyValue::None => PropertyValue::None,
-            PropertyValue::Inherit => PropertyValue::Inherit,
-            PropertyValue::Initial => PropertyValue::Initial,
-            PropertyValue::Value(value) => PropertyValue::Value(value),
-        }
+        map_property_values!(self, |v| v)
     }
 
     /// Maps inner value to a different one
     pub fn map<O>(self, f: impl FnOnce(T) -> O) -> PropertyValue<O> {
-        match self {
-            PropertyValue::None => PropertyValue::None,
-            PropertyValue::Inherit => PropertyValue::Inherit,
-            PropertyValue::Initial => PropertyValue::Initial,
-            PropertyValue::Value(value) => PropertyValue::Value(f(value)),
-        }
+        map_property_values!(self, f)
     }
 
     /// Returns true if the property value is set to inherit from the parent values or vars

@@ -1288,7 +1288,7 @@ mod tests {
         }};
         ($properties:expr, $($k:expr => $v:expr),* $(,)?) => {{
             assert!($properties.pending_property_values.is_empty());
-            let mut pending_property_values = PROPERTY_REGISTRY.get_default_values();
+            let mut pending_property_values = PROPERTY_REGISTRY.get_unset_values_map();
 
             for (id, value) in properties![$($k => $v.into_property_value(),)*] {
                 pending_property_values[id] = value;

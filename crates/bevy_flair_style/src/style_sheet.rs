@@ -477,10 +477,10 @@ mod tests {
 
     macro_rules! property_map {
         () => {
-            PROPERTY_REGISTRY.get_default_values()
+            PROPERTY_REGISTRY.get_unset_values_map()
         };
         ($($k:expr => $v:expr),* $(,)?) => {{
-            let mut property_map = PROPERTY_REGISTRY.get_default_values();
+            let mut property_map = PROPERTY_REGISTRY.get_unset_values_map();
             property_map.extend([$((
                 resolve!($k),
                 $v
@@ -503,7 +503,7 @@ mod tests {
 
     macro_rules! get_properties {
         ($style_sheet:expr, $rules:expr) => {{
-            let mut property_map = PROPERTY_REGISTRY.get_default_values();
+            let mut property_map = PROPERTY_REGISTRY.get_unset_values_map();
             $style_sheet.get_property_values(
                 $rules,
                 &PROPERTY_REGISTRY,

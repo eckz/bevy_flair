@@ -28,38 +28,38 @@ macro_rules! default_properties {
     (@impl_property insert_if_missing: $ty:ty[$path:literal] ) => {
         ComponentProperty::new_insert_if_missing::<$ty>($path)
     };
-    (@default_value) => {
+    (@unset_value) => {
         PropertyValue::None
     };
-    (@default_value inherit) => {
+    (@unset_value inherit) => {
         PropertyValue::Inherit
     };
-    (@default_value initial) => {
+    (@unset_value initial) => {
         PropertyValue::Initial
     };
-    (@register $registry:ident, $css:literal, $property:expr, $default_value:expr, $type_registry:ident) => {
+    (@register $registry:ident, $css:literal, $property:expr, $unset_value:expr, $type_registry:ident) => {
         $registry.register_with_css(
             $css,
             $property,
-            $default_value
+            $unset_value
         );
     };
-    (@register sub_properties $registry:ident, $css:literal, $property:expr, $default_value:expr, $type_registry:ident) => {
+    (@register sub_properties $registry:ident, $css:literal, $property:expr, $unset_value:expr, $type_registry:ident) => {
         $registry.register_sub_properties(
             $css,
             $property,
-            $default_value,
+            $unset_value,
             $type_registry
         );
     };
-    ($($($sub_property:ident)? $css:literal $($default_value:ident)? { $($tt:tt)* },)*) => {
+    ($($($sub_property:ident)? $css:literal $($unset_value:ident)? { $($tt:tt)* },)*) => {
         pub(crate) fn register_bevy_ui_properties(registry: &mut PropertyRegistry, type_registry: &bevy_reflect::TypeRegistry) {
             $(
                 default_properties!(@register $($sub_property)*
                     registry,
                     $css,
                     default_properties!(@impl_property $($tt)*),
-                    default_properties!(@default_value $($default_value)*),
+                    default_properties!(@unset_value $($unset_value)*),
                     type_registry
                 );
             )*
