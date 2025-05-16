@@ -341,7 +341,7 @@ impl PropertyRegistry {
                 let component_type_id = property.component_type_info.type_id();
                 let value_type_id = property.value_type_info.type_id();
 
-                let component_unset_value = component_defaults.entry(component_type_id).or_insert_with(|| {
+                let component_default_value = component_defaults.entry(component_type_id).or_insert_with(|| {
                     type_registry
                         .get(component_type_id)
                         .and_then(|r| r.data::<ReflectDefault>())
@@ -364,14 +364,15 @@ impl PropertyRegistry {
                         );
                     });
 
-                let initial_value = reflect_from_reflect.from_reflect(property.get_value(&**component_unset_value)).unwrap_or_else(|| {
+                let initial_value = property.get_value(component_default_value.as_partial_reflect());
+                let initial_value_reflect = reflect_from_reflect.from_reflect(initial_value).unwrap_or_else(|| {
                     panic!(
                         "Type '{type_path}' could not be built using FromReflect",
                         type_path = property.value_type_info.type_path()
                     );
                 });
 
-                ReflectValue::new_from_box(initial_value)
+                ReflectValue::new_from_box(initial_value_reflect)
             },
         )))
     }
