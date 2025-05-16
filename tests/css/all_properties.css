@@ -1,5 +1,5 @@
 
-Node {
+:root {
     display: block;
     box-sizing: content-box;
     position: absolute;
@@ -45,6 +45,101 @@ Node {
     box-shadow: -2px -3px 10px 20px green;
     -bevy-image-color: yellow;
     -bevy-image-mode: stretch;
+}
+
+.with-inherited-values {
+    display: inherit;
+    box-sizing: inherit;
+    position: inherit;
+    overflow: inherit;
+    overflow-clip-margin: inherit;
+    left: inherit;
+    right: inherit;
+    top: inherit;
+    bottom: inherit;
+    width: inherit;
+    height: inherit;
+    min-width: inherit;
+    min-height: inherit;
+    max-width: inherit;
+    max-height: inherit;
+    aspect-ratio: inherit;
+    align-items: inherit;
+    justify-items: inherit;
+    align-self: inherit;
+    justify-self: inherit;
+    align-content: inherit;
+    justify-content: inherit;
+    margin: inherit;
+    padding: inherit;
+    border-width: inherit;
+    flex-direction: inherit;
+    flex-wrap: inherit;
+    flex: inherit;
+    gap: inherit;
+    grid-auto-flow: inherit;
+    grid-template: inherit;
+    grid-auto-rows: inherit;
+    grid-auto-columns: inherit;
+    grid-row: inherit;
+    grid-column: inherit;
+
+    border-color: inherit;
+    background-color: inherit;
+    border-radius: inherit;
+    outline: inherit;
+    outline-offset: inherit;
+    z-index: inherit;
+    box-shadow: inherit;
+    -bevy-image-color: inherit;
+    -bevy-image-mode: inherit;
+}
+
+.with-initial-values {
+    display: initial;
+    box-sizing: initial;
+    position: initial;
+    overflow: initial;
+    overflow-clip-margin: initial;
+    left: initial;
+    right: initial;
+    top: initial;
+    bottom: initial;
+    width: initial;
+    height: initial;
+    min-width: initial;
+    min-height: initial;
+    max-width: initial;
+    max-height: initial;
+    aspect-ratio: initial;
+    align-items: initial;
+    justify-items: initial;
+    align-self: initial;
+    justify-self: initial;
+    align-content: initial;
+    justify-content: initial;
+    margin: initial;
+    padding: initial;
+    border-width: initial;
+    flex-direction: initial;
+    flex-wrap: initial;
+    flex: initial;
+    gap: initial;
+    grid-auto-flow: initial;
+    grid-template: initial;
+    grid-auto-rows: initial;
+    grid-auto-columns: initial;
+    grid-row: initial;
+    grid-column: initial;
+    border-color: initial;
+    background-color: initial;
+    border-radius: initial;
+    outline: initial;
+    outline-offset: initial;
+    z-index: initial;
+    box-shadow: initial;
+    -bevy-image-color: initial;
+    -bevy-image-mode: initial;
 }
 
 Text {

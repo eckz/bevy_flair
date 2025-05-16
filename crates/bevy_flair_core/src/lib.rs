@@ -34,6 +34,9 @@ macro_rules! default_properties {
     (@default_value inherit) => {
         PropertyValue::Inherit
     };
+    (@default_value initial) => {
+        PropertyValue::Initial
+    };
     (@register $registry:ident, $css:literal, $property:expr, $default_value:expr, $type_registry:ident) => {
         $registry.register_with_css(
             $css,

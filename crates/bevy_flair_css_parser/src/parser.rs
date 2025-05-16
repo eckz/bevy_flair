@@ -696,7 +696,9 @@ impl CssParserContext<'_, '_> {
             parser.look_for_var_or_env_functions();
 
             let result = parser.parse_entirely(|parser| {
-                (shorthand_property.parse_fn)(parser).map_err(|error| error.into_parse_error())
+                shorthand_property
+                    .parse(parser)
+                    .map_err(|error| error.into_parse_error())
             });
 
             let seen_var_or_env_functions = parser.seen_var_or_env_functions();
@@ -758,7 +760,7 @@ impl CssParserContext<'_, '_> {
         let seen_var_or_env_functions = parser.seen_var_or_env_functions();
 
         match result {
-            Ok(dv) => CssRulesetProperty::SingleProperty(property_id, dv),
+            Ok(value) => CssRulesetProperty::SingleProperty(property_id, value),
             Err(_) if seen_var_or_env_functions => {
                 parser.reset(&initial_state);
 

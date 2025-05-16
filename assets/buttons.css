@@ -76,7 +76,7 @@ Button {
 
     transition: border-radius 0.6s ease-in-out, border-color 0.4s, background-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
 
-    outline: 3px transparent;
+    outline: initial;
 
     &:hover {
         background-color: var(--button-hover-bg);

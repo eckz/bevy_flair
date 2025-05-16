@@ -3,7 +3,7 @@ use crate::reflect::{
     parse_color, parse_enum_as_property_value, parse_grid_track_vec, parse_repeated_grid_track_vec,
     parse_val,
 };
-use crate::utils::{parse_property_value_with, try_parse_none};
+use crate::utils::{parse_property_global_keyword, parse_property_value_with, try_parse_none};
 use crate::{CssError, ParserExt};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
@@ -23,9 +23,11 @@ use std::fmt::Display;
 use std::sync::Arc;
 use tracing::warn;
 
+/// Type of result expected from a shorthand parse function.
+pub type ShorthandParseResult = Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError>;
+
 /// Function signature used to parse a CSS shorthand property into multiple component properties.
-pub type ShorthandParseFn =
-    fn(&mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError>;
+pub type ShorthandParseFn = fn(&mut Parser) -> ShorthandParseResult;
 
 /// Represents a single shorthand property.
 ///
@@ -35,7 +37,7 @@ pub type ShorthandParseFn =
 pub struct ShorthandProperty {
     pub(crate) css_name: Cow<'static, str>,
     pub(crate) sub_properties: Vec<ComponentPropertyRef>,
-    pub(crate) parse_fn: ShorthandParseFn,
+    parse_fn: ShorthandParseFn,
 }
 
 impl ShorthandProperty {
@@ -99,6 +101,18 @@ impl ShorthandProperty {
                 report_generator.into_message().into()
             })
         })
+    }
+
+    pub(crate) fn parse(&self, parser: &mut Parser) -> ShorthandParseResult {
+        if let Ok(property_value) = parser.try_parse_with(parse_property_global_keyword) {
+            Ok(self
+                .sub_properties
+                .iter()
+                .map(|p| (p.clone(), property_value.clone()))
+                .collect())
+        } else {
+            (self.parse_fn)(parser)
+        }
     }
 }
 
@@ -202,7 +216,7 @@ type SimpleShorthandProperty = (
 fn parse_simple_shorthand_property<const N: usize>(
     parser: &mut Parser,
     properties: [SimpleShorthandProperty; N],
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+) -> ShorthandParseResult {
     let mut properties = VecDeque::from_iter(properties);
     let (first_property_ref, _, first_property_parser) = properties
         .pop_front()
@@ -231,10 +245,7 @@ fn parse_simple_shorthand_property<const N: usize>(
     Ok(result)
 }
 
-fn parse_ui_rect(
-    css_name: &'static str,
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_ui_rect(css_name: &'static str, parser: &mut Parser) -> ShorthandParseResult {
     let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
     Ok(vec![
         (
@@ -292,9 +303,7 @@ define_css_properties! {
     const BORDER_BOTTOM_RIGHT_RADIUS = "border-bottom-right-radius";
 }
 
-fn parse_border_radius(
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_border_radius(parser: &mut Parser) -> ShorthandParseResult {
     let [top_left, top_right, bottom_right, bottom_left] =
         parse_four_calc_values(parser, parse_val)?;
     Ok(vec![
@@ -311,9 +320,7 @@ define_css_properties! {
 }
 
 /// Parses the `overflow` shorthand into `overflow-x` and `overflow-y`.
-fn parse_overflow(
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
     let parse_overflow_axis = parse_enum_as_property_value::<OverflowAxis>;
     parse_simple_shorthand_property(
         parser,
@@ -328,9 +335,7 @@ define_css_properties! {
     const BORDER_COLOR = "border-color";
 }
 
-fn parse_border(
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
     let width = parse_calc_property_value_with(parser, parse_val)?;
 
     let mut result = vec![
@@ -349,9 +354,7 @@ fn parse_border(
     Ok(result)
 }
 
-fn parse_border_width(
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_border_width(parser: &mut Parser) -> ShorthandParseResult {
     if let Ok(width) = parser.try_parse_with(parse_width_ident) {
         let width = PropertyValue::Value(ReflectValue::Val(width));
         return Ok(vec![
@@ -388,9 +391,7 @@ fn parse_width_ident(parser: &mut Parser) -> Result<Val, CssError> {
     })
 }
 
-fn parse_outline(
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_outline(parser: &mut Parser) -> ShorthandParseResult {
     fn parse_ident_or_val(parser: &mut Parser) -> Result<Val, CssError> {
         parser
             .try_parse(parse_width_ident)
@@ -416,10 +417,8 @@ define_css_properties! {
     const FLEX_BASIS = "flex-basis";
 }
 
-fn parse_flex(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
-    fn final_result(
-        (flex_grow, flex_shrink, flex_basis): (f32, f32, Val),
-    ) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_flex(parser: &mut Parser) -> ShorthandParseResult {
+    fn final_result((flex_grow, flex_shrink, flex_basis): (f32, f32, Val)) -> ShorthandParseResult {
         Ok(vec![
             (
                 FLEX_GROW,
@@ -475,9 +474,7 @@ define_css_properties! {
 }
 
 /// Parses the `place-items` shorthand into `align-items` and `justify-items`.
-fn parse_place_items(
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_place_items(parser: &mut Parser) -> ShorthandParseResult {
     parse_simple_shorthand_property(
         parser,
         [
@@ -505,7 +502,7 @@ pub(crate) fn parse_val_as_property_value(parser: &mut Parser) -> Result<Propert
 }
 
 /// Parses the `gap` shorthand into `row-gap` and `column-gap`.
-fn parse_gap(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_gap(parser: &mut Parser) -> ShorthandParseResult {
     parse_simple_shorthand_property(
         parser,
         [
@@ -524,9 +521,7 @@ define_css_properties! {
 }
 
 /// Parses the `grid-template` shorthand into `grid-template-rows` / `grid-template-columns`.
-fn parse_grid_template(
-    parser: &mut Parser,
-) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_grid_template(parser: &mut Parser) -> ShorthandParseResult {
     if let Some(default_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
         let default_property_value = PropertyValue::Value(ReflectValue::new(default_value));
         return Ok(vec![
@@ -550,7 +545,7 @@ fn parse_grid_template(
 //   <'grid-template'>
 //   <'grid-template-rows'> / [ auto-flow && dense? ] <'grid-auto-columns'>?
 //   [ auto-flow && dense? ] <'grid-auto-rows'>? / <'grid-template-columns'>
-fn parse_grid(parser: &mut Parser) -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError> {
+fn parse_grid(parser: &mut Parser) -> ShorthandParseResult {
     if let Ok(grid_template) = parser.try_parse_with(parse_grid_template) {
         return Ok(grid_template);
     }
@@ -738,13 +733,56 @@ mod tests {
         registry
     });
 
+    trait IntoReflectValue {
+        fn into_reflect_value(self) -> ReflectValue;
+    }
+
+    macro_rules! impl_into_reflect_value {
+        ($($ty:ty),*) => {
+            $(
+                impl IntoReflectValue for $ty {
+                    fn into_reflect_value(self) -> ReflectValue {
+                        ReflectValue::new(self)
+                    }
+                }
+            )*
+        };
+    }
+
+    impl_into_reflect_value!(
+        f32,
+        Color,
+        Val,
+        AlignItems,
+        JustifyItems,
+        GridAutoFlow,
+        Vec::<RepeatedGridTrack>,
+        Vec::<GridTrack>
+    );
+
+    trait IntoPropertyValue {
+        fn into_property_value(self) -> PropertyValue;
+    }
+
+    impl IntoPropertyValue for PropertyValue {
+        fn into_property_value(self) -> PropertyValue {
+            self
+        }
+    }
+
+    impl<T: IntoReflectValue> IntoPropertyValue for T {
+        fn into_property_value(self) -> PropertyValue {
+            PropertyValue::Value(self.into_reflect_value())
+        }
+    }
+
     macro_rules! test_shorthand_property {
         ($property_name:literal, $contents:literal, {$($k:literal => $v:expr),*, $(,)?}) => {{
             let mut expected = vec![
                 $(
                     (
                         ComponentPropertyRef::CssName($k.into()),
-                        PropertyValue::Value(ReflectValue::new($v)),
+                        $v.into_property_value(),
                     ),
                 )*
             ];
@@ -754,7 +792,7 @@ mod tests {
                 .get_property($property_name)
                 .expect(&format!("Property '{}' not found", $property_name));
 
-            let mut result = parse_content_with($contents, property.parse_fn);
+            let mut result = parse_content_with($contents, |parser| property.parse(parser));
 
             result.sort_by(|(a, _), (b, _)| a.cmp(&b));
 
@@ -819,6 +857,11 @@ mod tests {
     }
     #[test]
     fn test_outline() {
+        test_shorthand_property!("outline", "initial", {
+            "outline-width" => PropertyValue::Initial,
+            "outline-color" => PropertyValue::Initial,
+        });
+
         test_shorthand_property!("outline", "5px", {
             "outline-width" => Val::Px(5.0),
         });
@@ -841,16 +884,28 @@ mod tests {
             "flex-basis" => Val::Auto,
         });
 
-        test_shorthand_property!("flex", "2", {
-            "flex-grow" => 2.0,
-            "flex-shrink" => 1.0,
-            "flex-basis" => Val::Percent(0.0),
+        test_shorthand_property!("flex", "initial", {
+            "flex-grow" => PropertyValue::Initial,
+            "flex-shrink" => PropertyValue::Initial,
+            "flex-basis" => PropertyValue::Initial,
+        });
+
+        test_shorthand_property!("flex", "inherit", {
+            "flex-grow" => PropertyValue::Inherit,
+            "flex-shrink" => PropertyValue::Inherit,
+            "flex-basis" => PropertyValue::Inherit,
         });
 
         test_shorthand_property!("flex", "auto", {
             "flex-grow" => 1.0,
             "flex-shrink" => 1.0,
             "flex-basis" => Val::Auto,
+        });
+
+        test_shorthand_property!("flex", "8", {
+            "flex-grow" => 8.0,
+            "flex-shrink" => 1.0,
+            "flex-basis" => Val::Percent(0.0),
         });
 
         test_shorthand_property!("flex", "20%", {

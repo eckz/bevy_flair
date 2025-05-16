@@ -1,7 +1,7 @@
 use crate::components::{
-    ClassList, DependsOnMediaFeaturesFlags, NodeProperties, NodeStyleActiveRules, NodeStyleData,
-    NodeStyleMarker, NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, RecalculateOnChangeFlags,
-    Siblings, WindowMediaFeatures,
+    ClassList, DependsOnMediaFeaturesFlags, InitialPropertyValues, NodeProperties,
+    NodeStyleActiveRules, NodeStyleData, NodeStyleMarker, NodeStyleSelectorFlags, NodeStyleSheet,
+    NodeVars, RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
 };
 use crate::{ColorScheme, GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
 use bevy_ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
@@ -814,11 +814,13 @@ mod custom_descendants_iter {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_property_values(
     root_entities: Query<Entity, (Without<ChildOf>, With<NodeProperties>)>,
     children_query: Query<&Children, With<NodeProperties>>,
     #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
     mut node_properties_query: Query<&mut NodeProperties>,
+    initial_values: Res<InitialPropertyValues>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
     global_change_detection: Res<GlobalChangeDetection>,
@@ -862,8 +864,11 @@ pub(crate) fn compute_property_values(
 
     for root in &root_entities {
         let mut root_properties = node_properties_query.get_mut(root)?;
-        root_properties
-            .compute_pending_property_values_for_root(&type_registry, &property_registry);
+        root_properties.compute_pending_property_values_for_root(
+            &type_registry,
+            &property_registry,
+            &initial_values.0,
+        );
 
         trace_new_properties(root, &root_properties);
 
@@ -880,6 +885,7 @@ pub(crate) fn compute_property_values(
                 &parent_properties,
                 &type_registry,
                 &property_registry,
+                &initial_values.0,
             );
 
             trace_new_properties(entity, &properties);

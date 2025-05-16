@@ -286,7 +286,8 @@ impl Plugin for FlairStylePlugin {
                 ),
             )
             .add_systems(PreStartup, |mut commands: Commands| {
-                commands.init_resource::<EmptyComputedProperties>()
+                commands.init_resource::<EmptyComputedProperties>();
+                commands.init_resource::<InitialPropertyValues>();
             })
             .add_systems(
                 PreUpdate,
@@ -402,6 +403,7 @@ mod tests {
     use bevy_app::App;
     use bevy_asset::weak_handle;
     use bevy_ecs::system::RunSystemOnce;
+    use bevy_text::{TextColor, TextFont, TextLayout};
     use bevy_ui::Node;
 
     const TEST_STYLE_SHEET: NodeStyleSheet =
@@ -486,6 +488,18 @@ mod tests {
             BevyUiPropertiesPlugin,
             FlairStylePlugin,
         ));
+
+        app.register_type::<Node>()
+            .register_type::<BackgroundColor>()
+            .register_type::<BorderColor>()
+            .register_type::<BorderRadius>()
+            .register_type::<BoxShadow>()
+            .register_type::<ZIndex>()
+            .register_type::<ImageNode>()
+            .register_type::<TextLayout>()
+            .register_type::<TextFont>()
+            .register_type::<TextColor>()
+            .register_type::<TextShadow>();
 
         app.register_type::<(Child, GrandChild)>();
         app.register_type_data::<std::collections::BinaryHeap<TypeNameWithPriority>, ReflectSerialize>();

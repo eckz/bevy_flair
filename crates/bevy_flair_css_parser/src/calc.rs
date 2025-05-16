@@ -4,6 +4,7 @@ use bevy_reflect::{FromReflect, TypePath};
 
 use cssparser::{Parser, Token};
 
+use crate::utils::parse_property_global_keyword;
 use bevy_ui::Val;
 use smallvec::SmallVec;
 use std::convert::Infallible;
@@ -299,7 +300,11 @@ pub fn parse_calc_property_value_with<T>(
 where
     T: Calculable + FromReflect,
 {
-    parse_calc_value(parser, value_parser).map(|v| PropertyValue::Value(ReflectValue::new(v)))
+    if let Ok(property_value) = parser.try_parse_with(parse_property_global_keyword) {
+        Ok(property_value)
+    } else {
+        parse_calc_value(parser, value_parser).map(|v| PropertyValue::Value(ReflectValue::new(v)))
+    }
 }
 
 #[cfg(test)]
@@ -343,7 +348,7 @@ mod tests {
                 }
             };
 
-        match property_value.compute_root_value() {
+        match property_value.compute_root_value(&ReflectValue::Usize(0)) {
             ComputedValue::None => {
                 panic!("None generated")
             }

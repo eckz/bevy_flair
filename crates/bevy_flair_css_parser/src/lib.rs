@@ -206,7 +206,7 @@ pub(crate) mod testing {
     #[track_caller]
     pub fn parse_content_with<T>(
         contents: &str,
-        parse_fn: fn(&mut Parser) -> Result<T, CssError>,
+        parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
     ) -> T {
         let mut input = ParserInput::new(contents);
         let mut parser = Parser::new(&mut input);

@@ -149,6 +149,7 @@ pub(crate) mod testing {
     use crate::reflect::ReflectParseCssEnum;
     use crate::testing::parse_content_with;
     use crate::{PropertyValueParseFn, ReflectParseCss};
+    use bevy_flair_core::ReflectValue;
     use bevy_reflect::{FromReflect, FromType};
 
     #[inline(always)]
@@ -192,7 +193,7 @@ pub(crate) mod testing {
     {
         let property_value = parse_content_with(contents, parse_fn);
 
-        let computed_value = property_value.compute_root_value();
+        let computed_value = property_value.compute_root_value(&ReflectValue::Usize(0));
         computed_value
             .expect("Invalid value generated")
             .downcast_value()

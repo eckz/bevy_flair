@@ -6,13 +6,12 @@ use crate::{
     style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
 };
 
-use bevy_reflect::{FromReflect, Reflect, ReflectFromReflect, Struct, TypeRegistry, Typed};
+use bevy_reflect::{FromReflect, Reflect};
 
 #[cfg(feature = "css_selectors")]
 use crate::css_selector::CssSelector;
 use crate::style_sheet::RulesetProperty;
 use bevy_asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError};
-use bevy_ecs::component::Component;
 use bevy_flair_core::*;
 use bevy_image::Image;
 use bevy_text::Font;
@@ -20,7 +19,6 @@ use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use std::{fmt::Debug, marker::PhantomData, mem};
 use thiserror::Error;
-use tracing::warn;
 
 /// Possible errors that could happen while trying to build a stylesheet.
 #[derive(Debug, Error)]
@@ -638,63 +636,6 @@ impl StyleSheetBuilder {
     fn run_all_validations(&self) -> Result<(), StyleSheetBuilderError> {
         self.validate_no_orphan_rule()?;
         Ok(())
-    }
-
-    /// Inject a default ruleset with the name of a component and all it's default values.
-    /// It will generate something similar to
-    /// ```css
-    /// Node {
-    ///   display: flex,
-    ///   position-type: relative,
-    ///   ...
-    /// }
-    /// ```
-    ///
-    /// This is very useful to have a fallback while developing, so if a property is removed it will
-    /// apply the fallback.
-    pub fn inject_default_ruleset<T: Reflect + Struct + Typed + Component + Default>(
-        &mut self,
-        property_registry: &PropertyRegistry,
-        type_registry: &TypeRegistry,
-    ) -> &mut Self {
-        let all_properties = T::all_property_refs();
-        let default = T::default();
-
-        self.new_ruleset()
-            .with_simple_selector(SimpleSelector::has_type(T::short_type_path()))
-            .with_properties(all_properties.into_iter().flat_map(|property_ref| {
-                let Ok(property_id) = property_registry.resolve(&property_ref) else {
-                    warn!("Property does not exist: {property_ref:?}");
-                    return None;
-                };
-                let property = property_registry.get_property(property_id);
-
-                let Some(type_registration) =
-                    type_registry.get(property.value_type_info().type_id())
-                else {
-                    warn!(
-                        "Type '{type_path}' not registered",
-                        type_path = property.value_type_info().type_path()
-                    );
-                    return None;
-                };
-
-                let Some(reflect_from_reflect) = type_registration.data::<ReflectFromReflect>()
-                else {
-                    warn!(
-                        "Type '{type_path}' does not implement ReflectFromReflect",
-                        type_path = property.value_type_info().type_path()
-                    );
-                    return None;
-                };
-
-                let value = property.get_value(default.as_partial_reflect());
-                Some((
-                    ComponentPropertyRef::Id(property_id),
-                    ReflectValue::new_from_box(reflect_from_reflect.from_reflect(value).unwrap()),
-                ))
-            }));
-        self
     }
 
     /// Add configuration for a specific animation by providing the animation keyframes

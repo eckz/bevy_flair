@@ -208,9 +208,9 @@ impl EntityCommand for NewComponentsQueue {
 ///
 #[derive(Clone)]
 pub struct ComponentProperty {
-    component_type_info: &'static TypeInfo,
+    pub(crate) component_type_info: &'static TypeInfo,
     parsed_path: ParsedPath,
-    value_type_info: &'static TypeInfo,
+    pub(crate) value_type_info: &'static TypeInfo,
     component_fns: ComponentFns,
     property_fns: PropertyFns,
 }

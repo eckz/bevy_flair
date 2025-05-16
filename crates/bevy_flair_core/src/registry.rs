@@ -1,9 +1,10 @@
 use crate::component_property::ComponentProperty;
 use crate::sub_properties::ReflectCreateSubProperties;
-use crate::{PropertyMap, PropertyValue};
+use crate::{PropertyMap, PropertyValue, ReflectValue};
 use bevy_ecs::prelude::*;
 use bevy_reflect::prelude::*;
 use bevy_reflect::{TypeRegistry, Typed};
+use bevy_utils::TypeIdMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use std::borrow::Cow;
@@ -96,6 +97,7 @@ impl From<ComponentPropertyId> for usize {
 #[derive(Debug, Default)]
 struct PropertyRegistryInner {
     properties: Vec<ComponentProperty>,
+    // Default values are set to either PropertyValue::None or PropertyValue::Inherited
     default_values: Vec<PropertyValue>,
     css_names: FxHashMap<Cow<'static, str>, ComponentPropertyId>,
     canonical_names: FxHashMap<String, ComponentPropertyId>,
@@ -168,16 +170,11 @@ impl PropertyRegistry {
         PropertyMap(new_map.into())
     }
 
-    /// Get the default value for a given property, if it exists.
+    /// Get the default values map.
     pub fn get_default_values(&self) -> PropertyMap<PropertyValue> {
         PropertyMap(FromIterator::from_iter(
             self.inner.default_values.iter().cloned(),
         ))
-    }
-
-    /// Get the default value for a given property, if it exists.
-    pub fn get_default_value(&self, property_id: ComponentPropertyId) -> PropertyValue {
-        self.inner.default_values[property_id.0 as usize].clone()
     }
 
     fn inner_mut(&mut self) -> &mut PropertyRegistryInner {
@@ -197,6 +194,10 @@ impl PropertyRegistry {
         let canonical_name = property.canonical_name();
         let id = ComponentPropertyId(inner.properties.len() as u32);
 
+        debug_assert!(matches!(
+            default_value,
+            PropertyValue::Inherit | PropertyValue::Initial | PropertyValue::None
+        ));
         debug_assert_eq!(inner.properties.len(), inner.default_values.len());
 
         assert!(
@@ -325,6 +326,54 @@ impl PropertyRegistry {
                 type_registry,
             );
         }
+    }
+
+    /// Creates a [`PropertyMap`] that contains all the initial values taken from the [`Default`] values
+    /// of the properties components.
+    pub fn create_initial_values_map(
+        &self,
+        type_registry: &TypeRegistry,
+    ) -> PropertyMap<ReflectValue> {
+        let mut component_defaults = TypeIdMap::default();
+
+        PropertyMap(FromIterator::from_iter(self.inner.properties.iter().map(
+            |property| {
+                let component_type_id = property.component_type_info.type_id();
+                let value_type_id = property.value_type_info.type_id();
+
+                let component_default_value = component_defaults.entry(component_type_id).or_insert_with(|| {
+                    type_registry
+                        .get(component_type_id)
+                        .and_then(|r| r.data::<ReflectDefault>())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Component '{type_path}' is not registered or does not register Default",
+                                type_path = property.component_type_info.type_path()
+                            );
+                        })
+                        .default()
+                });
+
+                let reflect_from_reflect = type_registry
+                    .get(value_type_id)
+                    .and_then(|r| r.data::<ReflectFromReflect>())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Type '{type_path}' is not registered or does not register FromReflect",
+                            type_path = property.value_type_info.type_path()
+                        );
+                    });
+
+                let initial_value = reflect_from_reflect.from_reflect(property.get_value(&**component_default_value)).unwrap_or_else(|| {
+                    panic!(
+                        "Type '{type_path}' could not be built using FromReflect",
+                        type_path = property.value_type_info.type_path()
+                    );
+                });
+
+                ReflectValue::new_from_box(initial_value)
+            },
+        )))
     }
 }
 

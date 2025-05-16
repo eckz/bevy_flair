@@ -4,35 +4,16 @@ use std::fmt::Debug;
 
 /// Generic property value that can be used to represent a value that can be inherited,
 /// set to a specific value, or reference a var.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum PropertyValue<T = ReflectValue> {
     /// No value is set
     None,
     /// Inherits from parent
     Inherit,
+    /// Uses the initial value
+    Initial,
     /// Specific Value
     Value(T),
-}
-
-impl<T: PartialEq> PartialEq for PropertyValue<T> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (PropertyValue::None, PropertyValue::None) => true,
-            (PropertyValue::Inherit, PropertyValue::Inherit) => true,
-            (PropertyValue::Value(left), PropertyValue::Value(right)) => left == right,
-            _ => false,
-        }
-    }
-}
-
-impl<T: Debug> Debug for PropertyValue<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PropertyValue::None => f.debug_tuple("None").finish(),
-            PropertyValue::Inherit => f.debug_tuple("Inherit").finish(),
-            PropertyValue::Value(v) => f.debug_tuple("Value").field(v).finish(),
-        }
-    }
 }
 
 impl<T> PropertyValue<T> {
@@ -41,6 +22,7 @@ impl<T> PropertyValue<T> {
         match self {
             PropertyValue::None => PropertyValue::None,
             PropertyValue::Inherit => PropertyValue::Inherit,
+            PropertyValue::Initial => PropertyValue::Initial,
             PropertyValue::Value(value) => PropertyValue::Value(value),
         }
     }
@@ -50,6 +32,7 @@ impl<T> PropertyValue<T> {
         match self {
             PropertyValue::None => PropertyValue::None,
             PropertyValue::Inherit => PropertyValue::Inherit,
+            PropertyValue::Initial => PropertyValue::Initial,
             PropertyValue::Value(value) => PropertyValue::Value(value),
         }
     }
@@ -59,6 +42,7 @@ impl<T> PropertyValue<T> {
         match self {
             PropertyValue::None => PropertyValue::None,
             PropertyValue::Inherit => PropertyValue::Inherit,
+            PropertyValue::Initial => PropertyValue::Initial,
             PropertyValue::Value(value) => PropertyValue::Value(f(value)),
         }
     }
@@ -71,19 +55,25 @@ impl<T> PropertyValue<T> {
 
 impl PropertyValue {
     /// Converts the PropertyValue value into a [`ComputedValue`] when there is a parent to inherit from.
-    pub fn compute_with_parent(&self, parent_computed_value: &ComputedValue) -> ComputedValue {
+    pub fn compute_with_parent(
+        &self,
+        parent_computed_value: &ComputedValue,
+        initial_value: &ReflectValue,
+    ) -> ComputedValue {
         match self {
             PropertyValue::None => ComputedValue::None,
             PropertyValue::Inherit => parent_computed_value.clone(),
+            PropertyValue::Initial => ComputedValue::Value(initial_value.clone()),
             PropertyValue::Value(value) => ComputedValue::Value(value.clone()),
         }
     }
 
     /// Converts the PropertyValue value into a [`ComputedValue`] when the is not parent to inherit.
-    pub fn compute_root_value(&self) -> ComputedValue {
+    pub fn compute_root_value(&self, initial_value: &ReflectValue) -> ComputedValue {
         match self {
             PropertyValue::None => ComputedValue::None,
             PropertyValue::Inherit => ComputedValue::None,
+            PropertyValue::Initial => ComputedValue::Value(initial_value.clone()),
             PropertyValue::Value(value) => ComputedValue::Value(value.clone()),
         }
     }
