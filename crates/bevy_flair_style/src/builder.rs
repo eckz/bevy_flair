@@ -737,13 +737,8 @@ impl StyleSheetBuilder {
         self.simple_selectors_to_rulesets
             .retain(|(_, id)| *id != id_to_remove);
 
-        let mut removed_selectors = Vec::new();
-        self.css_selectors_to_rulesets.retain(|(css_selector, id)| {
-            if *id == id_to_remove {
-                removed_selectors.push(css_selector.clone());
-            }
-            *id != id_to_remove
-        });
+        self.css_selectors_to_rulesets
+            .retain(|(_, id)| *id != id_to_remove);
 
         for (_, id) in &mut self.simple_selectors_to_rulesets {
             if *id > id_to_remove {

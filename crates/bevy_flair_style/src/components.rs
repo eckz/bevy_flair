@@ -6,7 +6,7 @@ use crate::animations::{
 
 use crate::{
     ClassName, ColorScheme, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation,
-    StyleSheet, VarTokens,
+    StyleSheet, TransitionEvent, TransitionEventType, VarTokens,
 };
 
 use bevy_ecs::prelude::*;
@@ -405,6 +405,7 @@ pub struct NodeProperties {
     pub(crate) computed_values: PropertyMap<ComputedValue>,
 
     transitions: PropertiesHashMap<Transition>,
+    pending_transition_events: Vec<TransitionEvent>,
     // TODO: SmallVec here?
     animations: PropertiesHashMap<Vec<Animation>>,
 }
@@ -589,12 +590,23 @@ impl NodeProperties {
                         previous_transition,
                     );
 
+                    self.pending_transition_events
+                        .push(TransitionEvent::new_from_transition(
+                            TransitionEventType::Replaced,
+                            previous_transition,
+                        ));
+
                     trace!("Replaced transition: {new_transition:?}");
                     *occupied.get_mut() = new_transition;
                 }
                 Entry::Vacant(vacant) => {
-                    let new_transition =
-                        Transition::new(Some(from_value), to_value, options, reflect_animatable);
+                    let new_transition = Transition::new(
+                        property_id,
+                        Some(from_value),
+                        to_value,
+                        options,
+                        reflect_animatable,
+                    );
 
                     trace!("New transition: {new_transition:?}");
                     vacant.insert(new_transition);
@@ -715,7 +727,14 @@ impl NodeProperties {
                             && transition.state != AnimationState::Finished
                         {
                             trace!("Cancelling transition on '{property_id:?}': '{transition:?}'");
-                            transition.state = AnimationState::Canceled
+                            transition.state = AnimationState::Canceled;
+
+                            self.pending_transition_events.push(
+                                TransitionEvent::new_from_transition(
+                                    TransitionEventType::Canceled,
+                                    transition,
+                                ),
+                            );
                         }
                     });
             }
@@ -825,9 +844,24 @@ impl NodeProperties {
 
     pub(crate) fn tick_animations(&mut self, delta: Duration) {
         for transition in self.transitions.values_mut() {
+            let was_pending = transition.state == AnimationState::Pending;
+
             transition.tick(delta);
 
+            if was_pending && transition.state != AnimationState::Pending {
+                self.pending_transition_events
+                    .push(TransitionEvent::new_from_transition(
+                        TransitionEventType::Started,
+                        transition,
+                    ));
+            }
+
             if transition.state == AnimationState::Finished {
+                self.pending_transition_events
+                    .push(TransitionEvent::new_from_transition(
+                        TransitionEventType::Finished,
+                        transition,
+                    ));
                 trace!("Transition finished: {transition:?}");
             }
         }
@@ -841,12 +875,21 @@ impl NodeProperties {
         }
     }
 
-    pub(crate) fn clear_finished_and_cancelled_animations(&mut self) {
+    pub(crate) fn clear_finished_and_canceled_animations(&mut self) {
         self.transitions
             .retain(|_, transition| !transition.state.is_finished());
 
         for animations in self.animations.values_mut() {
             animations.retain(|a| !a.state.is_finished());
+        }
+    }
+
+    pub(crate) fn has_pending_events(&self) -> bool {
+        !self.pending_transition_events.is_empty()
+    }
+    pub(crate) fn emit_pending_events(&mut self, mut entity_commands: EntityCommands) {
+        for event in self.pending_transition_events.drain(..) {
+            entity_commands.trigger(event);
         }
     }
 
@@ -1136,6 +1179,13 @@ mod tests {
         type_registry
     });
 
+    macro_rules! property_id {
+        ($property:expr) => {
+            PROPERTY_REGISTRY
+                .resolve(&ComponentPropertyRef::CssName($property.into()))
+                .unwrap_or_else(|e| panic!("{e}"))
+        };
+    }
     macro_rules! properties {
         ($($k:expr => $v:expr),* $(,)?) => {{
 
@@ -1182,6 +1232,12 @@ mod tests {
         fn into_property_value(self) -> PropertyValue {
             PropertyValue::Value(self.into_reflect_value())
         }
+    }
+
+    macro_rules! value {
+        ($value:expr) => {
+            $value.into_reflect_value()
+        };
     }
 
     macro_rules! values {
@@ -1346,6 +1402,7 @@ mod tests {
 
         // We simulate the next frame after 0s
         properties.tick_animations(Duration::ZERO);
+
         set_property_values_and_compute!(properties);
         assert_eq!(
             apply_computed_values!(properties),
@@ -1353,6 +1410,17 @@ mod tests {
                 PROPERTY_1 => 1.0
             ]
         );
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Started,
+                property_id: property_id!(PROPERTY_1),
+                from: value!(1.0),
+                to: value!(6.0),
+            }]
+        );
+        properties.pending_transition_events.clear();
 
         let running_transitions = properties.running_transitions().collect::<Vec<_>>();
         assert_eq!(running_transitions.len(), 1);
@@ -1372,6 +1440,17 @@ mod tests {
             ]
         );
 
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Started,
+                property_id: property_id!(PROPERTY_3),
+                from: value!(3.0),
+                to: value!(8.0),
+            }]
+        );
+        properties.pending_transition_events.clear();
+
         // We tick 4s (5s since start)
         properties.tick_animations(Duration::from_secs(4));
         set_property_values_and_compute!(properties);
@@ -1384,7 +1463,18 @@ mod tests {
                 PROPERTY_3 => 7.0, // property-3 goes [3.0-8.0] and it's at t=0.8
             ]
         );
-        properties.clear_finished_and_cancelled_animations();
+        properties.clear_finished_and_canceled_animations();
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Finished,
+                property_id: property_id!(PROPERTY_1),
+                from: value!(1.0),
+                to: value!(6.0),
+            }]
+        );
+        properties.pending_transition_events.clear();
 
         // We tick 2s (7s since start) (which overshoots the property-3 transition)
         properties.tick_animations(Duration::from_secs(2));
@@ -1396,6 +1486,17 @@ mod tests {
                 PROPERTY_3 => 8.0, // property-3 goes [3.0-8.0] and it's at t=1.2, but the final value is returned
             ]
         );
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Finished,
+                property_id: property_id!(PROPERTY_3),
+                from: value!(3.0),
+                to: value!(8.0),
+            }]
+        );
+        properties.pending_transition_events.clear();
     }
 
     #[test]
@@ -1463,6 +1564,24 @@ mod tests {
             apply_computed_values!(grand_child),
             values![PROPERTY_2 => 2.0, INHERITED_PROPERTY => 2.0]
         );
+
+        assert_eq!(
+            grand_child.pending_transition_events,
+            vec![
+                TransitionEvent {
+                    event_type: TransitionEventType::Started,
+                    property_id: property_id!(PROPERTY_2),
+                    from: value!(0.0),
+                    to: value!(5.0),
+                },
+                TransitionEvent {
+                    event_type: TransitionEventType::Started,
+                    property_id: property_id!(INHERITED_PROPERTY),
+                    from: value!(0.0),
+                    to: value!(5.0),
+                }
+            ]
+        );
     }
 
     // This test shows the current behavior that transitions and animations
@@ -1525,6 +1644,8 @@ mod tests {
         );
         // Grand child sees no change
         assert_eq!(apply_computed_values!(grand_child), values![]);
+
+        assert_eq!(grand_child.pending_transition_events, vec![]);
     }
 
     #[test]
@@ -1550,12 +1671,32 @@ mod tests {
         properties.tick_animations(Duration::ZERO);
 
         assert_eq!(properties.running_transitions().count(), 2);
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![
+                TransitionEvent {
+                    event_type: TransitionEventType::Started,
+                    property_id: property_id!(PROPERTY_1),
+                    from: value!(1.0),
+                    to: value!(10.0),
+                },
+                TransitionEvent {
+                    event_type: TransitionEventType::Started,
+                    property_id: property_id!(PROPERTY_2),
+                    from: value!(2.0),
+                    to: value!(10.0),
+                }
+            ]
+        );
+        properties.pending_transition_events.clear();
+
         let new_transition_options = PropertiesHashMap::from_iter(properties! {
             PROPERTY_1 => TRANSITION_5_SECONDS,
         });
         properties.set_transition_options(new_transition_options);
 
-        // Now property-2 transition should be cancelled, but property-1 should remain as it was
+        // Now property-2 transition should be canceled, but property-1 should remain as it was
         let running_transitions = properties.running_transitions().collect::<Vec<_>>();
         assert_eq!(running_transitions.len(), 1);
 
@@ -1569,6 +1710,16 @@ mod tests {
         assert_eq!(
             apply_computed_values!(properties),
             values![PROPERTY_1 => 1.0, PROPERTY_2 => 10.0]
+        );
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Canceled,
+                property_id: property_id!(PROPERTY_2),
+                from: value!(2.0),
+                to: value!(10.0),
+            }]
         );
     }
 
@@ -1602,6 +1753,17 @@ mod tests {
             ]
         );
 
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Started,
+                property_id: property_id!(PROPERTY_1),
+                from: value!(0.0),
+                to: value!(5.0),
+            }]
+        );
+        properties.pending_transition_events.clear();
+
         // Reversed transition
         set_property_values_and_compute!(properties, { PROPERTY_1 => 0.0 });
         assert_eq!(
@@ -1625,6 +1787,25 @@ mod tests {
                 PROPERTY_1 => 4.0, // Same as before it should not have changed,
             ]
         );
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![
+                TransitionEvent {
+                    event_type: TransitionEventType::Replaced,
+                    property_id: property_id!(PROPERTY_1),
+                    from: value!(0.0),
+                    to: value!(5.0),
+                },
+                TransitionEvent {
+                    event_type: TransitionEventType::Started,
+                    property_id: property_id!(PROPERTY_1),
+                    from: value!(4.0),
+                    to: value!(0.0),
+                }
+            ]
+        );
+        properties.pending_transition_events.clear();
 
         // Tick 2 seconds back
         properties.tick_animations(Duration::from_secs(2));
@@ -1653,11 +1834,40 @@ mod tests {
         assert_eq!(property_1_transition.to, ReflectValue::Float(5.0));
         assert_eq!(property_1_transition.duration, 3.0);
 
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![
+                TransitionEvent {
+                    event_type: TransitionEventType::Replaced,
+                    property_id: property_id!(PROPERTY_1),
+                    from: value!(4.0),
+                    to: value!(0.0),
+                },
+                TransitionEvent {
+                    event_type: TransitionEventType::Started,
+                    property_id: property_id!(PROPERTY_1),
+                    from: value!(2.0),
+                    to: value!(5.0),
+                }
+            ]
+        );
+        properties.pending_transition_events.clear();
+
         // Tick 3 seconds to finish the transition
         properties.tick_animations(Duration::from_secs(3));
 
         assert_eq!(properties.running_transitions().count(), 0);
-        properties.clear_finished_and_cancelled_animations();
+        properties.clear_finished_and_canceled_animations();
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Finished,
+                property_id: property_id!(PROPERTY_1),
+                from: value!(2.0),
+                to: value!(5.0),
+            }]
+        );
     }
     #[test]
     fn properties_reversed_transitions_with_delay() {
@@ -1678,6 +1888,10 @@ mod tests {
         set_property_values_and_compute!(properties, { PROPERTY_2 => 5.0 });
         assert_eq!(apply_computed_values!(properties), values![]);
 
+        properties.tick_animations(Duration::ZERO);
+        // No event should be created
+        assert_eq!(properties.pending_transition_events, vec![]);
+
         // Tick 5 seconds (1 sec delay + 4 seconds)
         properties.tick_animations(Duration::from_secs(5));
         assert_eq!(properties.running_transitions().count(), 1);
@@ -1687,6 +1901,17 @@ mod tests {
             values![PROPERTY_2 => 4.0] // property-2 goes [0.0-5.0] and it's at t=0.8,
         );
 
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Started,
+                property_id: property_id!(PROPERTY_2),
+                from: value!(0.0),
+                to: value!(5.0),
+            }]
+        );
+        properties.pending_transition_events.clear();
+
         // Reversed transition
         set_property_values_and_compute!(properties, { PROPERTY_2 => 0.0 });
         assert_eq!(
@@ -1695,6 +1920,17 @@ mod tests {
         );
 
         properties.tick_animations(Duration::ZERO);
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Replaced,
+                property_id: property_id!(PROPERTY_2),
+                from: value!(0.0),
+                to: value!(5.0),
+            }]
+        );
+        properties.pending_transition_events.clear();
 
         // Since there is an original delay, now it's not running anymore, it's pending
         assert_eq!(properties.running_transitions().count(), 0);
@@ -1716,6 +1952,16 @@ mod tests {
             vec_properties![
                 PROPERTY_2 => 2.0, // property-2 behaves as it's at t=0.2,
             ]
+        );
+
+        assert_eq!(
+            properties.pending_transition_events,
+            vec![TransitionEvent {
+                event_type: TransitionEventType::Started,
+                property_id: property_id!(PROPERTY_2),
+                from: value!(4.0),
+                to: value!(0.0),
+            }]
         );
     }
 }

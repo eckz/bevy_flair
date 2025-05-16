@@ -8,7 +8,7 @@ mod reflect;
 use bevy_reflect::prelude::*;
 
 use crate::animations::reflect::BoxedReflectCurve;
-use bevy_flair_core::ReflectValue;
+use bevy_flair_core::{ComponentPropertyId, ReflectValue};
 use bevy_math::Curve;
 use bevy_time::{Timer, TimerMode};
 pub use easing::*;
@@ -147,7 +147,7 @@ impl AnimationState {
         *self == AnimationState::Running || *self == AnimationState::Pending
     }
 
-    /// If the state indicates the animation has finished or has been cancelled.
+    /// If the state indicates the animation has finished or has been canceled.
     pub fn is_finished(&self) -> bool {
         *self == AnimationState::Finished || *self == AnimationState::Canceled
     }
@@ -157,6 +157,9 @@ impl AnimationState {
 #[derive(Clone, Reflect)]
 #[reflect(from_reflect = false)]
 pub(crate) struct Transition {
+    /// Property id of the transition
+    pub property_id: ComponentPropertyId,
+
     /// Initial delay in secs
     initial_delay: f32,
 
@@ -214,6 +217,7 @@ impl std::fmt::Debug for Transition {
 
 impl Transition {
     pub fn new(
+        property_id: ComponentPropertyId,
         from: Option<ReflectValue>,
         to: ReflectValue,
         options: &TransitionOptions,
@@ -226,6 +230,7 @@ impl Transition {
         let reversing_adjusted_start_value = from.clone();
 
         Self {
+            property_id,
             initial_delay: options.initial_delay.as_secs_f32(),
             duration: options.duration.as_secs_f32(),
             timer: Timer::new(options.duration + options.initial_delay, TimerMode::Once),
@@ -246,7 +251,7 @@ impl Transition {
         reflect: &ReflectAnimatable,
         replaced_transition: &Transition,
     ) -> Self {
-        let mut this = Self::new(from, to, options, reflect);
+        let mut this = Self::new(replaced_transition.property_id, from, to, options, reflect);
         this.update_for_possibly_reversed_transition(replaced_transition, reflect);
         this
     }
@@ -362,9 +367,10 @@ enum CurrentAnimationDirection {
 #[derive(Clone, Reflect)]
 #[reflect(from_reflect = false)]
 pub(crate) struct Animation {
+    /// Name of the animation
     pub name: Arc<str>,
 
-    /// Initial delay in secs
+    /// Initial delay in seconds.
     initial_delay: f32,
 
     /// Duration of the transition, in seconds.

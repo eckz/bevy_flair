@@ -900,7 +900,18 @@ pub(crate) fn tick_animations(
             global_change_detection.any_animation_active = true;
 
             properties.tick_animations(delta);
-            properties.clear_finished_and_cancelled_animations();
+            properties.clear_finished_and_canceled_animations();
+        }
+    }
+}
+
+pub(crate) fn emit_animation_events(
+    mut commands: Commands,
+    mut properties_query: Query<(Entity, &mut NodeProperties)>,
+) {
+    for (entity, mut properties) in &mut properties_query {
+        if properties.has_pending_events() {
+            properties.emit_pending_events(commands.entity(entity));
         }
     }
 }

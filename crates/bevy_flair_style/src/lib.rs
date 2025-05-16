@@ -30,7 +30,7 @@ mod media_selector;
 mod systems;
 mod vars;
 
-use crate::animations::ReflectAnimationsPlugin;
+use crate::animations::{ReflectAnimationsPlugin, Transition};
 use crate::components::*;
 
 pub use builder::*;
@@ -192,8 +192,56 @@ pub enum StyleSystemSets {
     /// Converts properties set in `CalculateStyle` into computed properties. Also calculates inherited properties.
     ComputeProperties,
 
+    /// Emits animation events, like `TransitionEvent`.
+    EmitAnimationEvents,
+
     /// Effectively applies changes from animations and style changes into the Components.
     ApplyProperties,
+}
+
+/// Represents the type of event that occurred during a property transition change.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum TransitionEventType {
+    /// Indicates that a transition has started.
+    Started,
+    /// Indicates that an existing transition has been replaced by a new one.
+    Replaced,
+    /// Indicates that a transition has been canceled.
+    Canceled,
+    /// Indicates that a transition has completed.
+    Finished,
+}
+
+/// An event representing a change (or attempted change) in a component property,
+/// triggered during a transition process.
+#[derive(Clone, PartialEq, Debug, Event)]
+pub struct TransitionEvent {
+    /// The type of transition event (e.g., Started, Replaced, Finished).
+    pub event_type: TransitionEventType,
+    /// The property involved in the transition.
+    pub property_id: ComponentPropertyId,
+    /// The original value of the property before the transition.
+    pub from: ReflectValue,
+    /// The target value of the property after the transition.
+    pub to: ReflectValue,
+}
+
+impl TransitionEvent {
+    /// Creates a new [`TransitionEvent`] from a given [`Transition`] and event type.
+    pub(crate) fn new_from_transition(
+        event_type: TransitionEventType,
+        transition: &Transition,
+    ) -> Self {
+        let property_id = transition.property_id;
+        let from = transition.from.clone();
+        let to = transition.to.clone();
+        Self {
+            event_type,
+            property_id,
+            from,
+            to,
+        }
+    }
 }
 
 /// Plugin that adds the styling systems to Bevy.
@@ -234,6 +282,7 @@ impl Plugin for FlairStylePlugin {
                     )
                         .chain(),
                     StyleSystemSets::TickAnimations.before(StyleSystemSets::SetStyleProperties),
+                    StyleSystemSets::EmitAnimationEvents.after(StyleSystemSets::ComputeProperties),
                 ),
             )
             .add_systems(PreStartup, |mut commands: Commands| {
@@ -279,6 +328,7 @@ impl Plugin for FlairStylePlugin {
                     systems::calculate_style_and_set_vars.in_set(StyleSystemSets::CalculateStyles),
                     systems::set_style_properties.in_set(StyleSystemSets::SetStyleProperties),
                     systems::compute_property_values.in_set(StyleSystemSets::ComputeProperties),
+                    systems::emit_animation_events.in_set(StyleSystemSets::EmitAnimationEvents),
                     systems::apply_properties.in_set(StyleSystemSets::ApplyProperties),
                 ),
             );

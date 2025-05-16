@@ -83,7 +83,8 @@ impl From<ComponentPropertyId> for ComponentPropertyRef {
 }
 
 /// Opaque identifier for a component property.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Reflect)]
+#[reflect(opaque)]
 pub struct ComponentPropertyId(pub(crate) u32);
 
 impl From<ComponentPropertyId> for usize {
