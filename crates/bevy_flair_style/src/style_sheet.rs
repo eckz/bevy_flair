@@ -342,7 +342,6 @@ impl StyleSheet {
                                 }
                             }
                             Err(err) => {
-                                dbg!(tokens_resolved);
                                 error!("Property '{css_name}' cannot parse var tokens:\n{err}");
                             }
                         }

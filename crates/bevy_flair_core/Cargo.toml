@@ -13,6 +13,11 @@ rust-version = "1.85.0"
 unsafe_code = "allow"
 missing_docs = "warn"
 
+[lints.clippy]
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"
+
 [dependencies]
 thiserror = "2.0"
 serde = "1.0"

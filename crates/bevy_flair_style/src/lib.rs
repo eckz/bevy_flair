@@ -24,6 +24,7 @@ mod testing;
 
 pub mod css_selector;
 
+mod layers;
 mod media_selector;
 mod systems;
 mod vars;

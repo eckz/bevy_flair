@@ -141,11 +141,12 @@ pub struct AnimationKeyFrames {
 
 #[derive(Debug)]
 pub enum CssStyleSheetItem {
-    EmbedStylesheet(StyleSheet),
+    EmbedStylesheet(StyleSheet, Option<String>),
     Inner(Vec<CssStyleSheetItem>),
     RuleSet(CssRuleset),
     FontFace(FontFace),
     AnimationKeyFrames(AnimationKeyFrames),
+    LayersDefinition(Vec<String>),
     Error(CssError),
 }
 
@@ -634,8 +635,8 @@ struct CssParserContext<'a, 'i> {
     property_registry: &'a PropertyRegistry,
     shorthand_property_registry: &'a ShorthandPropertyRegistry,
     imports: &'a FxHashMap<String, StyleSheet>,
-
     media_selectors: MediaSelectors,
+    current_layer: String,
 }
 
 impl CssParserContext<'_, '_> {
@@ -855,6 +856,10 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                 let media_selectors = parse_media_selectors(input).map_err(|err| err.into_parse_error())?;
                 Ok(AtRuleType::MediaSelector(media_selectors))
             },
+            "layer" =>  {
+                let layer_name = input.expect_ident_cloned()?;
+                Ok(AtRuleType::Layer(vec![layer_name]))
+            },
             _ => {
                 Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
             }
@@ -887,8 +892,30 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     properties,
                 })
             }
+            AtRuleType::Layer(layers) => {
+                debug_assert_eq!(layers.len(), 1);
+                let layer = &layers[0];
+
+                let mut ruleset_body_parser = CssRulesetBodyParser {
+                    parse_transition: true,
+                    parse_animation: true,
+                    parse_nested: true,
+                    inner: self.inner.clone(),
+                };
+                let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
+                let properties = collect_parser(body_parser);
+
+                let parent_selector = CssSelector::parse_single_for_nested("&")
+                    .unwrap()
+                    .with_layer(layer.as_ref().into());
+
+                CssRulesetProperty::NestedRuleset(CssRuleset {
+                    selectors: Ok(vec![parent_selector]),
+                    properties,
+                })
+            }
             _unexpected => {
-                unreachable!("Unexpected media selector: {_unexpected:?}");
+                unreachable!("Unexpected at rule: {_unexpected:?}");
             }
         })
     }
@@ -1131,8 +1158,34 @@ struct CssStyleSheetParser<'a, 'i> {
 enum AtRuleType<'i> {
     FontFace,
     KeyFrames(CowRcStr<'i>),
-    Import(CowRcStr<'i>),
+    Import(CowRcStr<'i>, Option<String>),
     MediaSelector(MediaSelectors),
+    Layer(Vec<CowRcStr<'i>>),
+}
+
+fn parse_inner_at_rule<'a, 'i>(
+    parser: &mut Parser<'i, '_>,
+    new_context: CssParserContext<'a, 'i>,
+) -> CssStyleSheetItem {
+    let mut css_style_sheet_parser = CssStyleSheetParser {
+        is_top_level: false,
+        inner: new_context,
+    };
+
+    let stylesheet_parser = StyleSheetParser::new(parser, &mut css_style_sheet_parser);
+
+    let mut inner = Vec::new();
+
+    for item in stylesheet_parser {
+        let item = item.unwrap_or_else(|(parse_error, error_str)| {
+            let mut css_error = CssError::from(parse_error);
+            css_error.improve_location_with_sub_str(error_str);
+            CssStyleSheetItem::Error(css_error)
+        });
+        inner.push(item);
+    }
+
+    CssStyleSheetItem::Inner(inner)
 }
 
 /// Parses top-level at-rules
@@ -1156,12 +1209,26 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
             },
             "import" if is_top_level =>  {
                 let url = input.expect_url_or_string()?;
-                input.expect_exhausted()?;
-                AtRuleType::Import(url)
+
+                // The only valid extra tokens is `layer(ident)`
+                let layer = input.try_parse_with(|parser| {
+                    parser.expect_function_matching("layer")?;
+                    parser.parse_nested_block_with(|parser| {
+                        Ok(parser.expect_ident_cloned()?)
+                    })
+                }).ok().map(|l| String::from(l.as_ref()));
+
+                AtRuleType::Import(url, layer)
             },
             "media" =>  {
                 let media_selectors = parse_media_selectors(input).map_err(|err| err.into_parse_error())?;
                 AtRuleType::MediaSelector(media_selectors)
+            },
+            "layer" =>  {
+                let layers = input.parse_comma_separated(|parser| {
+                    Ok(parser.expect_ident()?.clone())
+                })?;
+                AtRuleType::Layer(layers)
             },
             _ => return Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
         })
@@ -1173,13 +1240,25 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         _start: &ParserState,
     ) -> Result<CssStyleSheetItem, ()> {
         match at_rule_type {
-            AtRuleType::Import(url) => {
+            AtRuleType::Import(url, layer) => {
                 let style = self.inner.imports.get(url.as_ref()).unwrap_or_else(|| {
                     panic!("Import '{url}' not found in imports. This should not happen");
                 });
 
-                Ok(CssStyleSheetItem::EmbedStylesheet(style.clone()))
+                Ok(CssStyleSheetItem::EmbedStylesheet(style.clone(), layer))
             }
+            AtRuleType::Layer(layers) => Ok(CssStyleSheetItem::LayersDefinition(
+                layers
+                    .into_iter()
+                    .map(|layer| {
+                        if self.inner.current_layer.is_empty() {
+                            layer.as_ref().into()
+                        } else {
+                            format!("{}.{layer}", self.inner.current_layer)
+                        }
+                    })
+                    .collect(),
+            )),
             _ => Err(()),
         }
     }
@@ -1260,32 +1339,31 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
                 new_context.media_selectors =
                     new_context.media_selectors.merge_with(media_selectors);
 
-                let mut css_style_sheet_parser = CssStyleSheetParser {
-                    is_top_level: false,
-                    inner: new_context,
-                };
-
-                let stylesheet_parser = StyleSheetParser::new(input, &mut css_style_sheet_parser);
-
-                let mut inner = Vec::new();
-
-                for item in stylesheet_parser {
-                    let item = item.unwrap_or_else(|(parse_error, error_str)| {
-                        let mut css_error = CssError::from(parse_error);
-                        css_error.improve_location_with_sub_str(error_str);
-                        CssStyleSheetItem::Error(css_error)
-                    });
-                    inner.push(item);
-                }
-
-                CssStyleSheetItem::Inner(inner)
+                parse_inner_at_rule(input, new_context)
             }
-            AtRuleType::Import(_name) => {
+            AtRuleType::Import(_name, _layer) => {
                 return Err(CssError::new_unlocated(
                     error_codes::basic::INVALID_AT_RULE,
                     "@import cannot be a block",
                 )
                 .into_parse_error());
+            }
+            AtRuleType::Layer(layers) => {
+                if layers.len() > 1 {
+                    return Err(CssError::new_unlocated(
+                        error_codes::basic::INVALID_AT_RULE,
+                        "@layer block cannot contain more than one layer",
+                    )
+                    .into_parse_error());
+                }
+                debug_assert!(layers.len() == 1);
+                let layer = &layers[0];
+                let mut new_context = self.inner.clone();
+                if !new_context.current_layer.is_empty() {
+                    new_context.current_layer.push('.');
+                }
+                new_context.current_layer.push_str(layer.as_ref());
+                parse_inner_at_rule(input, new_context)
             }
         })
     }
@@ -1305,7 +1383,9 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
                 selectors
                     .into_iter()
                     .map(|selector| {
-                        selector.with_media_selectors(self.inner.media_selectors.clone())
+                        selector
+                            .with_media_selectors(self.inner.media_selectors.clone())
+                            .with_layer(self.inner.current_layer.clone())
                     })
                     .collect()
             })
@@ -1356,6 +1436,7 @@ pub fn parse_css<F>(
             shorthand_property_registry,
             imports,
             media_selectors: MediaSelectors::empty(),
+            current_layer: String::new(),
         },
     };
 
@@ -1692,10 +1773,10 @@ mod tests {
             let value = expect_property_name!(property, $property_name);
             assert_eq!(value, PropertyValue::Inherit);
         }};
-        ($properties:expr, $property_name:literal, unset) => {{
+        ($properties:expr, $property_name:literal, initial) => {{
             let property = $properties.expect_one();
             let value = expect_property_name!(property, $property_name);
-            assert_eq!(value, PropertyValue::Unset);
+            assert_eq!(value, PropertyValue::Initial);
         }};
         ($properties:expr, $property_name:literal, $expected:literal) => {{
             let property = $properties.expect_one();
@@ -1749,12 +1830,16 @@ mod tests {
     fn special_property_values() {
         let contents = r#"
             .rule1 { height: inherit; }
+            .rule2 { height: initial; }
         "#;
 
         let items = parse(contents);
-        let ruleset = items.expect_one_rule_set();
-        assert_single_class_selector!(ruleset, "rule1");
-        assert_single_property!(ruleset.properties, "height", inherit);
+        let [rule1, rule2] = items.expect_n_rule_set();
+        assert_single_class_selector!(rule1, "rule1");
+        assert_single_property!(rule1.properties, "height", inherit);
+
+        assert_single_class_selector!(rule2, "rule2");
+        assert_single_property!(rule2.properties, "height", initial);
     }
 
     #[test]
@@ -2445,12 +2530,30 @@ mod tests {
         let items = parse(contents);
         let [import1, import2] = items.expect_n();
 
-        assert!(matches!(import1, CssStyleSheetItem::EmbedStylesheet(_)));
-        assert!(matches!(import2, CssStyleSheetItem::EmbedStylesheet(_)));
+        assert!(matches!(import1, CssStyleSheetItem::EmbedStylesheet(_, _)));
+        assert!(matches!(import2, CssStyleSheetItem::EmbedStylesheet(_, _)));
     }
 
     #[test]
-    fn media_query_with() {
+    fn imports_with_layer() {
+        let contents = indoc! {r#"
+             @import "dependency1.css" layer(some-layer);
+             @import url("dependency2.css") layer(some-layer);
+         "#};
+
+        let items = parse(contents);
+        let [import1, import2] = items.expect_n();
+
+        assert!(
+            matches!(import1, CssStyleSheetItem::EmbedStylesheet(_, Some(layer)) if layer == "some-layer")
+        );
+        assert!(
+            matches!(import2, CssStyleSheetItem::EmbedStylesheet(_, Some(layer)) if layer == "some-layer")
+        );
+    }
+
+    #[test]
+    fn media_query_width() {
         let contents = indoc! {r#"
              @media (width: 360px) {
                 .rule { width: 3 }
@@ -2473,7 +2576,7 @@ mod tests {
     }
 
     #[test]
-    fn media_query_min_with() {
+    fn media_query_min_width() {
         let contents = indoc! {r#"
              @media (min-width: 500px) {
                 .rule { width: 3 }
@@ -2588,5 +2691,88 @@ mod tests {
                 MediaRangeSelector::LessOrEqual(1000)
             )]
         );
+    }
+
+    #[test]
+    fn layer_definition() {
+        let contents = indoc! {r#"
+             @layer base, other;
+         "#};
+
+        let items = parse(contents);
+        let item = items.expect_one();
+
+        let CssStyleSheetItem::LayersDefinition(layers) = item else {
+            panic!("Expected CssStyleSheetItem::LayersConfig");
+        };
+
+        assert_eq!(layers, vec!["base", "other"]);
+    }
+
+    #[test]
+    fn simple_layer_block() {
+        let contents = indoc! {r#"
+             @layer base {
+                .rule { width: 3 }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        assert_eq!(selector.get_layer(), "base");
+        assert_selector_is_class_selector!(selector, "rule");
+    }
+
+    #[test]
+    fn nested_layer_blocks() {
+        let contents = indoc! {r#"
+             @layer base {
+                @layer inner {
+                    .rule { width: 3 }
+                }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        assert_eq!(selector.get_layer(), "base.inner");
+
+        assert_selector_is_class_selector!(selector, "rule");
+    }
+
+    #[test]
+    fn nested_layer_block_inside_rule() {
+        let contents = indoc! {r#"
+             .rule {
+                @layer base {
+                    width: 3
+                }
+             }
+         "#};
+
+        let items = parse(contents);
+        let ruleset = items.expect_one_rule_set();
+        let selector = expect_single_selector!(ruleset);
+
+        assert_selector_is_class_selector!(selector, "rule");
+
+        let mut properties = ruleset.properties;
+        assert_eq!(properties.len(), 1);
+
+        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(0) else {
+            panic!("Expected nested ruleset")
+        };
+
+        let nested_selector = nested_ruleset
+            .selectors
+            .expect("Error while parsing nested selector");
+        assert_eq!(nested_selector.len(), 1);
+        assert_eq!(nested_selector[0].to_css_string(), "&");
+
+        assert_eq!(nested_selector[0].get_layer(), "base");
     }
 }

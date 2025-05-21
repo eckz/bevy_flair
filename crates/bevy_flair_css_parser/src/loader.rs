@@ -252,13 +252,16 @@ impl AssetLoader for CssStyleLoader {
             report_generator: &mut ErrorReportGenerator,
         ) {
             match item {
-                CssStyleSheetItem::EmbedStylesheet(style_sheet) => {
-                    builder.embed_style_sheet(style_sheet);
+                CssStyleSheetItem::EmbedStylesheet(style_sheet, layer) => {
+                    builder.embed_style_sheet(style_sheet, layer);
                 }
                 CssStyleSheetItem::Inner(items) => {
                     for item in items {
                         processor(item, builder, report_generator);
                     }
+                }
+                CssStyleSheetItem::LayersDefinition(layers) => {
+                    builder.define_layers(&layers);
                 }
                 CssStyleSheetItem::RuleSet(ruleset) => {
                     process_ruleset_recursively(ruleset, None, builder, report_generator);

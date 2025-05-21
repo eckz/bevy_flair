@@ -325,6 +325,7 @@ mod tests {
         parse_inner(contents)
     }
 
+    #[allow(clippy::print_stderr)]
     fn parse_inner(contents: &str) -> Val {
         let mut input = ParserInput::new(contents);
         let mut parser = Parser::new(&mut input);

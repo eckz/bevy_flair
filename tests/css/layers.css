@@ -1,0 +1,50 @@
+/* establish a layer order up-front, from lowest to highest priority */
+@layer base, imports, overrides;
+
+@import url("_imported_layers.css") layer(imports);
+
+.child-1 {
+    @layer overrides {
+        left: 10px;
+    }
+}
+
+@layer overrides {
+    @layer inner-base, inner-priority;
+
+    @layer inner-priority {
+        .child-3 {
+            left: 30px;
+        }
+    }
+    @layer inner-base {
+        .child-3 {
+            left: 3100px;
+        }
+    }
+}
+
+/* un-layered styles have the highest priority */
+.child-2 {
+    left: 20px;
+}
+
+@layer base {
+    /* specificity: 1,2,0 */
+    :root > #child-2.child-2 {
+        left: 2000px;
+    }
+
+    .child-1 {
+        left: 1000px;
+    }
+
+    /* specificity: 1,2,0 */
+    :root > #child-3.child-3 {
+        left: 3000px;
+    }
+    
+    .child-4 {
+        left: 4000px;
+    }
+}

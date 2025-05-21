@@ -1,0 +1,23 @@
+
+
+/* specificity: 1,2,0 */
+:root > #child-2.child-2 {
+    left: 2500px;
+}
+
+.child-1 {
+    left: 1500px;
+}
+
+@layer imports-inner {
+    /* Event inside layers, this has priority than inner layers*/
+    .child-4 {
+        left: 40px;
+    }
+    
+    @layer imports-inner-inner {
+        #child-4.child-4 {
+            left: 4500px;
+        }
+    }
+}

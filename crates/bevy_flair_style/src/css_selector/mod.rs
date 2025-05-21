@@ -250,6 +250,7 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
 /// Represents a single selector, i.e. a comma-separated list of selectors would be a `Vec<CssSelector>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssSelector {
+    pub(crate) layer: String,
     pub(crate) media_selectors: MediaSelectors,
     // TODO: Compute ancestors hashes?
     pub(crate) selector: Selector<CssSelectorImpl>,
@@ -293,6 +294,7 @@ impl CssSelector {
                 .cloned()
                 .map(|selector| Self {
                     selector,
+                    layer: String::new(),
                     media_selectors: MediaSelectors::empty(),
                 })
                 .collect()
@@ -311,6 +313,7 @@ impl CssSelector {
         Selector::parse(&css_selector_parser, &mut parser)
             .map(|selector| Self {
                 selector,
+                layer: String::new(),
                 media_selectors: MediaSelectors::empty(),
             })
             .map_err(SelectorError::from)
@@ -343,7 +346,41 @@ impl CssSelector {
     /// Set the media selectors of this css selector.
     pub fn with_media_selectors(self, media_selectors: impl Into<MediaSelectors>) -> Self {
         Self {
+            layer: self.layer,
             media_selectors: media_selectors.into(),
+            selector: self.selector,
+        }
+    }
+
+    /// Return current layers.
+    pub fn get_layer(&self) -> &str {
+        &self.layer
+    }
+
+    /// Add a layer prefix to this selector.
+    pub fn with_layer_prefixed(self, layer_prefix: Option<&str>) -> Self {
+        if let Some(layer_prefix) = layer_prefix {
+            debug_assert!(!layer_prefix.is_empty());
+            let layer = if self.layer.is_empty() {
+                layer_prefix.into()
+            } else {
+                format!("{layer_prefix}.{layer}", layer = self.layer)
+            };
+            Self {
+                layer,
+                media_selectors: self.media_selectors,
+                selector: self.selector,
+            }
+        } else {
+            self
+        }
+    }
+
+    /// Sets the layer of this selector.
+    pub fn with_layer(self, layer: String) -> Self {
+        Self {
+            layer,
+            media_selectors: self.media_selectors,
             selector: self.selector,
         }
     }
@@ -374,6 +411,7 @@ impl CssSelector {
     /// Replaces the parent selector when the selector has been parsed with [`Self::parse_comma_separated_for_nested`].
     pub fn replace_parent_selector(self, parent_selectors: &[CssSelector]) -> CssSelector {
         let parent_media_selectors = &parent_selectors[0].media_selectors;
+        let parent_layer = &parent_selectors[0].layer;
 
         #[cfg(debug_assertions)]
         for selector in parent_selectors {
@@ -382,11 +420,21 @@ impl CssSelector {
                 parent_media_selectors,
                 "All parent selectors should have the same media selectors"
             );
+            debug_assert_eq!(
+                selector.get_layer(),
+                parent_layer,
+                "All parent selectors should have the same layer"
+            );
         }
 
         let parent_selectors_list =
             SelectorList::from_iter(parent_selectors.iter().map(|s| s.selector.clone()));
         CssSelector {
+            layer: if parent_layer.is_empty() {
+                self.layer
+            } else {
+                format!("{parent_layer}.{}", self.layer)
+            },
             media_selectors: parent_media_selectors.merge_with(self.media_selectors),
             selector: self
                 .selector

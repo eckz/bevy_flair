@@ -6,6 +6,7 @@ use crate::{
 };
 
 use crate::css_selector::CssSelector;
+use crate::layers::LayersHierarchy;
 use crate::style_sheet::RulesetProperty;
 use bevy_asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError};
 use bevy_flair_core::*;
@@ -226,6 +227,7 @@ impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
 /// Helper to build a single ruleset. Created using [`StyleSheetBuilder`].
 pub struct RulesetBuilder<'a> {
     ruleset_id: StyleSheetRulesetId,
+    layers_hierarchy: &'a mut LayersHierarchy,
     ruleset: &'a mut BuilderRuleset,
     css_selectors_to_rulesets: &'a mut Vec<(CssSelector, StyleSheetRulesetId)>,
 }
@@ -252,6 +254,7 @@ impl RulesetBuilder<'_> {
 
     /// Add a [`CssSelector`] for the current ruleset.
     pub fn add_css_selector(&mut self, selector: CssSelector) -> &mut Self {
+        self.layers_hierarchy.define_layer(&selector.layer);
         self.css_selectors_to_rulesets
             .push((selector, self.ruleset_id));
         self
@@ -430,6 +433,7 @@ impl BuilderRuleset {
 /// Make sure that style sheet does not have any issues.
 #[derive(Default)]
 pub struct StyleSheetBuilder {
+    layers_hierarchy: LayersHierarchy,
     font_faces: Vec<StyleFontFace>,
     rulesets: Vec<BuilderRuleset>,
     animation_keyframes: FxHashMap<Arc<str>, Vec<(ComponentPropertyRef, AnimationKeyframes)>>,
@@ -450,8 +454,15 @@ impl StyleSheetBuilder {
         })
     }
 
+    /// Sets the order of layers by their names.
+    pub fn define_layers<T: AsRef<str>>(&mut self, layers: &[T]) {
+        for layer in layers {
+            self.layers_hierarchy.define_layer(layer.as_ref());
+        }
+    }
+
     /// Embeds all rules and animations from a different stylesheet
-    pub fn embed_style_sheet(&mut self, other: StyleSheet) {
+    pub fn embed_style_sheet(&mut self, other: StyleSheet, layer: Option<String>) {
         for (id, ruleset) in other.rulesets.into_iter().enumerate() {
             let other_id = StyleSheetRulesetId(id);
 
@@ -464,7 +475,7 @@ impl StyleSheetBuilder {
                 .iter()
                 .filter(|(_, id)| *id == other_id)
                 .for_each(|(selector, _)| {
-                    let selector = selector.clone();
+                    let selector = selector.clone().with_layer_prefixed(layer.as_deref());
                     new_rule_set.add_css_selector(selector);
                 })
         }
@@ -622,6 +633,7 @@ impl StyleSheetBuilder {
 
         RulesetBuilder {
             ruleset_id,
+            layers_hierarchy: &mut self.layers_hierarchy,
             ruleset: &mut self.rulesets[ruleset_id.0],
             css_selectors_to_rulesets: &mut self.css_selectors_to_rulesets,
         }
@@ -736,11 +748,17 @@ impl StyleSheetBuilder {
         self.resolve_asset_handles_with_loader(loader)?;
         self.run_all_validations()?;
 
+        let layers_hierarchy = self.layers_hierarchy;
+
         let mut css_selectors_to_rulesets = self.css_selectors_to_rulesets;
 
-        // These sort puts more specific rules at the end.
+        // These sort puts more specific or priority rules at the end.
         // It's important to use the stable sort, because we want to keep the order for equal elements
-        css_selectors_to_rulesets.sort_by(|(a, _), (b, _)| a.specificity().cmp(&b.specificity()));
+        css_selectors_to_rulesets.sort_by(|(a, _), (b, _)| {
+            layers_hierarchy
+                .cmp_layers(&a.layer, &b.layer)
+                .then_with(|| a.specificity().cmp(&b.specificity()))
+        });
 
         let rulesets = self
             .rulesets

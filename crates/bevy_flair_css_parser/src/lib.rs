@@ -97,9 +97,9 @@ impl<'a> From<LocatedStr<'a>> for String {
 /// Main use case is to get the [location] of the parsed item.
 ///
 /// [location]: crate::Located
-pub trait ParserExt<'a> {
+pub trait ParserExt<'i> {
     /// Peeks the next token without consuming it.
-    fn peek(&mut self) -> Result<Token<'a>, BasicParseError<'a>>;
+    fn peek(&mut self) -> Result<Token<'i>, BasicParseError<'i>>;
 
     /// Uses the inner parser function, and returns the results of such function
     /// wrapped over a [`Located`].
@@ -107,7 +107,7 @@ pub trait ParserExt<'a> {
     /// It doesn't skip whitespaces before the inner parser function.
     fn located_with_whitespace<F, T, E>(&mut self, inner: F) -> Result<Located<T>, E>
     where
-        F: for<'tt> FnOnce(&mut Parser<'a, 'tt>) -> Result<T, E>;
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, E>;
 
     /// Uses the inner parser function, and returns the results of such function
     /// wrapped over a [`Located`].
@@ -115,33 +115,31 @@ pub trait ParserExt<'a> {
     /// It skips whitespaces before the inner parser function.
     fn located<F, T, E>(&mut self, inner: F) -> Result<Located<T>, E>
     where
-        F: for<'tt> FnOnce(&mut Parser<'a, 'tt>) -> Result<T, E>;
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, E>;
 
     /// Returns the next token, if exists, wrapped over a [`Located`].
-    fn located_next(&mut self) -> Result<Located<Token<'a>>, BasicParseError<'a>>;
+    fn located_next(&mut self) -> Result<Located<Token<'i>>, BasicParseError<'i>>;
 
     /// Expects the next token to be an identifier, and returns it wrapped over a [`Located`].
-    fn expect_located_ident(&mut self) -> Result<LocatedStr<'a>, BasicParseError<'a>>;
+    fn expect_located_ident(&mut self) -> Result<LocatedStr<'i>, BasicParseError<'i>>;
 
     /// Convenience method to work with [`parse_nested_block`] and [`CssError`].
     ///
     /// [`parse_nested_block`]: Parser::parse_nested_block
-    fn parse_nested_block_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
-        &mut self,
-        f: F,
-    ) -> Result<T, CssError>;
+    fn parse_nested_block_with<T, F>(&mut self, f: F) -> Result<T, CssError>
+    where
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, CssError>;
 
     /// Convenience method to work with [`try_parse`] and [`CssError`].
     ///
     /// [`try_parse`]: Parser::try_parse
-    fn try_parse_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
-        &mut self,
-        f: F,
-    ) -> Result<T, CssError>;
+    fn try_parse_with<T, F>(&mut self, f: F) -> Result<T, CssError>
+    where
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, CssError>;
 }
 
-impl<'a> ParserExt<'a> for Parser<'a, '_> {
-    fn peek(&mut self) -> Result<Token<'a>, BasicParseError<'a>> {
+impl<'i, 't> ParserExt<'i> for Parser<'i, 't> {
+    fn peek(&mut self) -> Result<Token<'i>, BasicParseError<'i>> {
         let start_state = self.state();
         let result = self.next().cloned();
         self.reset(&start_state);
@@ -150,7 +148,7 @@ impl<'a> ParserExt<'a> for Parser<'a, '_> {
 
     fn located_with_whitespace<F, T, E>(&mut self, inner: F) -> Result<Located<T>, E>
     where
-        F: for<'tt> FnOnce(&mut Parser<'a, 'tt>) -> Result<T, E>,
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, E>,
     {
         let from = self.position().byte_index();
         match inner(self) {
@@ -164,32 +162,32 @@ impl<'a> ParserExt<'a> for Parser<'a, '_> {
 
     fn located<F, T, E>(&mut self, inner: F) -> Result<Located<T>, E>
     where
-        F: for<'tt> FnOnce(&mut Parser<'a, 'tt>) -> Result<T, E>,
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, E>,
     {
         self.skip_whitespace();
         self.located_with_whitespace(inner)
     }
 
-    fn located_next(&mut self) -> Result<Located<Token<'a>>, BasicParseError<'a>> {
+    fn located_next(&mut self) -> Result<Located<Token<'i>>, BasicParseError<'i>> {
         self.located(|parser| parser.next().cloned())
     }
 
-    fn expect_located_ident(&mut self) -> Result<LocatedStr<'a>, BasicParseError<'a>> {
+    fn expect_located_ident(&mut self) -> Result<LocatedStr<'i>, BasicParseError<'i>> {
         self.located(|parser| parser.expect_ident_cloned())
     }
 
-    fn parse_nested_block_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
-        &mut self,
-        f: F,
-    ) -> Result<T, CssError> {
+    fn parse_nested_block_with<T, F>(&mut self, f: F) -> Result<T, CssError>
+    where
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, CssError>,
+    {
         self.parse_nested_block(move |parser| f(parser).map_err(|err| err.into_parse_error()))
             .map_err(CssError::from)
     }
 
-    fn try_parse_with<T, F: FnOnce(&mut Parser) -> Result<T, CssError>>(
-        &mut self,
-        f: F,
-    ) -> Result<T, CssError> {
+    fn try_parse_with<T, F>(&mut self, f: F) -> Result<T, CssError>
+    where
+        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, CssError>,
+    {
         self.try_parse(move |parser| f(parser).map_err(|err| err.into_parse_error()))
             .map_err(CssError::from)
     }

@@ -13,6 +13,11 @@ rust-version = "1.85.0"
 unsafe_code = "forbid"
 missing_docs = "warn"
 
+[lints.clippy]
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"

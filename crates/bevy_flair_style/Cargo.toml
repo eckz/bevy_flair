@@ -15,6 +15,9 @@ missing_docs = "warn"
 
 [lints.clippy]
 type_complexity = "allow"
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"
 
 [dependencies]
 thiserror = "2.0"
