@@ -5,6 +5,7 @@ use crate::parser::{
     AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
     CssTransitionProperty, parse_css,
 };
+use crate::utils::ImportantLevel;
 use bevy_asset::io::Reader;
 use bevy_asset::{AssetLoader, AsyncReadExt, LoadContext, LoadDirectError};
 use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertyRegistry, PropertyValue};
@@ -17,7 +18,7 @@ use bevy_reflect::TypeRegistryArc;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 /// Error that could happen while loading a CSS stylesheet using [`CssStyleLoaderError`].
 #[derive(Debug, Error)]
@@ -122,6 +123,19 @@ impl AssetLoader for CssStyleLoader {
         let mut builder = StyleSheetBuilder::new();
         let mut report_generator = ErrorReportGenerator::new(&path_display, &contents);
 
+        fn report_important_level(
+            report_generator: &mut ErrorReportGenerator,
+            level: ImportantLevel,
+        ) {
+            if let ImportantLevel::Important(location) = level {
+                report_generator.add_advice(
+                    location,
+                    "!important is not supported",
+                    "!important token is being ignored, so you can remove it",
+                );
+            }
+        }
+
         fn report_property_errors_recursively(
             properties: Vec<CssRulesetProperty>,
             report_generator: &mut ErrorReportGenerator,
@@ -167,23 +181,31 @@ impl AssetLoader for CssStyleLoader {
 
                     for property in ruleset.properties {
                         match property {
-                            CssRulesetProperty::SingleProperty(id, value) => {
+                            CssRulesetProperty::SingleProperty(id, value, important_level) => {
                                 ruleset_builder
                                     .add_properties([(ComponentPropertyRef::Id(id), value)]);
+                                report_important_level(report_generator, important_level);
                             }
-                            CssRulesetProperty::MultipleProperties(properties) => {
+                            CssRulesetProperty::MultipleProperties(properties, important_level) => {
                                 ruleset_builder.add_properties(
                                     properties
                                         .into_iter()
                                         .map(|(id, value)| (ComponentPropertyRef::Id(id), value)),
                                 );
+                                report_important_level(report_generator, important_level);
                             }
-                            CssRulesetProperty::DynamicProperty(css_name, parser, tokens) => {
+                            CssRulesetProperty::DynamicProperty(
+                                css_name,
+                                parser,
+                                tokens,
+                                important_level,
+                            ) => {
                                 ruleset_builder.add_properties([StyleBuilderProperty::Dynamic {
                                     css_name,
                                     parser,
                                     tokens,
-                                }])
+                                }]);
+                                report_important_level(report_generator, important_level);
                             }
                             CssRulesetProperty::Transitions(property_transitions) => {
                                 for transition_fallible in property_transitions {
@@ -286,6 +308,7 @@ impl AssetLoader for CssStyleLoader {
                                         CssRulesetProperty::SingleProperty(
                                             property_id,
                                             PropertyValue::Value(sample),
+                                            _,
                                         ) => {
                                             for time in &times {
                                                 keyframes_per_property
@@ -334,7 +357,7 @@ impl AssetLoader for CssStyleLoader {
             },
         );
 
-        if !report_generator.is_empty() {
+        if report_generator.contains_errors() {
             match settings.error_mode {
                 CssStyleLoaderErrorMode::PrintWarn => {
                     warn!("\n{}", report_generator.into_message());
@@ -347,6 +370,8 @@ impl AssetLoader for CssStyleLoader {
                 }
                 CssStyleLoaderErrorMode::Ignore => {}
             }
+        } else if !report_generator.is_empty() {
+            info!("\n{}", report_generator.into_message());
         }
 
         builder.remove_all_empty_rulesets();

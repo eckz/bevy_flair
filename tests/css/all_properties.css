@@ -47,6 +47,54 @@
     -bevy-image-mode: stretch;
 }
 
+.with-important {
+    display: block !important;
+    box-sizing: content-box !important;
+    position: absolute !important;
+    overflow: clip !important;
+    overflow-clip-margin: padding-box 5px !important;
+    left: 10px !important;
+    right: 20% !important;
+    top: calc(20% * 2) !important;
+    bottom: 100vh !important;
+    width: calc(calc(100vw / 2) - 20vw) !important;
+    height: 10vmin !important;
+    min-width: 10vmax !important;
+    min-height: auto !important;
+    max-width: 100px !important;
+    max-height: 1px !important;
+    aspect-ratio: 20 / 2 !important;
+    align-items: flex-start !important;
+    justify-items: baseline !important;
+    align-self: flex-end !important;
+    justify-self: stretch !important;
+    align-content: space-evenly !important;
+    justify-content: space-around !important;
+    margin: 0 30vw !important;
+    padding: calc(20% * 2) 0 !important;
+    border-width: thin !important;
+    flex-direction: column-reverse !important;
+    flex-wrap: wrap-reverse !important;
+    flex: 2 1 10% !important;
+    gap: calc(30px * 2) !important;
+    grid-auto-flow: column !important;
+    grid-template: repeat(3, 100px) / repeat(8, 1fr) fit-content(20px) !important;
+    grid-auto-rows: auto !important;
+    grid-auto-columns: 20px minmax(10px, max-content) !important;
+    grid-row: 1 / 2 !important;
+    grid-column: 1 / span 3 !important;
+
+    border-color: blue !important;
+    background-color: black !important;
+    border-radius: 10px !important;
+    outline: 3px red !important;
+    outline-offset: -1px !important;
+    z-index: 2 !important;
+    box-shadow: -2px -3px 10px 20px green !important;
+    -bevy-image-color: yellow !important;
+    -bevy-image-mode: stretch !important;
+}
+
 .with-inherited-values {
     display: inherit;
     box-sizing: inherit;
@@ -151,4 +199,15 @@ Text {
     -bevy-line-break: any-character;
     
     text-shadow: red 8px 9px;
+}
+
+Text.with-important {
+    color: blue !important;
+    font-size: 3px !important;
+    line-height: 120% !important;
+    -bevy-font-smooth: none !important;
+    text-align: center !important;
+    -bevy-line-break: any-character !important;
+
+    text-shadow: red 8px 9px !important;
 }

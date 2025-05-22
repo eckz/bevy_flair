@@ -431,6 +431,7 @@ pub struct ErrorReportGenerator<'a> {
     contents: &'a str,
     config: Config,
     full_message: Vec<u8>,
+    contains_errors: bool,
 }
 
 impl<'a> ErrorReportGenerator<'a> {
@@ -442,6 +443,7 @@ impl<'a> ErrorReportGenerator<'a> {
     /// New error report generator with the given configuration.
     pub fn new_with_config(file_name: &'a str, contents: &'a str, config: Config) -> Self {
         Self {
+            contains_errors: false,
             file_name,
             contents,
             config: config.with_index_type(IndexType::Byte),
@@ -450,12 +452,19 @@ impl<'a> ErrorReportGenerator<'a> {
     }
 
     /// If no errors have been added.
+    pub fn contains_errors(&self) -> bool {
+        self.contains_errors
+    }
+
+    /// If there is any message, error or advice.
     pub fn is_empty(&self) -> bool {
         self.full_message.is_empty()
     }
 
     /// Add an error to this report.
     pub fn add_error(&mut self, error: CssError) {
+        self.contains_errors = true;
+
         let StyleErrorData {
             code,
             annotated_message,
@@ -476,6 +485,30 @@ impl<'a> ErrorReportGenerator<'a> {
             .with_message(message)
             .with_label(
                 Label::new((self.file_name, range)).with_message(annotated_message), //.with_color(a),
+            )
+            .finish()
+            .write((self.file_name, source), &mut self.full_message)
+            .unwrap();
+    }
+
+    /// Add advice to this report.
+    pub fn add_advice(
+        &mut self,
+        location: Range<usize>,
+        message: &'static str,
+        annotated_message: impl Into<String>,
+    ) {
+        let source = Source::from(self.contents);
+
+        if !self.full_message.is_empty() {
+            self.full_message.push(b'\n');
+        }
+
+        Report::build(ReportKind::Advice, (self.file_name, location.clone()))
+            .with_config(self.config)
+            .with_message(message)
+            .with_label(
+                Label::new((self.file_name, location)).with_message(annotated_message.into()), //.with_color(a),
             )
             .finish()
             .write((self.file_name, source), &mut self.full_message)

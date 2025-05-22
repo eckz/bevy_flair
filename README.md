@@ -45,6 +45,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 - Custom animations using [`@keyframes`].
 - Support for [`@media`] queries.
   - The following properties are supported: `prefers-color-scheme`, `width`, `height`, `resolution`, `aspect-ratio`.
+- Support for [`@layer`].
 - Different stylesheets per subtree. With the use of a different [`NodeStyleSheet`] per subtree. It's even possible to not apply any style for a given subtree.
 - Supports for custom properties. (Example TBA)
 - Supports for custom parsing. (Example TBA)
@@ -71,6 +72,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 [`calc()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/calc
 [`var()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/var
 [`@media`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@media
+[`@layer`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@layer
 
 ## Missing features and limitations
 
@@ -80,16 +82,13 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 - Inline css. Right now it's not possible to define css directly in code. It has to be defined directly into an asset with the `.css` extension. 
   It wouldn't be as easy as creating a simple macro for it, but it most definitely something to be considered.
 - Support for `!important`.
-  - I don't really know if it's something people use nowadays.
-    One possible first step would be detected the presence of an `!important` and ignore it (with a warning) instead of throwing a parse error.
-- Support for [`@layer`].
-  - Some modern frameworks like tailwind make use of this so it could be interesing to add support to.
+  - I don't expect it to have real usage today, specially with `@layer` support.
+  - The only support is the detection of an `!important` token and ignore it with a message being emitted.
 - Support for local fonts or support fallback fonts. Right now a single font is specified using `@font-face`. In bevy this should work for the majority of users.
 - Advance color parsing like using `color-mix()` or relative colors like `lch(from blue calc(l + 20) c h)`.
   - This should be relatively easy to add.
 - Support for pre-processors like `sass`. It should be relatively simple to add crate that generates css from sass code.
 
-[`@layer`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@layer
 
 ## Showcase
 This example works by only using CSS (See [example](https://github.com/eckz/bevy_flair/blob/main/assets/game_menu.css))

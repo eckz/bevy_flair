@@ -1,7 +1,7 @@
 use crate::error_codes::vars as error_codes;
 use crate::{CssError, ParserExt};
 use bevy_flair_style::{VarOrToken, VarToken, VarTokens};
-use cssparser::{Parser, Token};
+use cssparser::{Parser, Token, parse_important};
 
 pub(crate) fn parse_var_fn(parser: &mut Parser) -> Result<VarOrToken, CssError> {
     parser.expect_function_matching("var")?;
@@ -61,34 +61,43 @@ fn parse_var_or_token(parser: &mut Parser) -> Result<VarOrToken, CssError> {
 }
 
 pub fn parse_var_tokens(input: &mut Parser) -> Result<VarTokens, CssError> {
-    fn parse_var_tokens_inner(input: &mut Parser, result: &mut VarTokens) -> Result<(), CssError> {
-        while !input.is_exhausted() {
-            let next_token = parse_var_or_token(input)?;
-            let is_function = next_token.is_function();
-            result.push(next_token);
-            if is_function {
-                input.parse_nested_block_with(|input| parse_var_tokens_inner(input, result))?;
-                result.push(VarOrToken::Token(VarToken::EndFunction));
-            }
+    fn parse_next(parser: &mut Parser) -> Result<VarTokens, CssError> {
+        if parser.try_parse(parse_important).is_ok() {
+            return Err(CssError::from(parser.new_error_for_next_token::<()>()));
         }
-        Ok(())
+        let mut next_tokens = VarTokens::new();
+        let next_token = parse_var_or_token(parser)?;
+        let is_function = next_token.is_function();
+        next_tokens.push(next_token);
+        if is_function {
+            parser.parse_nested_block_with(|parser| {
+                while let Ok(next) = parser.try_parse_with(parse_next) {
+                    next_tokens.extend(next);
+                }
+                Ok(())
+            })?;
+            next_tokens.push(VarOrToken::Token(VarToken::EndFunction));
+        }
+        Ok(next_tokens)
     }
 
     let mut result = VarTokens::default();
-    parse_var_tokens_inner(input, &mut result)?;
+    while let Ok(next) = input.try_parse_with(parse_next) {
+        result.extend(next);
+    }
     Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::parse_content_with;
+    use crate::testing::parse_property_content_with;
 
     #[test]
     fn test_parse_var_tokens() {
         let contents = "some tokens";
 
-        let var_tokens = parse_content_with(contents, parse_var_tokens);
+        let var_tokens = parse_property_content_with(contents, parse_var_tokens);
         let resolved_tokens = var_tokens
             .resolve_recursively(|_| panic!("no vars"))
             .expect("Error resolving tokens");
@@ -106,7 +115,7 @@ mod tests {
     fn test_parse_var_tokens_with_vars() {
         let contents = "other var(--some-var) tokens";
 
-        let var_tokens = parse_content_with(contents, parse_var_tokens);
+        let var_tokens = parse_property_content_with(contents, parse_var_tokens);
 
         assert_eq!(
             var_tokens,
@@ -122,7 +131,7 @@ mod tests {
     fn test_parse_var_tokens_inside_functions() {
         let contents = "calc(calc(var(--some-var) tokens))";
 
-        let var_tokens = parse_content_with(contents, parse_var_tokens);
+        let var_tokens = parse_property_content_with(contents, parse_var_tokens);
 
         assert_eq!(
             var_tokens,

@@ -197,12 +197,29 @@ pub(crate) type CssParseResult<T> = Result<T, CssError>;
 
 #[cfg(test)]
 pub(crate) mod testing {
+    use crate::utils::{ImportantLevel, try_parse_important_level};
     use crate::{CssError, ErrorReportGenerator};
     use cssparser::{Parser, ParserInput};
 
     #[inline(always)]
     #[track_caller]
-    pub fn parse_content_with<T>(
+    pub fn parse_property_content_with<T>(
+        contents: &str,
+        parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
+    ) -> T {
+        // Adds a !important at the end to verify that parse functions don't try to consume the !important token.
+        let contents = format!("{contents} !important");
+        parse_raw_content_with(&contents, |parser| {
+            let result = parse_fn(parser)?;
+            let important_level = try_parse_important_level(parser);
+            assert!(matches!(important_level, ImportantLevel::Important(_)));
+            Ok(result)
+        })
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn parse_raw_content_with<T>(
         contents: &str,
         parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
     ) -> T {

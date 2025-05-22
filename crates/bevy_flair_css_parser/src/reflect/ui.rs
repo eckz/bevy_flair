@@ -2,6 +2,7 @@ use crate::calc::{parse_calc_property_value_with, parse_calc_value};
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
+use crate::reflect::parse_color;
 use crate::utils::parse_property_value_with;
 use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
@@ -96,8 +97,11 @@ pub(crate) fn parse_four_values<T: Copy>(
     let mut values = SmallVec::<[T; 4]>::new();
 
     values.push(f(parser)?);
-    while !parser.is_exhausted() && values.len() < 4 {
-        values.push(f(parser)?);
+    while let Ok(val) = parser.try_parse_with(&mut f) {
+        values.push(val);
+        if values.len() >= 4 {
+            break;
+        }
     }
 
     Ok(match *values.as_slice() {
@@ -117,21 +121,22 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
     let mut values = SmallVec::<[_; 4]>::new();
     let mut color = ShadowStyle::default().color;
 
-    while !parser.is_exhausted() {
-        let val_result = parser.try_parse(parse_val);
-        if let Ok(val) = val_result {
-            values.push(val);
-            continue;
-        }
-        let color_result = parser.try_parse(super::color::parse_color);
+    if let Ok(new_color) = parser.try_parse(parse_color) {
+        color = new_color;
+    }
 
-        if let Ok(new_color) = color_result {
-            // TODO: Error if there an existing color already
-            color = new_color;
-            continue;
-        }
+    values.push(parse_calc_value(parser, parse_val)?);
+    values.push(parse_calc_value(parser, parse_val)?);
 
-        return Err(CssError::from(parser.new_error_for_next_token::<()>()));
+    while let Ok(val) = parser.try_parse_with(|parser| parse_calc_value(parser, parse_val)) {
+        values.push(val);
+        if values.len() >= 4 {
+            break;
+        }
+    }
+
+    if let Ok(new_color) = parser.try_parse_with(parse_color) {
+        color = new_color;
     }
 
     let shadow_style = match *values.as_slice() {
@@ -167,9 +172,15 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
 }
 
 fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    let styles = parser.parse_comma_separated(|parser| {
-        parse_single_box_shadow_style(parser).map_err(|err| err.into_parse_error())
-    })?;
+    let mut styles = Vec::with_capacity(1);
+    styles.push(parse_single_box_shadow_style(parser)?);
+
+    while let Ok(shadow_style) = parser.try_parse_with(|parser| {
+        parser.expect_comma()?;
+        parse_single_box_shadow_style(parser)
+    }) {
+        styles.push(shadow_style);
+    }
 
     Ok(ReflectValue::new(BoxShadow(styles)))
 }

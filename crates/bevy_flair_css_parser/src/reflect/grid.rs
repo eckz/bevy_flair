@@ -327,31 +327,33 @@ fn parse_grid_placement(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     non_zero!(start);
     let start = convert_integer!(start as i16);
 
-    if parser.is_exhausted() {
-        return Ok(ReflectValue::new(GridPlacement::start(start)));
+    if let Ok(result) = parser.try_parse_with(|parser| {
+        parser.expect_delim('/')?;
+
+        let peek = parser.peek()?;
+
+        Ok(ReflectValue::new(match peek {
+            Token::Ident(_) => {
+                parser.expect_ident_matching("span")?;
+                let span = parser.expect_integer()?;
+                non_zero!(span);
+                let span = convert_integer!(span as u16);
+
+                // TODO: Check this conversion
+                GridPlacement::start_span(start, span)
+            }
+            _ => {
+                let end = parser.expect_integer()?;
+                non_zero!(end);
+                let end = convert_integer!(end as i16);
+                GridPlacement::start_end(start, end)
+            }
+        }))
+    }) {
+        Ok(result)
+    } else {
+        Ok(ReflectValue::new(GridPlacement::start(start)))
     }
-
-    parser.expect_delim('/')?;
-
-    let peek = parser.peek()?;
-
-    Ok(ReflectValue::new(match peek {
-        Token::Ident(_) => {
-            parser.expect_ident_matching("span")?;
-            let span = parser.expect_integer()?;
-            non_zero!(span);
-            let span = convert_integer!(span as u16);
-
-            // TODO: Check this conversion
-            GridPlacement::start_span(start, span)
-        }
-        _ => {
-            let end = parser.expect_integer()?;
-            non_zero!(end);
-            let end = convert_integer!(end as i16);
-            GridPlacement::start_end(start, end)
-        }
-    }))
 }
 
 impl FromType<Vec<GridTrack>> for ReflectParseCss {

@@ -385,30 +385,36 @@ impl BuilderRuleset {
         self,
         property_registry: &PropertyRegistry,
     ) -> Result<Ruleset, ResolvePropertyError> {
-        let properties = self
-            .properties
-            .into_iter()
-            .map(|property| {
-                Ok(match property {
-                    StyleBuilderProperty::Specific {
-                        property_ref,
-                        value,
-                    } => RulesetProperty::Specific {
-                        property_id: property_registry.resolve(&property_ref)?,
-                        value,
-                    },
-                    StyleBuilderProperty::Dynamic {
-                        css_name,
-                        parser,
-                        tokens,
-                    } => RulesetProperty::Dynamic {
-                        css_name,
-                        parser,
-                        tokens,
-                    },
+        fn resolve_properties(
+            property_registry: &PropertyRegistry,
+            properties: Vec<StyleBuilderProperty>,
+        ) -> Result<Vec<RulesetProperty>, ResolvePropertyError> {
+            properties
+                .into_iter()
+                .map(|property| {
+                    Ok(match property {
+                        StyleBuilderProperty::Specific {
+                            property_ref,
+                            value,
+                        } => RulesetProperty::Specific {
+                            property_id: property_registry.resolve(&property_ref)?,
+                            value,
+                        },
+                        StyleBuilderProperty::Dynamic {
+                            css_name,
+                            parser,
+                            tokens,
+                        } => RulesetProperty::Dynamic {
+                            css_name,
+                            parser,
+                            tokens,
+                        },
+                    })
                 })
-            })
-            .collect::<Result<_, ResolvePropertyError>>()?;
+                .collect()
+        }
+
+        let properties = resolve_properties(property_registry, self.properties)?;
 
         let property_transitions = self
             .property_transitions

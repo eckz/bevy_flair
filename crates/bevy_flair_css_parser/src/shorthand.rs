@@ -720,7 +720,7 @@ impl Plugin for ShorthandPropertiesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::parse_content_with;
+    use crate::testing::parse_property_content_with;
     use bevy_color::Color;
     use bevy_color::palettes::css;
 
@@ -792,7 +792,7 @@ mod tests {
                 .get_property($property_name)
                 .expect(&format!("Property '{}' not found", $property_name));
 
-            let mut result = parse_content_with($contents, |parser| property.parse(parser));
+            let mut result = parse_property_content_with($contents, |parser| property.parse(parser));
 
             result.sort_by(|(a, _), (b, _)| a.cmp(&b));
 

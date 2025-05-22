@@ -104,6 +104,14 @@ impl ToCss for VarOrToken {
 /// This is the main type used for processing and resolving variable-based tokens.
 #[derive(PartialEq, Debug, Clone, Default, Deref, DerefMut)]
 pub struct VarTokens(SmallVec<[VarOrToken; 2]>);
+
+impl VarTokens {
+    /// Creates an empty [`VarTokens`].
+    pub fn new() -> Self {
+        VarTokens(SmallVec::new())
+    }
+}
+
 impl FromIterator<VarOrToken> for VarTokens {
     fn from_iter<T: IntoIterator<Item = VarOrToken>>(iter: T) -> Self {
         Self(SmallVec::from_iter(iter))
@@ -112,6 +120,15 @@ impl FromIterator<VarOrToken> for VarTokens {
 impl FromIterator<VarToken> for VarTokens {
     fn from_iter<T: IntoIterator<Item = VarToken>>(iter: T) -> Self {
         Self(SmallVec::from_iter(iter.into_iter().map(VarOrToken::Token)))
+    }
+}
+
+impl IntoIterator for VarTokens {
+    type Item = VarOrToken;
+    type IntoIter = <SmallVec<[VarOrToken; 2]> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 

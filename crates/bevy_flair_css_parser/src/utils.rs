@@ -1,6 +1,7 @@
 use crate::{CssError, ParserExt, error_codes::vars as error_codes};
 use bevy_flair_core::PropertyValue;
-use cssparser::{Parser, match_ignore_ascii_case};
+use cssparser::{Parser, match_ignore_ascii_case, parse_important};
+use std::ops::Range;
 
 pub fn parse_property_global_keyword<T>(parser: &mut Parser) -> Result<PropertyValue<T>, CssError> {
     let next = parser.expect_located_ident()?;
@@ -51,4 +52,22 @@ pub fn try_parse_none_with_value<T>(parser: &mut Parser, none_value: T) -> Optio
             Ok(none_value)
         })
         .ok()
+}
+
+/// Represents the current pseudo state of an entity.
+/// By default, it supports only the basic pseudo classes like `:hover`, `:active`, and `:focus`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ImportantLevel {
+    /// Default (no !important found)
+    Default,
+    /// Important rule, with its location
+    Important(Range<usize>),
+}
+
+pub fn try_parse_important_level(parser: &mut Parser) -> ImportantLevel {
+    if let Ok(located) = parser.try_parse(|parser| parser.located(parse_important)) {
+        ImportantLevel::Important(located.location)
+    } else {
+        ImportantLevel::Default
+    }
 }

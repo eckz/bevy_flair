@@ -5,6 +5,7 @@ use cssparser::*;
 
 use crate::error::CssError;
 use crate::reflect::ReflectParseCssEnum;
+use crate::utils::{ImportantLevel, try_parse_important_level};
 use crate::vars::parse_var_tokens;
 use crate::{CssParseResult, LocatedStr, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
 use crate::{ReflectParseCss, error_codes};
@@ -40,9 +41,14 @@ pub struct CssAnimation {
 
 #[derive(Clone, derive_more::Debug)]
 pub enum CssRulesetProperty {
-    SingleProperty(ComponentPropertyId, PropertyValue),
-    MultipleProperties(Vec<(ComponentPropertyId, PropertyValue)>),
-    DynamicProperty(Arc<str>, #[debug(skip)] DynamicParseVarTokens, VarTokens),
+    SingleProperty(ComponentPropertyId, PropertyValue, ImportantLevel),
+    MultipleProperties(Vec<(ComponentPropertyId, PropertyValue)>, ImportantLevel),
+    DynamicProperty(
+        Arc<str>,
+        #[debug(skip)] DynamicParseVarTokens,
+        VarTokens,
+        ImportantLevel,
+    ),
     Var(Arc<str>, VarTokens),
     Transitions(Vec<CssParseResult<CssTransitionProperty>>),
     Animations(Vec<CssParseResult<CssAnimation>>),
@@ -559,7 +565,11 @@ fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError
             "light" => ColorScheme::Light,
             "dark" => ColorScheme::Dark,
             _ => {
-                return Err(CssError::new_located(&ident,  error_codes::media_queries::UNPEXPECTED_COLOR_SCHEMA_TOKEN, format!("Identifier '{ident}' is not recognized. Only valid color schemes are 'light' or 'dark'")));
+                return Err(CssError::new_located(
+                    &ident,
+                    error_codes::media_queries::UNPEXPECTED_COLOR_SCHEMA_TOKEN,
+                    format!("Identifier '{ident}' is not recognized. Only valid color schemes are 'light' or 'dark'")
+                ));
             }
         })
     }
@@ -697,34 +707,41 @@ impl CssParserContext<'_, '_> {
             parser.look_for_var_or_env_functions();
 
             let result = parser.parse_entirely(|parser| {
-                shorthand_property
+                let properties = shorthand_property
                     .parse(parser)
-                    .map_err(|error| error.into_parse_error())
+                    .map_err(|error| error.into_parse_error())?;
+                let important_level = try_parse_important_level(parser);
+                Ok((properties, important_level))
             });
 
             let seen_var_or_env_functions = parser.seen_var_or_env_functions();
 
             return match result {
-                Ok(properties) => CssRulesetProperty::MultipleProperties(
+                Ok((properties, important_level)) => CssRulesetProperty::MultipleProperties(
                     properties
                         .into_iter()
                         .map(|(property, value)| {
                             (self.property_registry.resolve(&property).unwrap(), value)
                         })
                         .collect(),
+                    important_level,
                 ),
                 Err(_) if seen_var_or_env_functions => {
                     parser.reset(&initial_state);
 
                     let result = parser.parse_entirely(|parser| {
-                        parse_var_tokens(parser).map_err(|error| error.into_parse_error())
+                        let var_tokens =
+                            parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
+                        let important_level = try_parse_important_level(parser);
+                        Ok((var_tokens, important_level))
                     });
 
                     match result {
-                        Ok(var_tokens) => CssRulesetProperty::DynamicProperty(
+                        Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
                             shorthand_property.css_name.as_ref().into(),
                             shorthand_property.as_dynamic_parse_var_tokens(),
                             var_tokens,
+                            important_level,
                         ),
                         Err(err) => CssRulesetProperty::Error(CssError::from(err)),
                     }
@@ -755,25 +772,34 @@ impl CssParserContext<'_, '_> {
         parser.look_for_var_or_env_functions();
 
         let parse_fn = reflect_parse_css.parse_fn();
-        let result = parser
-            .parse_entirely(|parser| parse_fn(parser).map_err(|error| error.into_parse_error()));
+        let result = parser.parse_entirely(|parser| {
+            let value = parse_fn(parser).map_err(|error| error.into_parse_error())?;
+            let important_level = try_parse_important_level(parser);
+            Ok((value, important_level))
+        });
 
         let seen_var_or_env_functions = parser.seen_var_or_env_functions();
 
         match result {
-            Ok(value) => CssRulesetProperty::SingleProperty(property_id, value),
+            Ok((value, important_level)) => {
+                CssRulesetProperty::SingleProperty(property_id, value, important_level)
+            }
             Err(_) if seen_var_or_env_functions => {
                 parser.reset(&initial_state);
 
                 let result = parser.parse_entirely(|parser| {
-                    parse_var_tokens(parser).map_err(|error| error.into_parse_error())
+                    let var_tokens =
+                        parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
+                    let important_level = try_parse_important_level(parser);
+                    Ok((var_tokens, important_level))
                 });
 
                 match result {
-                    Ok(var_tokens) => CssRulesetProperty::DynamicProperty(
+                    Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
                         property_name.as_ref().into(),
                         reflect_parse_css.as_dynamic_parse_var_tokens(property_id),
                         var_tokens,
+                        important_level,
                     ),
                     Err(err) => CssRulesetProperty::Error(CssError::from(err)),
                 }
@@ -1483,13 +1509,15 @@ mod tests {
         pub property_enum: TestEnum,
     }
 
+    fn parse_i32_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
+        parse_property_value_with(parser, |parser| {
+            Ok(ReflectValue::new(parser.expect_integer()?))
+        })
+    }
+
     impl FromType<i32> for ReflectParseCss {
         fn from_type() -> Self {
-            Self(|parser| {
-                parse_property_value_with(parser, |parser| {
-                    Ok(ReflectValue::new(parser.expect_integer()?))
-                })
-            })
+            Self(parse_i32_property_value)
         }
     }
 
@@ -1521,9 +1549,20 @@ mod tests {
         registry
     }
 
+    fn shorthand_property_registry() -> ShorthandPropertyRegistry {
+        let mut registry = ShorthandPropertyRegistry::default();
+        registry.register_new("shorthand", ["width", "height"], |parser| {
+            let width = parse_i32_property_value(parser)?;
+            parser.expect_comma()?;
+            let height = parse_i32_property_value(parser)?;
+            Ok(vec![("width".into(), width), ("height".into(), height)])
+        });
+        registry
+    }
+
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(property_registry);
     static SHORTHAND_PROPERTY_REGISTRY: LazyLock<ShorthandPropertyRegistry> =
-        LazyLock::new(ShorthandPropertyRegistry::default);
+        LazyLock::new(shorthand_property_registry);
 
     macro_rules! into_report {
         ($error:expr, $contents:expr) => {{
@@ -1704,19 +1743,16 @@ mod tests {
     }
 
     macro_rules! expect_property_name {
-        ($property:expr, $property_name:literal) => {{
-            let expected_property_id = PROPERTY_REGISTRY
-                .get_property_id_by_css_name($property_name)
-                .expect("Invalid property_name provided");
-
+        ($property:expr, $property_name:literal) => {
             match $property {
-                CssRulesetProperty::SingleProperty(id, value) => {
+                CssRulesetProperty::SingleProperty(id, value, important_level) => {
                     assert_eq!(
-                        id, expected_property_id,
+                        id,
+                        property_id!($property_name),
                         "Property name is not '{}'",
                         $property_name
                     );
-                    value
+                    (value, important_level)
                 }
                 CssRulesetProperty::Error(error) => {
                     panic!("{}", error.into_context_less_report());
@@ -1725,20 +1761,24 @@ mod tests {
                     panic!("Not valid single property nor error. Got: {other:?}");
                 }
             }
-        }};
+        };
+    }
+
+    macro_rules! property_id {
+        ($property_name:literal) => {
+            PROPERTY_REGISTRY
+                .get_property_id_by_css_name($property_name)
+                .expect("Invalid property_name provided")
+        };
     }
 
     macro_rules! expect_dynamic_property_name {
-        ($property:expr, $property_name:literal, { $($k:expr => $v:expr),* $(,)? }) => {{
-            let expected_property_id = PROPERTY_REGISTRY
-                .get_property_id_by_css_name($property_name)
-                .expect("Invalid property_name provided");
-
+        ($property:expr, $property_name:literal, { $($k:expr => $v:expr),* $(,)? }) => {
             match $property {
-                CssRulesetProperty::DynamicProperty(_, parser, tokens) => {
+                CssRulesetProperty::DynamicProperty(_, parser, tokens, _) => {
                     let vars = rustc_hash::FxHashMap::from_iter([$((
                         $k,
-                        crate::testing::parse_content_with(&$v, crate::vars::parse_var_tokens)
+                        crate::testing::parse_raw_content_with(&$v, crate::vars::parse_var_tokens)
                     ),)*]);
 
                     let resolved_tokens = tokens.resolve_recursively(|var_name| {
@@ -1751,7 +1791,7 @@ mod tests {
                     let id = PROPERTY_REGISTRY.resolve(&id_ref).expect("Invalid id reference");
 
                     assert_eq!(
-                        id, expected_property_id,
+                        id, property_id!($property_name),
                         "Property name is not '{}'",
                         $property_name
                     );
@@ -1764,23 +1804,23 @@ mod tests {
                     panic!("Not valid dynamic property nor error. Got: {other:?}");
                 }
             }
-        }};
+        };
     }
 
     macro_rules! assert_single_property {
         ($properties:expr, $property_name:literal, inherit) => {{
             let property = $properties.expect_one();
-            let value = expect_property_name!(property, $property_name);
+            let (value, _) = expect_property_name!(property, $property_name);
             assert_eq!(value, PropertyValue::Inherit);
         }};
         ($properties:expr, $property_name:literal, initial) => {{
             let property = $properties.expect_one();
-            let value = expect_property_name!(property, $property_name);
+            let (value, _) = expect_property_name!(property, $property_name);
             assert_eq!(value, PropertyValue::Initial);
         }};
         ($properties:expr, $property_name:literal, $expected:literal) => {{
             let property = $properties.expect_one();
-            let value = expect_property_name!(property, $property_name);
+            let (value, _) = expect_property_name!(property, $property_name);
             assert_eq!(
                 value,
                 PropertyValue::Value(ReflectValue::new($expected as i32))
@@ -1827,6 +1867,37 @@ mod tests {
     }
 
     #[test]
+    fn parse_using_shorthand() {
+        let contents = r#"
+            .rule { shorthand: 3,4; }
+        "#;
+
+        let items = parse(contents);
+        let rule = items.expect_one_rule_set();
+        assert_single_class_selector!(rule, "rule");
+        let property = rule.properties.expect_one();
+
+        let CssRulesetProperty::MultipleProperties(values, important_level) = property else {
+            panic!("Expected MultipleProperties");
+        };
+        assert_eq!(important_level, ImportantLevel::Default);
+
+        assert_eq!(
+            values,
+            vec![
+                (
+                    property_id!("width"),
+                    PropertyValue::Value(ReflectValue::new(3))
+                ),
+                (
+                    property_id!("height"),
+                    PropertyValue::Value(ReflectValue::new(4))
+                ),
+            ]
+        )
+    }
+
+    #[test]
     fn special_property_values() {
         let contents = r#"
             .rule1 { height: inherit; }
@@ -1840,6 +1911,51 @@ mod tests {
 
         assert_single_class_selector!(rule2, "rule2");
         assert_single_property!(rule2.properties, "height", initial);
+    }
+
+    #[test]
+    fn rules_with_important() {
+        let contents = r#"
+            .rule1 { height: 1 !important }
+            .rule2 { height: 2 !important; }
+            .rule3 { shorthand: 8,9 !important; }
+        "#;
+
+        let items = parse(contents);
+        let [rule1, rule2, rule3] = items.expect_n_rule_set();
+        assert_single_class_selector!(rule1, "rule1");
+        let property = rule1.properties.expect_one();
+        let (value, important_level) = expect_property_name!(property, "height");
+        assert_eq!(value, PropertyValue::Value(ReflectValue::new(1)));
+        assert!(matches!(important_level, ImportantLevel::Important(_)));
+
+        assert_single_class_selector!(rule2, "rule2");
+        let property = rule2.properties.expect_one();
+        let (value, important_level) = expect_property_name!(property, "height");
+        assert_eq!(value, PropertyValue::Value(ReflectValue::new(2)));
+        assert!(matches!(important_level, ImportantLevel::Important(_)));
+
+        assert_single_class_selector!(rule3, "rule3");
+        let property = rule3.properties.expect_one();
+
+        let CssRulesetProperty::MultipleProperties(values, important_level) = property else {
+            panic!("Expected MultipleProperties");
+        };
+        assert!(matches!(important_level, ImportantLevel::Important(_)));
+
+        assert_eq!(
+            values,
+            vec![
+                (
+                    property_id!("width"),
+                    PropertyValue::Value(ReflectValue::new(8))
+                ),
+                (
+                    property_id!("height"),
+                    PropertyValue::Value(ReflectValue::new(9))
+                ),
+            ]
+        )
     }
 
     #[test]
@@ -2345,8 +2461,9 @@ mod tests {
         );
 
         // height is still parsed correctly
-        let height = expect_property_name!(property_height, "height");
+        let (height, important_level) = expect_property_name!(property_height, "height");
         assert_eq!(height, PropertyValue::Value(ReflectValue::new(88i32)));
+        assert_eq!(important_level, ImportantLevel::Default);
     }
 
     #[test]
@@ -2382,8 +2499,9 @@ mod tests {
 ");
 
         // height is still parsed correctly
-        let height = expect_property_name!(property_height, "height");
+        let (height, important_level) = expect_property_name!(property_height, "height");
         assert_eq!(height, PropertyValue::Value(ReflectValue::new(88i32)));
+        assert_eq!(important_level, ImportantLevel::Default);
     }
 
     #[test]
@@ -2437,7 +2555,7 @@ mod tests {
 
         assert!(matches!(
             properties[0],
-            CssRulesetProperty::SingleProperty(_, _)
+            CssRulesetProperty::SingleProperty(_, _, _)
         ));
         assert!(matches!(
             properties[1],
@@ -2477,7 +2595,7 @@ mod tests {
 
         assert!(matches!(
             properties[0],
-            CssRulesetProperty::SingleProperty(_, _)
+            CssRulesetProperty::SingleProperty(_, _, _)
         ));
         assert!(matches!(
             properties[1],
