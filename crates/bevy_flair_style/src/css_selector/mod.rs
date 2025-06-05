@@ -122,8 +122,25 @@ fn hash_32<T: Hash>(value: T) -> u32 {
 macro_rules! str_wrapper {
     ($($id:ident),*) => {
         $(
-            #[derive(Clone, Eq, PartialEq, Default, Debug)]
+            #[derive(Clone, Default, Debug)]
             pub(crate) struct $id(SmolStr, u32);
+
+            impl $id {
+                #[allow(dead_code)]
+                pub(crate) fn as_str(&self) -> &str {
+                    self.0.as_str()
+                }
+
+                pub const EMPTY: $id = $id(SmolStr::new_static(""), 838452008);
+            }
+
+            impl PartialEq for $id {
+                fn eq(&self, other: &Self) -> bool {
+                    self.0 == other.0
+                }
+            }
+
+            impl Eq for $id {}
 
             impl <'a> From<&'a str> for $id {
                 fn from(value: &'a str) -> Self {
@@ -166,11 +183,11 @@ macro_rules! str_wrapper {
 }
 
 str_wrapper! {
-    CssLocalName, CssIdentifier
+    CssString
 }
 
 unconstructable! {
-    CssAttrValue, CssNamespace, CssPseudoElement
+    CssPseudoElement
 }
 
 impl PseudoElement for CssPseudoElement {
@@ -179,13 +196,13 @@ impl PseudoElement for CssPseudoElement {
 
 impl SelectorImpl for CssSelectorImpl {
     type ExtraMatchingData<'a> = ();
-    type AttrValue = CssAttrValue;
-    type Identifier = CssIdentifier;
-    type LocalName = CssLocalName;
-    type NamespaceUrl = CssNamespace;
-    type NamespacePrefix = CssNamespace;
-    type BorrowedNamespaceUrl = CssNamespace;
-    type BorrowedLocalName = CssLocalName;
+    type AttrValue = CssString;
+    type Identifier = CssString;
+    type LocalName = CssString;
+    type NamespaceUrl = CssString;
+    type NamespacePrefix = CssString;
+    type BorrowedNamespaceUrl = CssString;
+    type BorrowedLocalName = CssString;
     type NonTSPseudoClass = InternalPseudoStateSelector;
     type PseudoElement = CssPseudoElement;
 }
@@ -242,6 +259,18 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
                 )
             }
         }
+    }
+
+    fn parse_pseudo_element(
+        &self,
+        location: SourceLocation,
+        name: CowRcStr<'i>,
+    ) -> Result<<Self::Impl as SelectorImpl>::PseudoElement, ParseError<'i, Self::Error>> {
+        Err(
+            location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(
+                name,
+            )),
+        )
     }
 }
 

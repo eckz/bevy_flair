@@ -82,7 +82,7 @@ Input {
 
     width: 100%;
 
-    &:nth-child(odd) .item-text{
+    &:nth-child(odd) .item-text {
         background-color: var(--color-gray-100);
     }
     &:nth-child(even) .item-text {

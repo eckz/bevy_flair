@@ -57,8 +57,16 @@ impl Display for SelectorErrorKind<'_> {
                 let token_str = token.to_css_string();
                 write!(f, "Expected an ident for a class, got '{token_str}'")
             }
+            SelectorErrorKind::Selector(
+                SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
+            ) => {
+                write!(
+                    f,
+                    "Unsupported pseudo-class: '{name}'. Pseudo-elements are unsupported. Only valid pseudo-clases are: 'hover' | 'active' | 'focus' | 'focus-visible'"
+                )
+            }
             SelectorErrorKind::Selector(other) => {
-                write!(f, "Selector error found: {other:?}")
+                write!(f, "Selector error: {other:?}")
             }
         }
     }

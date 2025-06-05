@@ -5,8 +5,9 @@ use crate::animations::{
 };
 
 use crate::{
-    ClassName, ColorScheme, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation,
-    StyleSheet, TransitionEvent, TransitionEventType, VarTokens,
+    AttributeKey, AttributeValue, ClassName, ColorScheme, IdName, NodePseudoState,
+    NodePseudoStateSelector, ResolvedAnimation, StyleSheet, TransitionEvent, TransitionEventType,
+    VarTokens,
 };
 
 use bevy_ecs::prelude::*;
@@ -223,6 +224,7 @@ pub struct NodeStyleData {
     pub(crate) is_root: bool,
     pub(crate) name: Option<IdName>,
     pub(crate) classes: Vec<ClassName>,
+    pub(crate) attributes: std::collections::HashMap<AttributeKey, AttributeValue>,
 
     // Contains type names with their priority, so the one with the highest priority defines this node.
     pub(crate) type_names: BinaryHeap<TypeNameWithPriority>,
@@ -1032,8 +1034,8 @@ mod debug {
     }
 }
 
-/// Contains all classes that should be added or removed from the current entity.
-/// Similar to the `classList` property in HTML.
+/// Contains all classes that belong to the current entity.
+/// Similar to the [`classList`] property in HTML.
 ///
 /// [`classList`](https://developer.mozilla.org/en-US/docs/Web/API/Element/classList)
 #[derive(Clone, Debug, Default, PartialEq, Component, Reflect)]
@@ -1136,13 +1138,63 @@ impl FromStr for ClassList {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(ClassList::new_with_classes(s.split_whitespace()))
+        Ok(ClassList::new(s))
     }
 }
 
 impl std::fmt::Display for ClassList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.iter().join(" ").fmt(f)
+    }
+}
+
+/// Contains all attributes that belong to the current entity.
+/// Similar to using [`getAttribute`] and [`setAttribute`] on an element.
+///
+/// [`getAttribute`](https://developer.mozilla.org/en-US/docs/Web/API/Element/getAttribute)
+/// [`setAttribute`](https://developer.mozilla.org/en-US/docs/Web/API/Element/setAttribute)
+#[derive(Clone, Debug, Default, PartialEq, Component, Reflect)]
+#[reflect(Debug, Default, Component)]
+pub struct AttributeList(pub(crate) std::collections::HashMap<AttributeKey, AttributeValue>);
+
+impl AttributeList {
+    /// Creates a new empty AttributeList.
+    pub fn new() -> Self {
+        Self(Default::default())
+    }
+
+    /// Returns the value of a specified attribute on the element.
+    pub fn get_attribute(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(|v| v.as_str())
+    }
+
+    /// Sets the value of an attribute on the current entity.
+    /// If the attribute already exists, the value is updated; otherwise a new attribute is added with the specified name and value.
+    pub fn set_attribute(
+        &mut self,
+        name: impl Into<AttributeKey>,
+        value: impl Into<AttributeValue>,
+    ) {
+        self.0.insert(name.into(), value.into());
+    }
+
+    /// removes the attribute with the specified name.
+    pub fn remove_attribute(&mut self, name: &str) {
+        self.0.remove(name);
+    }
+}
+
+impl<K, V> FromIterator<(K, V)> for AttributeList
+where
+    K: Into<AttributeKey>,
+    V: Into<AttributeValue>,
+{
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        Self(
+            iter.into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        )
     }
 }
 

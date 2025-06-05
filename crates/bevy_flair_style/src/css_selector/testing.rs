@@ -1,7 +1,5 @@
 use crate::components::NodeStyleData;
-use crate::css_selector::{
-    CssIdentifier, CssLocalName, CssSelectorImpl, InternalPseudoStateSelector,
-};
+use crate::css_selector::{CssSelectorImpl, CssString, InternalPseudoStateSelector};
 use ego_tree::NodeRef;
 use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
@@ -61,7 +59,7 @@ impl Element for TestElementRef<'_> {
         None
     }
 
-    fn has_local_name(&self, local_name: &CssLocalName) -> bool {
+    fn has_local_name(&self, local_name: &CssString) -> bool {
         self.has_type_name(local_name.as_ref())
     }
 
@@ -77,7 +75,7 @@ impl Element for TestElementRef<'_> {
         // Ignore
     }
 
-    fn has_id(&self, id: &CssIdentifier, case_sensitivity: CaseSensitivity) -> bool {
+    fn has_id(&self, id: &CssString, case_sensitivity: CaseSensitivity) -> bool {
         if let Some(name) = &self.name {
             case_sensitivity.eq(name.as_bytes(), id.as_ref())
         } else {
@@ -85,10 +83,23 @@ impl Element for TestElementRef<'_> {
         }
     }
 
-    fn has_class(&self, name: &CssIdentifier, case_sensitivity: CaseSensitivity) -> bool {
+    fn has_class(&self, name: &CssString, case_sensitivity: CaseSensitivity) -> bool {
         self.classes
             .iter()
             .any(|c| case_sensitivity.eq(c.as_bytes(), name.as_ref()))
+    }
+
+    fn attr_matches(
+        &self,
+        _ns: &selectors::attr::NamespaceConstraint<
+            &<Self::Impl as selectors::parser::SelectorImpl>::NamespaceUrl,
+        >,
+        _local_name: &<Self::Impl as selectors::parser::SelectorImpl>::LocalName,
+        _operation: &selectors::attr::AttrSelectorOperation<
+            &<Self::Impl as selectors::parser::SelectorImpl>::AttrValue,
+        >,
+    ) -> bool {
+        unimplemented!("attr_matches")
     }
 
     fn is_empty(&self) -> bool {
@@ -138,7 +149,7 @@ impl Element for TestNodeRef<'_> {
         self.0.first_child().map(|a| a.into())
     }
 
-    fn has_local_name(&self, local_name: &CssLocalName) -> bool {
+    fn has_local_name(&self, local_name: &CssString) -> bool {
         self.0.value().has_type_name(local_name.as_ref())
     }
 
@@ -154,7 +165,7 @@ impl Element for TestNodeRef<'_> {
         // Ignore
     }
 
-    fn has_id(&self, id: &CssIdentifier, case_sensitivity: CaseSensitivity) -> bool {
+    fn has_id(&self, id: &CssString, case_sensitivity: CaseSensitivity) -> bool {
         if let Some(name) = &self.0.value().name {
             case_sensitivity.eq(name.as_bytes(), id.as_ref())
         } else {
@@ -162,12 +173,25 @@ impl Element for TestNodeRef<'_> {
         }
     }
 
-    fn has_class(&self, name: &CssIdentifier, case_sensitivity: CaseSensitivity) -> bool {
+    fn has_class(&self, name: &CssString, case_sensitivity: CaseSensitivity) -> bool {
         self.0
             .value()
             .classes
             .iter()
             .any(|c| case_sensitivity.eq(c.as_bytes(), name.as_ref()))
+    }
+
+    fn attr_matches(
+        &self,
+        _ns: &selectors::attr::NamespaceConstraint<
+            &<Self::Impl as selectors::parser::SelectorImpl>::NamespaceUrl,
+        >,
+        _local_name: &<Self::Impl as selectors::parser::SelectorImpl>::LocalName,
+        _operation: &selectors::attr::AttrSelectorOperation<
+            &<Self::Impl as selectors::parser::SelectorImpl>::AttrValue,
+        >,
+    ) -> bool {
+        unimplemented!("attr_matches")
     }
 
     fn is_empty(&self) -> bool {

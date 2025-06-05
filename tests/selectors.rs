@@ -66,8 +66,15 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ),
                     (
                         Element,
+                        UniqueName::new("child-with-grandchild/middle-child"),
+                        ClassList::new("grandchild"),
+                        AttributeList::from_iter([("position", "middle")]),
+                    ),
+                    (
+                        Element,
                         UniqueName::new("child-with-grandchild/last-child"),
-                        ClassList::new("grandchild")
+                        ClassList::new("grandchild"),
+                        AttributeList::from_iter([("position", "last")]),
                     ),
                 ]
             ),
@@ -96,6 +103,7 @@ fn css_selectors() {
     assert_background_color_eq!(app, "not-child", css::DARK_ORANGE);
     assert_background_color_eq!(app, "child-with-grandchild", css::AQUA);
     assert_background_color_eq!(app, "child-with-grandchild/first-child", css::LIGHT_GRAY);
+    assert_background_color_eq!(app, "child-with-grandchild/middle-child", css::DARK_RED);
     assert_background_color_eq!(app, "child-with-grandchild/last-child", css::SNOW);
     assert_background_color_eq!(app, "child-with-hovered-grandchild", css::RED);
 }

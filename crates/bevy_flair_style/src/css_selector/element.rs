@@ -4,7 +4,7 @@ use bevy_ecs::system::SystemParam;
 use crate::components::{
     NodeStyleData, NodeStyleSelectorFlags, RecalculateOnChangeFlags, Siblings,
 };
-use crate::css_selector::{CssSelectorImpl, InternalPseudoStateSelector};
+use crate::css_selector::{CssSelectorImpl, CssString, InternalPseudoStateSelector};
 use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
 use selectors::{Element, OpaqueElement, SelectorImpl};
@@ -22,7 +22,7 @@ macro_rules! impl_element_commons {
         }
 
         fn containing_shadow_host(&self) -> Option<Self> {
-            todo!("containing_shadow_host")
+            unimplemented!("containing_shadow_host")
         }
 
         fn is_html_element_in_html_document(&self) -> bool {
@@ -33,7 +33,7 @@ macro_rules! impl_element_commons {
             &self,
             _ns: &<Self::Impl as selectors::parser::SelectorImpl>::BorrowedNamespaceUrl,
         ) -> bool {
-            unreachable!("has_namespace")
+            unimplemented!("has_namespace")
         }
 
         fn match_pseudo_element(
@@ -41,20 +41,7 @@ macro_rules! impl_element_commons {
             _pe: &crate::css_selector::CssPseudoElement,
             _context: &mut MatchingContext<Self::Impl>,
         ) -> bool {
-            unreachable!("match_pseudo_element")
-        }
-
-        fn attr_matches(
-            &self,
-            _ns: &selectors::attr::NamespaceConstraint<
-                &<Self::Impl as selectors::parser::SelectorImpl>::NamespaceUrl,
-            >,
-            _local_name: &<Self::Impl as selectors::parser::SelectorImpl>::LocalName,
-            _operation: &selectors::attr::AttrSelectorOperation<
-                &<Self::Impl as selectors::parser::SelectorImpl>::AttrValue,
-            >,
-        ) -> bool {
-            todo!("attr_matches")
+            unimplemented!("match_pseudo_element")
         }
 
         fn is_link(&self) -> bool {
@@ -62,32 +49,32 @@ macro_rules! impl_element_commons {
         }
 
         fn is_html_slot_element(&self) -> bool {
-            unreachable!("is_html_slot_element")
+            unimplemented!("is_html_slot_element")
         }
 
         fn has_custom_state(
             &self,
             _name: &<Self::Impl as selectors::parser::SelectorImpl>::Identifier,
         ) -> bool {
-            todo!("has_custom_state")
+            unimplemented!("has_custom_state")
         }
 
         fn imported_part(
             &self,
             _name: &<Self::Impl as selectors::parser::SelectorImpl>::Identifier,
         ) -> Option<<Self::Impl as selectors::parser::SelectorImpl>::Identifier> {
-            unreachable!("imported_part")
+            unimplemented!("imported_part")
         }
 
         fn is_part(
             &self,
             _name: &<Self::Impl as selectors::parser::SelectorImpl>::Identifier,
         ) -> bool {
-            unreachable!("is_part")
+            unimplemented!("is_part")
         }
 
         fn add_element_unique_hashes(&self, _filter: &mut selectors::bloom::BloomFilter) -> bool {
-            todo!("add_element_unique_hashes")
+            unimplemented!("add_element_unique_hashes")
         }
     };
 }
@@ -244,6 +231,27 @@ impl Element for ElementRef<'_> {
 
     fn is_same_type(&self, other: &Self) -> bool {
         self.data.type_names.peek() == other.data.type_names.peek()
+    }
+
+    fn attr_matches(
+        &self,
+        ns: &selectors::attr::NamespaceConstraint<&CssString>,
+        local_name: &CssString,
+        operation: &selectors::attr::AttrSelectorOperation<&CssString>,
+    ) -> bool {
+        if ns != &selectors::attr::NamespaceConstraint::Any
+            && ns != &selectors::attr::NamespaceConstraint::Specific(&CssString::EMPTY)
+        {
+            return false;
+        }
+        let Some(value) = self.data.attributes.get(local_name.as_str()) else {
+            return false;
+        };
+        operation.eval_str(value)
+    }
+
+    fn has_attr_in_no_namespace(&self, local_name: &CssString) -> bool {
+        self.data.attributes.contains_key(local_name.as_str())
     }
 
     fn is_empty(&self) -> bool {

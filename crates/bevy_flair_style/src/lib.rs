@@ -39,6 +39,8 @@ pub use vars::*;
 
 pub(crate) type IdName = smol_str::SmolStr;
 pub(crate) type ClassName = smol_str::SmolStr;
+pub(crate) type AttributeKey = smol_str::SmolStr;
+pub(crate) type AttributeValue = smol_str::SmolStr;
 pub(crate) type VarName = std::sync::Arc<str>;
 
 /// Trait for things the can serialize themselves in CSS syntax.
@@ -254,6 +256,7 @@ impl Plugin for FlairStylePlugin {
             .register_type::<NodeStyleActiveRules>()
             .register_type::<NodeStyleMarker>()
             .register_type::<ClassList>()
+            .register_type::<AttributeList>()
             .register_type::<Siblings>()
             .register_type::<NodeProperties>()
             .register_type::<NodeVars>()
@@ -308,6 +311,7 @@ impl Plugin for FlairStylePlugin {
                     (
                         systems::calculate_is_root,
                         systems::apply_classes,
+                        systems::apply_attributes,
                         systems::interaction_system,
                         systems::track_name_changes,
                         systems::sync_input_focus,

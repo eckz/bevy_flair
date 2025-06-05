@@ -15,6 +15,10 @@
         &:last-child {
             background-color: snow;
         }
+        
+        &[position="middle"] {
+            background-color: darkred;
+        }
     }
 
     &:focus {

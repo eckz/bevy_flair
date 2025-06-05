@@ -1,5 +1,5 @@
 use crate::components::{
-    ClassList, DependsOnMediaFeaturesFlags, InitialPropertyValues, NodeProperties,
+    AttributeList, ClassList, DependsOnMediaFeaturesFlags, InitialPropertyValues, NodeProperties,
     NodeStyleActiveRules, NodeStyleData, NodeStyleMarker, NodeStyleSelectorFlags, NodeStyleSheet,
     NodeVars, RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
 };
@@ -204,6 +204,14 @@ pub(crate) fn apply_classes(
 ) {
     for (classes, mut style_data) in &mut classes_query {
         style_data.classes.clone_from(&classes.0);
+    }
+}
+
+pub(crate) fn apply_attributes(
+    mut attributes_query: Query<(&AttributeList, &mut NodeStyleData), Changed<AttributeList>>,
+) {
+    for (attributes, mut style_data) in &mut attributes_query {
+        style_data.attributes.clone_from(&attributes.0);
     }
 }
 
@@ -1050,6 +1058,90 @@ mod tests {
         assert!(is_data_changed());
         let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
         assert_eq!(data.classes, vec!["test2"]);
+
+        // No changes
+        app.update();
+        app.update();
+
+        assert!(!is_data_changed());
+    }
+
+    macro_rules! map {
+        () => {
+            ::std::collections::HashMap::new()
+        };
+        ( $( $key:expr => $val:expr ),+ $(,)? ) => {
+            ::std::collections::HashMap::from_iter([
+                $(($key.into(), $val.into())),*
+            ])
+        };
+    }
+
+    #[test]
+    fn test_apply_attributes() {
+        let mut app = App::new();
+
+        app.add_systems(PostUpdate, apply_attributes);
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                AttributeList::from_iter([("attr1", "value1")]),
+                NodeStyleData::default(),
+            ))
+            .id();
+
+        let was_data_changed_arc: Arc<Mutex<bool>> = Default::default();
+
+        {
+            let was_data_changed_arc_clone = Arc::clone(&was_data_changed_arc);
+            app.add_systems(Update, move |query: Query<Ref<NodeStyleData>>| {
+                let changed = query.get(entity).unwrap().is_changed();
+                *was_data_changed_arc_clone
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = changed
+            });
+        }
+
+        let is_data_changed = move || {
+            *was_data_changed_arc
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+        };
+
+        app.update();
+
+        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        assert_eq!(data.attributes, map! {"attr1" => "value1"});
+
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<AttributeList>()
+            .unwrap()
+            .set_attribute("attr2", "value2");
+        app.update();
+
+        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        assert_eq!(
+            data.attributes,
+            map! {"attr1" => "value1", "attr2" => "value2"}
+        );
+
+        let mut attributes = app
+            .world_mut()
+            .entity_mut(entity)
+            .into_mut::<AttributeList>()
+            .unwrap();
+        attributes.set_attribute("attr3", "value3");
+        attributes.remove_attribute("attr1");
+        app.update();
+
+        assert!(is_data_changed());
+        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        assert_eq!(
+            data.attributes,
+            map! {"attr2" => "value2", "attr3" => "value3"}
+        );
 
         // No changes
         app.update();
