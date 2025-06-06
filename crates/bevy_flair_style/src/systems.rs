@@ -821,6 +821,27 @@ mod custom_descendants_iter {
     }
 }
 
+pub(crate) fn compute_property_values_just_transitions_and_animations_condition(
+    global_change_detection: Res<GlobalChangeDetection>,
+) -> bool {
+    !global_change_detection.any_property_value_changed
+        && global_change_detection.any_animation_active
+}
+
+pub(crate) fn compute_property_values_condition(
+    global_change_detection: Res<GlobalChangeDetection>,
+) -> bool {
+    global_change_detection.any_property_value_changed
+}
+
+pub(crate) fn compute_property_values_just_transitions_and_animations(
+    mut node_properties_query: Query<&mut NodeProperties>,
+) {
+    for mut properties in &mut node_properties_query {
+        properties.just_compute_transitions_and_animations();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_property_values(
     root_entities: Query<Entity, (Without<ChildOf>, With<NodeProperties>)>,
@@ -830,20 +851,7 @@ pub(crate) fn compute_property_values(
     initial_values: Res<InitialPropertyValues>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
-    global_change_detection: Res<GlobalChangeDetection>,
 ) -> Result {
-    if !global_change_detection.any_property_change() {
-        return Ok(());
-    }
-
-    if !global_change_detection.any_property_value_changed {
-        // Only animations
-        for mut properties in &mut node_properties_query {
-            properties.just_compute_transitions_and_animations();
-        }
-        return Ok(());
-    }
-
     let type_registry = app_type_registry.0.read();
 
     #[cfg(debug_assertions)]
@@ -929,6 +937,12 @@ pub(crate) fn emit_animation_events(
     }
 }
 
+pub(crate) fn apply_properties_condition(
+    global_change_detection: Res<GlobalChangeDetection>,
+) -> bool {
+    global_change_detection.any_property_change()
+}
+
 pub(crate) fn apply_properties(
     world: &mut World,
     properties_query_state: &mut QueryState<(Entity, &mut NodeProperties)>,
@@ -943,13 +957,6 @@ pub(crate) fn apply_properties(
     modified_entities.clear();
     debug_assert!(pending_changes.is_empty());
     debug_assert!(component_queues.is_empty());
-
-    if !world
-        .resource::<GlobalChangeDetection>()
-        .any_property_change()
-    {
-        return Ok(());
-    }
 
     let mut properties_query = properties_query_state.query_mut(world);
     for (entity, mut properties) in &mut properties_query {

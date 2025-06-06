@@ -329,9 +329,16 @@ impl Plugin for FlairStylePlugin {
                     systems::tick_animations.in_set(StyleSystemSets::TickAnimations),
                     systems::calculate_style_and_set_vars.in_set(StyleSystemSets::CalculateStyles),
                     systems::set_style_properties.in_set(StyleSystemSets::SetStyleProperties),
-                    systems::compute_property_values.in_set(StyleSystemSets::ComputeProperties),
+                    (
+                        systems::compute_property_values
+                            .run_if(systems::compute_property_values_condition),
+                        systems::compute_property_values_just_transitions_and_animations
+                            .run_if(systems::compute_property_values_just_transitions_and_animations_condition)
+                    ).in_set(StyleSystemSets::ComputeProperties),
                     systems::emit_animation_events.in_set(StyleSystemSets::EmitAnimationEvents),
-                    systems::apply_properties.in_set(StyleSystemSets::ApplyProperties),
+                    systems::apply_properties
+                        .run_if(systems::apply_properties_condition)
+                        .in_set(StyleSystemSets::ApplyProperties),
                 ),
             );
     }
