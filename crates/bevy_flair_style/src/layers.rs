@@ -12,7 +12,7 @@ impl<T> DebugOptionExt<T> for Option<T> {
     #[cfg(not(debug_assertions))]
     #[inline(always)]
     fn debug_unwrap_or_else(self, _f: impl FnOnce() -> T) -> T {
-        self.unwrap(f)
+        self.unwrap()
     }
 }
 

@@ -18,16 +18,14 @@ jobs:
           - name: Linux x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-
           - name: Wasm
             os: ubuntu-latest
             target: wasm32-unknown-unknown
-
           - name: MacOS aarch64
             os: macos-14
             target: aarch64-apple-darwin
 
-    name: Clippy ${{ matrix.name }}
+    name: Check ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout sources
@@ -41,22 +39,53 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-clippy-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-check-${{ hashFiles('**/Cargo.toml') }}
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
           targets: ${{ matrix.target }}
       - name: Install ubuntu deps
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: sudo apt-get install -y libudev-dev
-      - name: Run cargo check
+      - name: cargo check
         run: cargo check --workspace --target ${{ matrix.target }}
-      - name: Run clippy
+      - name: cargo check --release
+        run: cargo check --release --workspace --target ${{ matrix.target }}
+
+  clippy:
+    name: Clippy
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-x86_64-unknown-linux-gnu-cargo-check-${{ hashFiles('**/Cargo.toml') }}
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install ubuntu deps
+        run: sudo apt-get install -y libudev-dev
+      - name: cargo check
+        run: cargo check --workspace --target ${{ matrix.target }}
+      - name: cargo clippy
         run: cargo clippy --workspace --target ${{ matrix.target }} --all-targets  -- -D warnings
+      - name: cargo check --release
+        run: cargo check --release --workspace --target ${{ matrix.target }}
+      - name: cargo clippy --release
+        run: cargo clippy --release --workspace --target ${{ matrix.target }} --all-targets  -- -D warnings
 
   # Run cargo fmt --all -- --check
-  format:
+  fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
@@ -66,11 +95,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Run cargo fmt
+      - name: cargo fmt
         run: cargo fmt --all -- --check
 
   # Run cargo doc --workspace --no-deps --examples --all-features --document-private-items
-  doc-check:
+  doc:
     name: Doc check
     runs-on: ubuntu-latest
     steps:
@@ -109,9 +138,9 @@ jobs:
       - name: Run cargo test
         run: cargo test --workspace
   # Run cargo check --all-targets using MSRV
-  msrv:
+  check-msrv:
     runs-on: ubuntu-latest
-    needs: check
+    needs: clippy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -122,7 +151,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-check-msrv-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: get MSRV
         id: msrv
@@ -134,6 +163,9 @@ jobs:
           toolchain: ${{ steps.msrv.outputs.msrv }}
       - name: Install ubuntu deps
         run: sudo apt-get install -y libudev-dev
-      - name: Run cargo check
+      - name: cargo check
         id: check
         run: cargo check --all-targets
+      - name: cargo check --release
+        id: check
+        run: cargo check --release --all-targets
