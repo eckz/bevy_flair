@@ -151,6 +151,7 @@ jobs:
           key: ${{ runner.os }}-cargo-check-msrv-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: get MSRV
+        id: msrv
         run: |
           msrv=`cargo metadata --no-deps --format-version 1 | jq --raw-output '.packages[] | select(.name=="bevy_flair") | .rust_version'`
           echo "msrv=$msrv" >> $GITHUB_OUTPUT
