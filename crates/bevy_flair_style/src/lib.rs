@@ -285,10 +285,8 @@ impl Plugin for FlairStylePlugin {
                     StyleSystemSets::EmitAnimationEvents.after(StyleSystemSets::ComputeProperties),
                 ),
             )
-            .add_systems(PreStartup, |mut commands: Commands| {
-                commands.init_resource::<EmptyComputedProperties>();
-                commands.init_resource::<InitialPropertyValues>();
-            })
+            .init_resource::<EmptyComputedProperties>()
+            .init_resource::<InitialPropertyValues>()
             .add_systems(
                 PreUpdate,
                 (
