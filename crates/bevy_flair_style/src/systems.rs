@@ -981,7 +981,7 @@ pub(crate) fn apply_properties(
     for (entity, mut properties) in &mut properties_query {
         let mut entity_modified = false;
 
-        properties.apply_computed_properties(&empty_computed_properties, |property_id, value| {
+        properties.apply_computed_properties(empty_computed_properties, |property_id, value| {
             entity_modified = true;
             pending_changes.push((entity, property_id, value));
         });

@@ -258,7 +258,6 @@ impl Plugin for FlairStylePlugin {
             .register_type::<ClassList>()
             .register_type::<AttributeList>()
             .register_type::<Siblings>()
-            .register_type::<NodeProperties>()
             .register_type::<NodeVars>()
             .register_required_components::<Node, NodeStyleSheet>()
             .add_plugins((
@@ -515,8 +514,6 @@ mod tests {
         app.register_type_data::<std::collections::BinaryHeap<TypeNameWithPriority>, ReflectSerialize>();
 
         app.finish();
-
-        app.init_resource::<EmptyComputedProperties>();
 
         app
     }

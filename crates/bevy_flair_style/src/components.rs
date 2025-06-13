@@ -20,18 +20,12 @@ use bitflags::bitflags;
 
 use crate::style_sheet::StyleSheetRulesetId;
 use bevy_asset::{AssetId, Handle};
-use bevy_ecs::component::HookContext;
-use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::TypeRegistry;
-use bevy_reflect::serde::{
-    ReflectSerializeWithRegistry, SerializeWithRegistry, TypedReflectSerializer,
-};
 use bevy_window::Window;
 use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
-use serde::ser::SerializeMap;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use std::collections::BinaryHeap;
 use std::collections::hash_map::Entry;
 use std::convert::Infallible;
@@ -406,14 +400,9 @@ impl FromWorld for InitialPropertyValues {
 
 /// Contains all properties applied to the current Node.
 /// Also contains active animations and transits
-#[derive(Clone, Debug, Default, Component, Reflect)]
-#[component(on_add = set_node_properties_initial_data)]
-#[reflect(opaque, Debug, Default, Component, SerializeWithRegistry)]
+#[derive(Clone, Debug, Default, Component)]
 pub struct NodeProperties {
-    property_registry: Option<PropertyRegistry>,
     pub(crate) transitions_options: PropertiesHashMap<TransitionOptions>,
-
-    // NEW STUFF
     pub(crate) pending_property_values: PropertyMap<PropertyValue>,
     pub(crate) property_values: PropertyMap<PropertyValue>,
     pub(crate) pending_computed_values: PropertyMap<ComputedValue>,
@@ -424,12 +413,6 @@ pub struct NodeProperties {
     pending_transition_events: Vec<TransitionEvent>,
     // TODO: SmallVec here?
     animations: PropertiesHashMap<Vec<Animation>>,
-}
-
-fn set_node_properties_initial_data(mut world: DeferredWorld, context: HookContext) {
-    let property_registry = world.resource::<PropertyRegistry>().clone();
-    let mut this = world.get_mut::<NodeProperties>(context.entity).unwrap();
-    this.property_registry = Some(property_registry);
 }
 
 fn get_reflect_animatable<'a>(
@@ -699,7 +682,7 @@ impl NodeProperties {
 
         // If nothing has changed this will evaluate to true
         if pending_computed_values.ptr_eq(&self.computed_values)
-            && pending_animation_values.ptr_eq(&empty_computed_properties)
+            && pending_animation_values.ptr_eq(empty_computed_properties)
         {
             return;
         }
@@ -717,15 +700,8 @@ impl NodeProperties {
                 if let ComputedValue::Value(new_value) = new_value {
                     apply_change_fn(property_id, new_value);
                 } else {
-                    let canonical_name = self
-                        .property_registry
-                        .as_ref()
-                        .unwrap()
-                        .get_property(property_id)
-                        .canonical_name();
-
                     warn!(
-                        "Cannot set property '{canonical_name}' to None.\
+                        "Cannot set property '{property_id:?}' to None.\
                         You should avoid this by setting a baseline style that sets a default values.\
                         You can try to use 'initial' as a baseline style."
                     );
@@ -956,24 +932,6 @@ impl NodeProperties {
                 }),
             ),
         }
-    }
-}
-
-impl SerializeWithRegistry for NodeProperties {
-    fn serialize<S>(&self, serializer: S, registry: &TypeRegistry) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let property_registry = self.property_registry.as_ref().unwrap();
-        let mut map = serializer.serialize_map(None)?;
-
-        for (property_id, value) in self.computed_values.iter() {
-            if let ComputedValue::Value(value) = value {
-                map.serialize_key(&property_registry.get_property(property_id).canonical_name())?;
-                map.serialize_value(&TypedReflectSerializer::new(value, registry))?;
-            }
-        }
-        map.end()
     }
 }
 
@@ -1396,7 +1354,6 @@ mod tests {
 
     fn default_node_properties() -> NodeProperties {
         let mut properties = NodeProperties::default();
-        properties.property_registry = Some(PROPERTY_REGISTRY.clone());
         properties.reset(&EMPTY_COMPUTED_PROPERTIES);
         properties
     }
