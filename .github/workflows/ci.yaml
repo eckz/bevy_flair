@@ -46,7 +46,9 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Install ubuntu deps
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
       - name: cargo check
         run: cargo check --workspace --target ${{ matrix.target }}
       - name: cargo check --release
@@ -75,7 +77,9 @@ jobs:
         with:
           components: clippy
       - name: Install ubuntu deps
-        run: sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
       - name: cargo clippy
         run: cargo clippy --workspace  --all-targets  -- -D warnings
       - name: cargo clippy --release
@@ -105,7 +109,9 @@ jobs:
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install ubuntu deps
-        run: sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
       - name: Run cargo doc
         run: cargo doc --workspace --no-deps --examples --all-features --document-private-items
         env:
@@ -131,7 +137,9 @@ jobs:
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install ubuntu deps
-        run: sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
       - name: cargo test
         run: cargo test --workspace
   # Run cargo check --all-targets using MSRV
@@ -159,7 +167,9 @@ jobs:
         with:
           toolchain: ${{ steps.msrv.outputs.msrv }}
       - name: Install ubuntu deps
-        run: sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
       - name: cargo check
         run: cargo check --all-targets
       - name: cargo check --release
