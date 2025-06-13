@@ -1,7 +1,8 @@
 use crate::components::{
-    AttributeList, ClassList, DependsOnMediaFeaturesFlags, InitialPropertyValues, NodeProperties,
-    NodeStyleActiveRules, NodeStyleData, NodeStyleMarker, NodeStyleSelectorFlags, NodeStyleSheet,
-    NodeVars, RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
+    AttributeList, ClassList, DependsOnMediaFeaturesFlags, EmptyComputedProperties,
+    InitialPropertyValues, NodeProperties, NodeStyleActiveRules, NodeStyleData, NodeStyleMarker,
+    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, RecalculateOnChangeFlags, Siblings,
+    WindowMediaFeatures,
 };
 use crate::{ColorScheme, GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
 use bevy_ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
@@ -23,6 +24,15 @@ use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use std::sync::Arc;
 use tracing::{debug, info, trace, warn};
+
+pub(crate) fn reset_properties_on_added(
+    empty_computed_properties: Res<EmptyComputedProperties>,
+    mut style_query: Query<&mut NodeProperties, Added<NodeProperties>>,
+) {
+    for mut properties in &mut style_query {
+        properties.reset(&empty_computed_properties)
+    }
+}
 
 pub(crate) fn sync_siblings_system(
     mut siblings_param_set: ParamSet<(
@@ -444,6 +454,7 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 pub(crate) fn mark_as_changed_on_style_sheet_change(
     mut commands: Commands,
     mut asset_events_reader: EventReader<AssetEvent<StyleSheet>>,
+    empty_computed_properties: Res<EmptyComputedProperties>,
     mut style_query: Query<(
         Entity,
         Has<Text>,
@@ -473,7 +484,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         if modified_stylesheets.contains(&style_data.effective_style_sheet.id()) {
             flags.reset();
 
-            properties.reset();
+            properties.reset(&empty_computed_properties);
             vars.clear();
             marker.mark_for_recalculation();
 
@@ -835,10 +846,11 @@ pub(crate) fn compute_property_values_condition(
 }
 
 pub(crate) fn compute_property_values_just_transitions_and_animations(
+    empty_computed_properties: Res<EmptyComputedProperties>,
     mut node_properties_query: Query<&mut NodeProperties>,
 ) {
     for mut properties in &mut node_properties_query {
-        properties.just_compute_transitions_and_animations();
+        properties.just_compute_transitions_and_animations(&empty_computed_properties);
     }
 }
 
@@ -848,6 +860,7 @@ pub(crate) fn compute_property_values(
     children_query: Query<&Children, With<NodeProperties>>,
     #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
     mut node_properties_query: Query<&mut NodeProperties>,
+    empty_computed_properties: Res<EmptyComputedProperties>,
     initial_values: Res<InitialPropertyValues>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
@@ -882,6 +895,7 @@ pub(crate) fn compute_property_values(
         root_properties.compute_pending_property_values_for_root(
             &type_registry,
             &property_registry,
+            &empty_computed_properties,
             &initial_values.0,
         );
 
@@ -900,6 +914,7 @@ pub(crate) fn compute_property_values(
                 &parent_properties,
                 &type_registry,
                 &property_registry,
+                &empty_computed_properties,
                 &initial_values.0,
             );
 
@@ -946,6 +961,7 @@ pub(crate) fn apply_properties_condition(
 pub(crate) fn apply_properties(
     world: &mut World,
     properties_query_state: &mut QueryState<(Entity, &mut NodeProperties)>,
+    mut empty_computed_properties_local: Local<Option<EmptyComputedProperties>>,
     mut property_registry_local: Local<Option<PropertyRegistry>>,
     mut modified_entities: Local<EntityHashSet>,
     mut pending_changes: Local<Vec<(Entity, ComponentPropertyId, ReflectValue)>>,
@@ -953,6 +969,9 @@ pub(crate) fn apply_properties(
 ) -> Result {
     let property_registry =
         property_registry_local.get_or_insert_with(|| world.resource::<PropertyRegistry>().clone());
+
+    let empty_computed_properties = empty_computed_properties_local
+        .get_or_insert_with(|| world.resource::<EmptyComputedProperties>().clone());
 
     modified_entities.clear();
     debug_assert!(pending_changes.is_empty());
@@ -962,7 +981,7 @@ pub(crate) fn apply_properties(
     for (entity, mut properties) in &mut properties_query {
         let mut entity_modified = false;
 
-        properties.apply_computed_properties(|property_id, value| {
+        properties.apply_computed_properties(&empty_computed_properties, |property_id, value| {
             entity_modified = true;
             pending_changes.push((entity, property_id, value));
         });
