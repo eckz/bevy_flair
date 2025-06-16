@@ -196,6 +196,9 @@ pub enum StyleSystemSets {
 
     /// Effectively applies changes from animations and style changes into the Components.
     ApplyProperties,
+
+    /// Emits a [`bevy_window::RequestRedraw`] if any animation is active.
+    EmitRedrawEvent,
 }
 
 /// Represents the type of event that occurred during a property transition change.
@@ -278,6 +281,7 @@ impl Plugin for FlairStylePlugin {
                         StyleSystemSets::SetStyleProperties,
                         StyleSystemSets::ComputeProperties,
                         StyleSystemSets::ApplyProperties.before(bevy_ui::UiSystem::Layout),
+                        StyleSystemSets::EmitRedrawEvent,
                     )
                         .chain(),
                     StyleSystemSets::TickAnimations.before(StyleSystemSets::SetStyleProperties),
@@ -336,6 +340,7 @@ impl Plugin for FlairStylePlugin {
                             .run_if(systems::compute_property_values_just_transitions_and_animations_condition)
                     ).in_set(StyleSystemSets::ComputeProperties),
                     systems::emit_animation_events.in_set(StyleSystemSets::EmitAnimationEvents),
+                    systems::emit_redraw_event.in_set(StyleSystemSets::EmitRedrawEvent),
                     systems::apply_properties
                         .run_if(systems::apply_properties_condition)
                         .in_set(StyleSystemSets::ApplyProperties),

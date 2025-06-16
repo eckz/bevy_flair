@@ -892,6 +892,12 @@ impl NodeProperties {
     }
     pub(crate) fn emit_pending_events(&mut self, mut entity_commands: EntityCommands) {
         for event in self.pending_transition_events.drain(..) {
+            trace!(
+                "TransitionEvent: {event_type:?}({property_id:?}) on {entity:?}",
+                event_type = event.event_type,
+                property_id = event.property_id,
+                entity = entity_commands.id()
+            );
             entity_commands.trigger(event);
         }
     }

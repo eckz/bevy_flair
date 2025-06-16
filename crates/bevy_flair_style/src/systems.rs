@@ -19,11 +19,11 @@ use bevy_render::camera::{Camera, NormalizedRenderTarget};
 use bevy_text::{TextColor, TextFont, TextLayout};
 use bevy_time::Time;
 use bevy_ui::prelude::*;
-use bevy_window::{PrimaryWindow, Window, WindowEvent};
+use bevy_window::{PrimaryWindow, RequestRedraw, Window, WindowEvent};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use std::sync::Arc;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, trace, warn};
 
 pub(crate) fn reset_properties_on_added(
     empty_computed_properties: Res<EmptyComputedProperties>,
@@ -157,7 +157,7 @@ pub(crate) fn set_window_theme_on_change_event(
     for event in events.read() {
         if let WindowEvent::WindowThemeChanged(theme_changed) = event {
             if let Ok(mut window) = windows_query.get_mut(theme_changed.window) {
-                info!(
+                debug!(
                     "New window theme for {}: {:?}",
                     theme_changed.window, theme_changed.theme
                 );
@@ -949,6 +949,15 @@ pub(crate) fn emit_animation_events(
         if properties.has_pending_events() {
             properties.emit_pending_events(commands.entity(entity));
         }
+    }
+}
+
+pub(crate) fn emit_redraw_event(
+    global_change_detection: Res<GlobalChangeDetection>,
+    mut request_redraw_writer: EventWriter<RequestRedraw>,
+) {
+    if global_change_detection.any_animation_active {
+        request_redraw_writer.write(RequestRedraw);
     }
 }
 

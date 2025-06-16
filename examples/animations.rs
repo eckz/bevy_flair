@@ -5,6 +5,7 @@ use bevy_flair::prelude::*;
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FlairPlugin))
+        .insert_resource(bevy::winit::WinitSettings::desktop_app())
         .add_systems(Startup, setup)
         .run();
 }
