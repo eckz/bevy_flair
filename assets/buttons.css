@@ -50,7 +50,7 @@
     transition: background-color 0.3s;
 }
 
-Button {
+button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -96,12 +96,12 @@ Button {
         outline: 3px red;
     }
 
-    Text {
+    text {
         transition: color 0.4s;
     }
 }
 
-Button.dark-light-button {
+button.dark-light-button {
     position: absolute;
     top: 25px;
     right: 25px;

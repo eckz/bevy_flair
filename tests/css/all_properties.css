@@ -190,7 +190,7 @@
     -bevy-image-mode: initial;
 }
 
-Text {
+text {
     color: blue;
     font-size: 3px;
     line-height: 120%;
@@ -201,7 +201,7 @@ Text {
     text-shadow: red 8px 9px;
 }
 
-Text.with-important {
+text.with-important {
     color: blue !important;
     font-size: 3px !important;
     line-height: 120% !important;

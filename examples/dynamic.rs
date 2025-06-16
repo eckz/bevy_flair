@@ -68,11 +68,11 @@ mod input_text_plugin {
     use bevy::prelude::*;
     use bevy::text::TextWriter;
     use bevy::window::PrimaryWindow;
-    use bevy_flair_style::TrackTypeNameComponentPlugin;
+    use bevy_flair::style::components::TypeName;
     use std::mem;
 
     #[derive(Copy, Clone, Component, TypePath)]
-    #[require(Node)]
+    #[require(Node, TypeName("input"))]
     pub struct Input;
 
     #[derive(Event)]
@@ -187,8 +187,7 @@ mod input_text_plugin {
     }
 
     pub fn input_text_plugin(app: &mut App) {
-        app.add_plugins(TrackTypeNameComponentPlugin::<Input>::new(2))
-            .insert_resource(InputFocusVisible(true))
+        app.insert_resource(InputFocusVisible(true))
             .add_systems(
                 PreUpdate,
                 dispatch_focused_input::<Ime>.in_set(InputFocusSet::Dispatch),

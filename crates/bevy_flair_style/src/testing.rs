@@ -32,7 +32,7 @@ macro_rules! entity {
         entity!(@consume ($entity) $($rest)*);
     };
     (@consume ($entity:expr) $type_name:ident $($rest:tt)*) => {
-        $entity.push_type_name_with_priority(stringify!($type_name), 0);
+        $entity.type_name = Some(stringify!($type_name));
         entity!(@consume ($entity) $($rest)*);
     };
     ($($rest:tt)*) => {{

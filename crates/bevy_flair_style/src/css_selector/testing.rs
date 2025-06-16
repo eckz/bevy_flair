@@ -111,7 +111,7 @@ impl Element for TestElementRef<'_> {
     }
 
     fn is_same_type(&self, other: &Self) -> bool {
-        self.type_names.peek() == other.type_names.peek()
+        self.type_name.is_some() && self.type_name == other.type_name
     }
 }
 
@@ -203,7 +203,7 @@ impl Element for TestNodeRef<'_> {
     }
 
     fn is_same_type(&self, other: &Self) -> bool {
-        self.0.value().type_names.peek() == other.0.value().type_names.peek()
+        self.0.value().type_name.is_some() && self.0.value().type_name == other.0.value().type_name
     }
 }
 

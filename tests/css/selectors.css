@@ -7,6 +7,10 @@
     background-color: darkorange;
 }
 
+:root > label {
+    background-color: darkgoldenrod;
+}
+
 .child {
     background-color: aqua;
     .grandchild {

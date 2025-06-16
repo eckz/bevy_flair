@@ -618,14 +618,14 @@ mod tests {
         );
         assert_eq!(
             style_sheet.get_matching_ruleset_ids_for_element(
-                element!(Text.class_1 #test_name),
+                element!(text.class_1 #test_name),
                 &media_provider
             ),
             vec![rule_any_id, rule_class_id, rule_with_name_id]
         );
         assert_eq!(
             style_sheet.get_matching_ruleset_ids_for_element(
-                element!(Text.class_1 :hover #test_name),
+                element!(text.class_1 :hover #test_name),
                 &media_provider
             ),
             vec![

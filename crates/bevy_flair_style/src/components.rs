@@ -20,13 +20,14 @@ use bitflags::bitflags;
 
 use crate::style_sheet::StyleSheetRulesetId;
 use bevy_asset::{AssetId, Handle};
+use bevy_ecs::component::HookContext;
+use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::TypeRegistry;
 use bevy_window::Window;
 use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
-use std::collections::BinaryHeap;
 use std::collections::hash_map::Entry;
 use std::convert::Infallible;
 use std::mem;
@@ -220,8 +221,7 @@ pub struct NodeStyleData {
     pub(crate) classes: Vec<ClassName>,
     pub(crate) attributes: std::collections::HashMap<AttributeKey, AttributeValue>,
 
-    // Contains type names with their priority, so the one with the highest priority defines this node.
-    pub(crate) type_names: BinaryHeap<TypeNameWithPriority>,
+    pub(crate) type_name: Option<&'static str>,
     pub(crate) pseudo_state: NodePseudoState,
 }
 
@@ -273,12 +273,7 @@ impl NodeStyleData {
     /// [`TrackTypeNameComponentPlugin`]: crate::TrackTypeNameComponentPlugin
     #[inline]
     pub fn has_type_name(&self, type_name: &str) -> bool {
-        self.type_names.peek().is_some_and(|t| t.name == type_name)
-    }
-
-    pub(crate) fn push_type_name_with_priority(&mut self, name: &'static str, priority: u32) {
-        self.type_names
-            .push(TypeNameWithPriority { priority, name });
+        self.type_name == Some(type_name)
     }
 
     /// If the current entity matches the given [`NodePseudoState`].
@@ -1000,6 +995,36 @@ mod debug {
             map.finish()
         }
     }
+}
+
+/// Sets the type name of an entity.
+/// Required to match selectors by type name, so css like this can function:
+/// ```css
+/// button {
+///   width: 2px;
+/// }
+/// ```
+/// Somehow similar to the [`localName`] property in HTML.
+///
+/// [`localName`](https://developer.mozilla.org/en-US/docs/Web/API/Element/localName)
+#[derive(Clone, Debug, Default, PartialEq, Component, Reflect)]
+#[reflect(Debug, Default, Component)]
+#[component(immutable, on_insert = on_insert_type_name)]
+pub struct TypeName(pub &'static str);
+
+fn on_insert_type_name(mut world: DeferredWorld, context: HookContext) {
+    let entity = context.entity;
+    let new_type_name = world.get::<TypeName>(entity).unwrap().0;
+    let mut style_data = world
+        .get_mut::<NodeStyleData>(entity)
+        .expect("TypeName without NodeStyleData");
+
+    if let Some(type_name) = style_data.type_name {
+        panic!(
+            "Error setting type name to '{new_type_name}' on entity {entity:?} because it already has type name '{type_name}'"
+        );
+    }
+    style_data.type_name = Some(new_type_name);
 }
 
 /// Contains all classes that belong to the current entity.

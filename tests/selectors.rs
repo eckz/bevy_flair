@@ -54,6 +54,7 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ClassList::new("child")
             ),
             (Element, UniqueName::new("not-child"),),
+            (Element, Label, UniqueName::new("not-child-label"),),
             (
                 Element,
                 UniqueName::new("child-with-grandchild"),
@@ -101,6 +102,7 @@ fn css_selectors() {
     assert_background_color_eq!(app, "child-focused/grand-child", css::BLUE);
     assert_background_color_eq!(app, "child-without-grandchild", css::PURPLE);
     assert_background_color_eq!(app, "not-child", css::DARK_ORANGE);
+    assert_background_color_eq!(app, "not-child-label", css::DARK_GOLDENROD);
     assert_background_color_eq!(app, "child-with-grandchild", css::AQUA);
     assert_background_color_eq!(app, "child-with-grandchild/first-child", css::LIGHT_GRAY);
     assert_background_color_eq!(app, "child-with-grandchild/middle-child", css::DARK_RED);

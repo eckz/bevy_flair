@@ -1,0 +1,33 @@
+---
+source: crates/bevy_flair_style/src/lib.rs
+expression: scene_serializer
+---
+Scene(
+  resources: {},
+  entities: {
+    4294967296: Entity(
+      components: {
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet: Weak(Uuid(
+            uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
+          )),
+          is_root: true,
+          name: None,
+          classes: [],
+          attributes: {},
+          type_name: Some("custom-type"),
+          pseudo_state: NodePseudoState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+            focused_and_visible: false,
+          ),
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": StyleSheet(Weak(Uuid(
+          uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
+        ))),
+        "bevy_flair_style::tests::CustomType": CustomType(),
+      },
+    ),
+  },
+)

@@ -54,7 +54,7 @@
     -bevy-image-mode: sliced(20.0px);
 }
 
-Button {
+button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -68,12 +68,12 @@ Button {
         color: #E6E6E6;
     }
 
-    Text {
+    text {
         transition: color 0.6s;
     }
 }
 
-Button, #floating_borders {
+button, #floating_borders {
     width: 250px;
     height: 60px;
 }
@@ -87,23 +87,23 @@ Button, #floating_borders {
     -bevy-image-mode: sliced(20.0px);
 }
 
-Button:nth-child(2):focus ~ #floating_borders {
+button:nth-child(2):focus ~ #floating_borders {
     top: calc(var(--floating-borders-top) + var(--floating-borders-spacing) * 0);
 }
 
-Button:nth-child(3):focus ~ #floating_borders {
+button:nth-child(3):focus ~ #floating_borders {
     top: calc(var(--floating-borders-top) + var(--floating-borders-spacing) * 1);
 }
 
-Button:nth-child(4):focus ~ #floating_borders {
+button:nth-child(4):focus ~ #floating_borders {
     top: calc(var(--floating-borders-top) + var(--floating-borders-spacing) * 2);
 }
 
-Button:nth-child(5):focus ~ #floating_borders {
+button:nth-child(5):focus ~ #floating_borders {
     top: calc(var(--floating-borders-top) + var(--floating-borders-spacing) * 3);
 }
 
-Button:hover ~ #floating_borders {
+button:hover ~ #floating_borders {
     animation: 2.0s linear infinite borders-animation;
 }
 

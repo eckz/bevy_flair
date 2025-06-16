@@ -20,12 +20,7 @@ Scene(
           name: Some("Root"),
           classes: [],
           attributes: {},
-          type_names: [
-            TypeNameWithPriority(
-              priority: 0,
-              name: "Node",
-            ),
-          ],
+          type_name: None,
           pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
@@ -53,12 +48,7 @@ Scene(
           name: None,
           classes: [],
           attributes: {},
-          type_names: [
-            TypeNameWithPriority(
-              priority: 0,
-              name: "Node",
-            ),
-          ],
+          type_name: None,
           pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
@@ -85,12 +75,7 @@ Scene(
           name: None,
           classes: [],
           attributes: {},
-          type_names: [
-            TypeNameWithPriority(
-              priority: 0,
-              name: "Node",
-            ),
-          ],
+          type_name: None,
           pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
@@ -113,12 +98,7 @@ Scene(
           name: None,
           classes: [],
           attributes: {},
-          type_names: [
-            TypeNameWithPriority(
-              priority: 0,
-              name: "Node",
-            ),
-          ],
+          type_name: None,
           pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
@@ -141,12 +121,7 @@ Scene(
           name: None,
           classes: [],
           attributes: {},
-          type_names: [
-            TypeNameWithPriority(
-              priority: 0,
-              name: "Node",
-            ),
-          ],
+          type_name: None,
           pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
@@ -169,12 +144,7 @@ Scene(
           name: None,
           classes: [],
           attributes: {},
-          type_names: [
-            TypeNameWithPriority(
-              priority: 0,
-              name: "Node",
-            ),
-          ],
+          type_name: None,
           pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,
@@ -197,12 +167,7 @@ Scene(
           name: None,
           classes: [],
           attributes: {},
-          type_names: [
-            TypeNameWithPriority(
-              priority: 0,
-              name: "Node",
-            ),
-          ],
+          type_name: None,
           pseudo_state: NodePseudoState(
             pressed: false,
             hovered: false,

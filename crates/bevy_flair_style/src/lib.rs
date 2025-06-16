@@ -263,13 +263,16 @@ impl Plugin for FlairStylePlugin {
             .register_type::<Siblings>()
             .register_type::<NodeVars>()
             .register_required_components::<Node, NodeStyleSheet>()
-            .add_plugins((
-                ReflectAnimationsPlugin,
-                TrackTypeNameComponentPlugin::<Node>::new(0),
-                TrackTypeNameComponentPlugin::<Label>::new(1),
-                TrackTypeNameComponentPlugin::<Text>::new(1),
-                TrackTypeNameComponentPlugin::<Button>::new(2),
-            ))
+            .register_required_components_with::<Button, TypeName>(|| {
+                TypeName("button")
+            })
+            .register_required_components_with::<Text, TypeName>(|| {
+                TypeName("text")
+            })
+            .register_required_components_with::<Label, TypeName>(|| {
+                TypeName("label")
+            })
+            .add_plugins(ReflectAnimationsPlugin)
             .configure_sets(
                 PostUpdate,
                 (
@@ -349,67 +352,6 @@ impl Plugin for FlairStylePlugin {
     }
 }
 
-/// Tracks when a given component is present in the entity and adds the type name to the entity.
-/// This is useful for matching against types like `Node`, or `Button`.
-/// It's really difficult to know if an entity contains a type by name in Bevy,
-/// And tracking all component would be unfeasible, so this plugin allows you to track only the components you need.
-///
-/// Each component is tracked with a priority, so if an entity has multiple components, the one with the highest priority will be used.
-#[derive(Clone, Debug)]
-pub struct TrackTypeNameComponentPlugin<T> {
-    /// The priority of the component name.
-    pub priority: u32,
-    /// name of the component.
-    pub name: &'static str,
-    _marker: std::marker::PhantomData<fn() -> T>,
-}
-
-impl<T: Component> TrackTypeNameComponentPlugin<T> {
-    /// Creates a new instance of the plugin.
-    pub fn new(priority: u32) -> Self
-    where
-        T: TypePath,
-    {
-        Self {
-            priority,
-            name: T::short_type_path(),
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    /// Creates a new instance of the plugin using the given name.
-    pub fn with_name(priority: u32, name: &'static str) -> Self {
-        Self {
-            priority,
-            name,
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn on_added(
-        &self,
-    ) -> impl FnMut(Query<&mut NodeStyleData, Or<(Added<T>, (With<T>, Added<NodeStyleData>))>>) + 'static
-    {
-        let priority = self.priority;
-        let name = self.name;
-        move |mut query| {
-            for mut data in &mut query {
-                data.push_type_name_with_priority(name, priority);
-            }
-        }
-    }
-}
-
-impl<T: Component> Plugin for TrackTypeNameComponentPlugin<T> {
-    fn build(&self, app: &mut App) {
-        app.add_systems(
-            PostUpdate,
-            self.on_added().in_set(StyleSystemSets::SetStyleData),
-        );
-    }
-}
-
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
@@ -440,6 +382,16 @@ mod tests {
     #[reflect(Component)]
     #[require(Node)]
     struct GrandChild;
+
+    #[derive(Copy, Clone, Component, Reflect)]
+    #[reflect(Component)]
+    #[require(Node, TypeName("custom-type"))]
+    struct CustomType;
+
+    #[derive(Copy, Clone, Component, Reflect)]
+    #[reflect(Component)]
+    #[require(Button, TypeName("custom-button"))]
+    struct CustomButton;
 
     macro_rules! query_len {
         ($app:expr, $filter:ty) => {{
@@ -502,7 +454,10 @@ mod tests {
             FlairStylePlugin,
         ));
 
-        app.register_type::<Node>()
+        app
+            // Fixed in https://github.com/bevyengine/bevy/pull/19680
+            .register_type_data::<&'static str, ReflectSerialize>()
+            .register_type::<Node>()
             .register_type::<BackgroundColor>()
             .register_type::<BorderColor>()
             .register_type::<BorderRadius>()
@@ -514,12 +469,34 @@ mod tests {
             .register_type::<TextColor>()
             .register_type::<TextShadow>();
 
-        app.register_type::<(Child, GrandChild)>();
-        app.register_type_data::<std::collections::BinaryHeap<TypeNameWithPriority>, ReflectSerialize>();
+        app.register_type::<Child>()
+            .register_type::<GrandChild>()
+            .register_type::<CustomType>()
+            .register_type::<CustomButton>();
 
         app.finish();
 
         app
+    }
+
+    #[test]
+    fn custom_type_name() {
+        let mut app = app();
+        app.add_systems(Startup, |mut commands: Commands| {
+            commands.spawn((ROOT, CustomType));
+        });
+        app.update();
+        assert_world_snapshot!(app, (CustomType, NodeStyleData));
+    }
+
+    #[test]
+    fn custom_button() {
+        let mut app = app();
+        app.add_systems(Startup, |mut commands: Commands| {
+            commands.spawn((ROOT, CustomButton));
+        });
+        app.update();
+        assert_world_snapshot!(app, (CustomButton, NodeStyleData));
     }
 
     #[test]

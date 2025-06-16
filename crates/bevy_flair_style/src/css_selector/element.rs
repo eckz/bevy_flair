@@ -230,7 +230,7 @@ impl Element for ElementRef<'_> {
     }
 
     fn is_same_type(&self, other: &Self) -> bool {
-        self.data.type_names.peek() == other.data.type_names.peek()
+        self.data.type_name.is_some() && self.data.type_name == other.data.type_name
     }
 
     fn attr_matches(

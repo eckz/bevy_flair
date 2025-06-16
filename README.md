@@ -140,7 +140,7 @@ Save your css file under `assets/my_stylesheet.css`:
   color: rgb(30% 30% 30%);
 }
 
-Button {
+button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -160,7 +160,7 @@ Button {
     background-color: rgb(35%, 65%, 35%);
   }
 
-  Text {
+  text {
     /* Color transitions need to happen in the text element */
     transition: color 0.5s;
   }
