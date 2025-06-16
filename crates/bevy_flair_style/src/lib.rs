@@ -169,8 +169,8 @@ impl GlobalChangeDetection {
 /// System sets for the [`FlairStylePlugin`] plugin.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, SystemSet)]
 pub enum StyleSystemSets {
-    /// All changes that requires adding, or removing any component are applied here
-    StructuralChanges,
+    /// Any pre-requisite before start calculating any style.
+    Prepare,
     /// Apply changes to [`NodeStyleData`] component.
     SetStyleData,
     /// Mark all nodes that needs their style recalculated.
@@ -271,7 +271,7 @@ impl Plugin for FlairStylePlugin {
                 PostUpdate,
                 (
                     (
-                        StyleSystemSets::StructuralChanges,
+                        StyleSystemSets::Prepare,
                         StyleSystemSets::SetStyleData,
                         StyleSystemSets::MarkNodesForRecalculation,
                         StyleSystemSets::CalculateStyles,
@@ -307,8 +307,7 @@ impl Plugin for FlairStylePlugin {
                         systems::sync_siblings_system,
                         systems::reset_properties_on_added,
                     )
-                        .chain()
-                        .in_set(StyleSystemSets::StructuralChanges),
+                        .in_set(StyleSystemSets::Prepare),
                     (
                         systems::calculate_is_root,
                         systems::apply_classes,

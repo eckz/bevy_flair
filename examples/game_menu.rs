@@ -9,7 +9,7 @@
 
 use bevy::{
     ecs::spawn::SpawnWith,
-    input::InputSystem,
+    input::{InputSystem, common_conditions::input_just_pressed},
     input_focus::{AutoFocus, InputDispatchPlugin, InputFocus, directional_navigation::*},
     math::CompassOctant,
     prelude::*,
@@ -192,16 +192,33 @@ fn on_hover_button_observer(
     }
 }
 
+fn fix_auto_focus(
+    mut focus: ResMut<InputFocus>,
+    auto_focus_added: Query<Entity, Added<AutoFocus>>,
+) {
+    if let Some(entity) = auto_focus_added.iter().next() {
+        focus.set(entity);
+    }
+}
+
 fn navigation_plugin(app: &mut App) {
     app.init_resource::<ActionState>()
         .add_event::<ButtonActivate>()
         .add_observer(on_click_button_observer)
         .add_observer(on_hover_button_observer)
+        .add_systems(Update, fix_auto_focus)
         .add_systems(
             PreUpdate,
             (process_inputs, navigate).chain().after(InputSystem),
         )
         .add_systems(Update, interact_with_focused_button);
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default, States)]
+enum GameState {
+    #[default]
+    Menu,
+    Game,
 }
 
 fn main() {
@@ -214,21 +231,42 @@ fn main() {
             navigable_children_plugin,
             navigation_plugin,
         ))
-        .add_systems(Startup, setup)
+        .init_state::<GameState>()
+        .enable_state_scoped_entities::<GameState>()
+        .add_systems(Startup, spawn_camera)
+        .add_systems(OnEnter(GameState::Menu), spawn_menu)
+        .add_systems(
+            Update,
+            change_state.run_if(input_just_pressed(KeyCode::Escape)),
+        )
         .run();
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn change_state(state: Res<State<GameState>>, mut next_state: ResMut<NextState<GameState>>) {
+    if **state == GameState::Menu {
+        next_state.set(GameState::Game);
+    } else {
+        next_state.set(GameState::Menu);
+    }
+}
+
+fn spawn_camera(mut commands: Commands) {
+    commands.spawn(Camera2d);
+}
+
+fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     fn button(name: &'static str) -> impl Bundle {
         (Button, Children::spawn_one(Text::new(name)))
     }
 
-    // UI camera
-    commands.spawn(Camera2d);
-
     commands.spawn((
+        StateScoped(GameState::Menu),
         Name::new("Root"),
-        Node::default(),
+        Node {
+            // We set display None so it's hidden until the css is loaded
+            display: Display::None,
+            ..default()
+        },
         NodeStyleSheet::new(asset_server.load("game_menu.css")),
         children![(
             Name::new("game_menu"),
@@ -247,7 +285,15 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     },
                 );
                 spawner.spawn(button("New"));
-                spawner.spawn(button("Options"));
+
+                spawner.spawn(button("Return")).observe(
+                    |_trigger: Trigger<ButtonActivate>,
+                     mut next_state: ResMut<NextState<GameState>>| {
+                        info!("Returning to game");
+                        next_state.set(GameState::Game);
+                    },
+                );
+
                 spawner.spawn(button("Quit")).observe(
                     |_trigger: Trigger<ButtonActivate>, mut exit_event: EventWriter<AppExit>| {
                         info!("Exiting");
