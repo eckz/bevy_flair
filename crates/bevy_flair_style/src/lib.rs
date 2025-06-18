@@ -171,8 +171,10 @@ impl GlobalChangeDetection {
 pub enum StyleSystemSets {
     /// Any pre-requisite before start calculating any style.
     Prepare,
-    /// Apply changes to [`NodeStyleData`] component.
+
+    /// Apply changes to [`NodeStyleData`] and [`RawInlineStyle`] components.
     SetStyleData,
+
     /// Mark all nodes that needs their style recalculated.
     MarkNodesForRecalculation,
 

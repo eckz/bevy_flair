@@ -592,6 +592,7 @@ dependencies = [
  "cssparser-color",
  "derive_more 2.0.1",
  "indoc",
+ "linked-hash-map",
  "rustc-hash 2.1.1",
  "selectors",
  "serde",
@@ -2691,6 +2692,12 @@ dependencies = [
  "libc",
  "pkg-config",
 ]
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"

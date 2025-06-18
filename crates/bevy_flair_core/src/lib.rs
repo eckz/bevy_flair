@@ -162,9 +162,6 @@ macro_rules! register_sub_properties {
 
 impl Plugin for BevyUiPropertiesPlugin {
     fn build(&self, app: &mut App) {
-        // Init registry if it's not already initialized
-        app.init_resource::<PropertyRegistry>();
-
         register_sub_properties!(app => {
             UiRect,
             Overflow,
@@ -175,10 +172,7 @@ impl Plugin for BevyUiPropertiesPlugin {
         let registry_arc = app.world().resource::<AppTypeRegistry>().0.clone();
         let registry = registry_arc.read();
 
-        let mut property_registry = app
-            .world_mut()
-            .get_resource_mut::<PropertyRegistry>()
-            .unwrap();
+        let mut property_registry = app.world_mut().get_resource_or_init::<PropertyRegistry>();
 
         register_bevy_ui_properties(&mut property_registry, &registry);
     }

@@ -1,8 +1,8 @@
 use crate::components::{
     AttributeList, ClassList, DependsOnMediaFeaturesFlags, EmptyComputedProperties,
     InitialPropertyValues, NodeProperties, NodeStyleActiveRules, NodeStyleData, NodeStyleMarker,
-    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, RecalculateOnChangeFlags, Siblings,
-    WindowMediaFeatures,
+    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, RawInlineStyle, RecalculateOnChangeFlags,
+    Siblings, WindowMediaFeatures,
 };
 use crate::{ColorScheme, GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
 use bevy_ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
@@ -404,11 +404,16 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
             (
                 Entity,
                 Ref<NodeStyleData>,
+                Option<Ref<RawInlineStyle>>,
                 &NodeStyleSelectorFlags,
                 &NodeStyleMarker,
                 Option<&ChildOf>,
             ),
-            Or<(Changed<NodeStyleData>, Changed<NodeStyleMarker>)>,
+            Or<(
+                Changed<NodeStyleData>,
+                Changed<NodeStyleMarker>,
+                Changed<RawInlineStyle>,
+            )>,
         >,
         Query<&mut NodeStyleMarker>,
     )>,
@@ -418,12 +423,14 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 ) -> Result {
     let nodes_changed_query = queries.p0();
 
-    for (entity, style_data, selector_flags, marker, child_of) in &nodes_changed_query {
-        if !style_data.is_changed() && !marker.needs_recalculation() {
+    for (entity, style_data, inline_style, selector_flags, marker, child_of) in &nodes_changed_query
+    {
+        let inline_style_changed = inline_style.is_some_and(|s| s.is_changed());
+        if !style_data.is_changed() && !marker.needs_recalculation() && !inline_style_changed {
             continue;
         }
 
-        if style_data.is_changed() {
+        if style_data.is_changed() || inline_style_changed {
             to_be_marked.insert(entity);
         }
 
@@ -560,8 +567,8 @@ struct EntityVarResolver<'a, 'w, 's> {
 }
 
 impl VarResolver for EntityVarResolver<'_, '_, '_> {
-    fn get_all_names(&self) -> FxHashSet<Arc<str>> {
-        self.param.get_all_names(self.entity)
+    fn get_all_names(&self) -> Vec<Arc<str>> {
+        self.param.get_all_names(self.entity).into_iter().collect()
     }
 
     fn get_var_tokens(&self, var_name: &str) -> Option<&'_ VarTokens> {
@@ -722,6 +729,7 @@ pub(crate) fn set_style_properties(
     mut styled_entities_query: Query<(
         NameOrEntity,
         &NodeStyleData,
+        Option<&RawInlineStyle>,
         &NodeStyleActiveRules,
         &mut NodeStyleMarker,
         &mut NodeProperties,
@@ -735,7 +743,8 @@ pub(crate) fn set_style_properties(
 
     styled_entities_query.par_iter_mut().for_each_init(
         || any_property_change_parallel.borrow_local_mut(),
-        |any_property_change, (name_or_entity, data, active_rules, mut marker, mut properties)| {
+        |any_property_change,
+         (name_or_entity, data, inline_style, active_rules, mut marker, mut properties)| {
             if !marker.needs_recalculation() {
                 return;
             }
@@ -758,6 +767,15 @@ pub(crate) fn set_style_properties(
                 &var_resolver.resolver_for_entity(name_or_entity.entity),
                 &mut property_values,
             );
+
+            // Inline styles
+            if let Some(inline_style) = inline_style {
+                inline_style.to_output(
+                    &property_registry,
+                    &var_resolver.resolver_for_entity(name_or_entity.entity),
+                    &mut property_values,
+                );
+            }
 
             debug_assert!(properties.pending_property_values.is_empty());
             **any_property_change |= properties.pending_property_values != property_values;

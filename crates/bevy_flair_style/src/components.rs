@@ -5,9 +5,9 @@ use crate::animations::{
 };
 
 use crate::{
-    AttributeKey, AttributeValue, ClassName, ColorScheme, IdName, NodePseudoState,
-    NodePseudoStateSelector, ResolvedAnimation, StyleSheet, TransitionEvent, TransitionEventType,
-    VarTokens,
+    AttributeKey, AttributeValue, ClassName, ColorScheme, DynamicParseVarTokens, IdName,
+    NodePseudoState, NodePseudoStateSelector, ResolvedAnimation, StyleSheet, TransitionEvent,
+    TransitionEventType, VarTokens,
 };
 
 use bevy_ecs::prelude::*;
@@ -18,7 +18,9 @@ use bevy_flair_core::{
 use bevy_reflect::prelude::*;
 use bitflags::bitflags;
 
-use crate::style_sheet::StyleSheetRulesetId;
+use crate::style_sheet::{
+    RulesetProperty, StyleSheetRulesetId, VarResolver, ruleset_property_to_output,
+};
 use bevy_asset::{AssetId, Handle};
 use bevy_ecs::component::HookContext;
 use bevy_ecs::world::DeferredWorld;
@@ -28,6 +30,7 @@ use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
+use smallvec::{SmallVec, smallvec};
 use std::collections::hash_map::Entry;
 use std::convert::Infallible;
 use std::mem;
@@ -1174,6 +1177,83 @@ impl AttributeList {
     /// removes the attribute with the specified name.
     pub fn remove_attribute(&mut self, name: &str) {
         self.0.remove(name);
+    }
+}
+
+/// Component that stores inline style.
+/// It should not be used directly, look for the `InlineStyle` component.
+#[derive(Clone, Debug, Default, Component)]
+pub struct RawInlineStyle(pub(crate) Vec<(Arc<str>, SmallVec<[RulesetProperty; 1]>)>);
+
+impl RawInlineStyle {
+    /// Insert a single property by its css property name.
+    pub fn insert_single(
+        &mut self,
+        css_name: Arc<str>,
+        property_id: ComponentPropertyId,
+        value: PropertyValue,
+    ) {
+        self.remove(&css_name);
+        self.0.push((
+            css_name,
+            smallvec![RulesetProperty::Specific { property_id, value }],
+        ));
+    }
+
+    /// Insert a multiple properties that belong to the same css property.
+    pub fn insert_multiple(
+        &mut self,
+        css_name: Arc<str>,
+        properties: impl IntoIterator<Item = (ComponentPropertyId, PropertyValue)>,
+    ) {
+        self.remove(&css_name);
+        self.0.push((
+            css_name,
+            properties
+                .into_iter()
+                .map(|(property_id, value)| RulesetProperty::Specific { property_id, value })
+                .collect(),
+        ));
+    }
+
+    /// Insert a dynamic property by its css property name.
+    pub fn insert_dynamic(
+        &mut self,
+        css_name: Arc<str>,
+        parser: DynamicParseVarTokens,
+        tokens: VarTokens,
+    ) {
+        self.remove(&css_name);
+        self.0.push((
+            css_name.clone(),
+            smallvec![RulesetProperty::Dynamic {
+                css_name,
+                parser,
+                tokens,
+            }],
+        ));
+    }
+
+    /// Removes a property by it's name.
+    fn remove(&mut self, css_name: &str) {
+        self.0.retain(|(name, _)| &**name != css_name)
+    }
+
+    /// Clears the contents of the [`RawInlineStyle`];
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// Outputs the inline style into a [`PropertyMap`]
+    pub fn to_output<V: VarResolver>(
+        &self,
+        property_registry: &PropertyRegistry,
+        var_resolver: &V,
+        output: &mut PropertyMap<PropertyValue>,
+    ) {
+        for property in self.0.iter().flat_map(|(_, properties)| properties.iter()) {
+            ruleset_property_to_output(property, property_registry, var_resolver, output);
+        }
     }
 }
 

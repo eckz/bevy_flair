@@ -1,9 +1,16 @@
 //! # Bevy Flair CSS Parser
 //! Includes a CSS parser and a Bevy plugin for parsing CSS files as assets.
 
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_asset::AssetApp;
+use bevy_ecs::prelude::AppTypeRegistry;
+use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_flair_core::PropertyRegistry;
+use bevy_flair_style::StyleSystemSets;
 use cssparser::{BasicParseError, CowRcStr, Parser, Token};
 use derive_more::Deref;
 pub use error::*;
+pub use inline_styles::*;
 pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
@@ -16,6 +23,7 @@ mod parser;
 mod calc;
 mod error_codes;
 mod imports_parser;
+mod inline_styles;
 mod loader;
 mod reflect;
 mod shorthand;
@@ -194,6 +202,36 @@ impl<'i, 't> ParserExt<'i> for Parser<'i, 't> {
 }
 
 pub(crate) type CssParseResult<T> = Result<T, CssError>;
+
+/// Add support for css parsing infrastructure.
+///
+/// - Registers the [`CssStyleLoader`].
+/// - Adds support for [`InlineStyle`].
+pub struct FlairCssParserPlugin;
+
+impl Plugin for FlairCssParserPlugin {
+    fn build(&self, app: &mut App) {
+        app.preregister_asset_loader::<CssStyleLoader>(CssStyleLoader::EXTENSIONS);
+        app.add_plugins((ReflectParsePlugin, ShorthandPropertiesPlugin));
+
+        app.add_systems(
+            PostUpdate,
+            parse_inline_style.in_set(StyleSystemSets::SetStyleData),
+        );
+    }
+
+    fn finish(&self, app: &mut App) {
+        let world = app.world();
+        let type_registry_arc = world.resource::<AppTypeRegistry>().0.clone();
+        let property_registry = world.resource::<PropertyRegistry>().clone();
+        let shorthand_registry = world.resource::<ShorthandPropertyRegistry>().clone();
+        app.register_asset_loader(CssStyleLoader::new(
+            type_registry_arc,
+            property_registry,
+            shorthand_registry,
+        ));
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod testing {

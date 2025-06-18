@@ -81,7 +81,7 @@ impl From<ReflectParseCssEnum> for ReflectParseCss {
 }
 
 /// A plugin that registers all the types that can be parsed from CSS.
-pub struct ReflectParsePlugin;
+pub(crate) struct ReflectParsePlugin;
 
 macro_rules! register_type_data {
     ($app:ident, $data:path, ( $($ty:path,)* )) => {

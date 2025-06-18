@@ -687,13 +687,13 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
 /// - `margin: 10px 20px`
 /// - `border: 1px solid red`
 /// - `overflow: hidden auto`
-pub struct ShorthandPropertiesPlugin;
+pub(crate) struct ShorthandPropertiesPlugin;
 
 impl Plugin for ShorthandPropertiesPlugin {
     fn build(&self, app: &mut App) {
         let registry = app
             .world_mut()
-            .resource_mut::<ShorthandPropertyRegistry>()
+            .get_resource_or_init::<ShorthandPropertyRegistry>()
             .into_inner();
 
         register_default_shorthand_properties(registry);

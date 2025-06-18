@@ -41,3 +41,8 @@
 :root > *:has(.grandchild:hover) {
     background-color: red;
 }
+
+
+#no-children-with-custom-color {
+    background-color: rgba(10, 20, 30, 0.4);
+}

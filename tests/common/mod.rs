@@ -35,7 +35,7 @@ fn on_insert_unique_name(mut world: DeferredWorld, context: HookContext) {
             .entity(context.entity)
             .insert(Name::new(name));
     } else {
-        eprintln!("Duplicate unique name: {}", name);
+        error!("Duplicated unique name: {name}");
         world.commands().entity(context.entity).despawn();
     }
 }

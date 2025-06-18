@@ -53,8 +53,13 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
                 UniqueName::new("child-without-grandchild"),
                 ClassList::new("child")
             ),
-            (Element, UniqueName::new("not-child"),),
-            (Element, Label, UniqueName::new("not-child-label"),),
+            (Element, UniqueName::new("no-children"),),
+            (
+                Element,
+                UniqueName::new("no-children-with-custom-color"),
+                InlineStyle::new("background-color: indigo"),
+            ),
+            (Element, Label, UniqueName::new("no-children-label"),),
             (
                 Element,
                 UniqueName::new("child-with-grandchild"),
@@ -101,8 +106,9 @@ fn css_selectors() {
     assert_background_color_eq!(app, "child-focused", css::GREEN);
     assert_background_color_eq!(app, "child-focused/grand-child", css::BLUE);
     assert_background_color_eq!(app, "child-without-grandchild", css::PURPLE);
-    assert_background_color_eq!(app, "not-child", css::DARK_ORANGE);
-    assert_background_color_eq!(app, "not-child-label", css::DARK_GOLDENROD);
+    assert_background_color_eq!(app, "no-children", css::DARK_ORANGE);
+    assert_background_color_eq!(app, "no-children-with-custom-color", css::INDIGO);
+    assert_background_color_eq!(app, "no-children-label", css::DARK_GOLDENROD);
     assert_background_color_eq!(app, "child-with-grandchild", css::AQUA);
     assert_background_color_eq!(app, "child-with-grandchild/first-child", css::LIGHT_GRAY);
     assert_background_color_eq!(app, "child-with-grandchild/middle-child", css::DARK_RED);

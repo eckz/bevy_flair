@@ -15,7 +15,7 @@ use crate::css_selector::CssSelector;
 use crate::media_selector::MediaFeaturesProvider;
 use bevy_asset::Asset;
 use bevy_reflect::{FromReflect, Reflect, TypePath};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::error;
@@ -264,9 +264,9 @@ impl Display for StyleSheetRulesetId {
 /// corresponding [`VarTokens`] for a specific variable name.
 ///
 /// This trait is used internally by the style engine to support dynamic and scoped variables.
-pub(crate) trait VarResolver {
+pub trait VarResolver {
     /// Returns a set of all variable names that can be resolved.
-    fn get_all_names(&self) -> FxHashSet<Arc<str>>;
+    fn get_all_names(&self) -> Vec<Arc<str>>;
 
     /// Attempts to retrieve the [`VarTokens`] associated with a given variable name.
     fn get_var_tokens(&self, var_name: &str) -> Option<&'_ VarTokens>;
@@ -280,6 +280,55 @@ pub struct StyleSheet {
     pub(super) animation_keyframes:
         FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
     pub(super) css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
+}
+
+pub(crate) fn ruleset_property_to_output<V: VarResolver>(
+    property: &RulesetProperty,
+    property_registry: &PropertyRegistry,
+    var_resolver: &V,
+    output: &mut PropertyMap<PropertyValue>,
+) {
+    match property {
+        RulesetProperty::Specific { property_id, value } => {
+            output.set_if_neq(*property_id, value.clone());
+        }
+        RulesetProperty::Dynamic {
+            css_name,
+            parser,
+            tokens,
+        } => {
+            let tokens_resolved = match tokens
+                .resolve_recursively(|var_name| var_resolver.get_var_tokens(var_name))
+            {
+                Ok(v) => v,
+                Err(err) => {
+                    let extra_message = if matches!(err, ResolveTokensError::UnknownVarName(_)) {
+                        let all_names = var_resolver.get_all_names();
+                        format!("\nAvailable variables are {all_names:#?}",)
+                    } else {
+                        Default::default()
+                    };
+                    error!(
+                        "Property '{css_name}' cannot cannot be parsed because var tokens cannot be resolved: {err}{extra_message}"
+                    );
+                    return;
+                }
+            };
+            match parser(&tokens_resolved) {
+                Ok(values) => {
+                    for (property_ref, value) in values {
+                        let property_id = property_registry
+                            .resolve(&property_ref)
+                            .expect("Error resolving dynamic property");
+                        output.set_if_neq(property_id, value);
+                    }
+                }
+                Err(err) => {
+                    error!("Property '{css_name}' cannot parse var tokens:\n{err}");
+                }
+            }
+        }
+    }
 }
 
 impl StyleSheet {
@@ -303,50 +352,7 @@ impl StyleSheet {
             let ruleset = self.get(*ruleset_id).unwrap();
 
             for property in ruleset.properties.iter() {
-                match property {
-                    RulesetProperty::Specific { property_id, value } => {
-                        output.set_if_neq(*property_id, value.clone());
-                    }
-                    RulesetProperty::Dynamic {
-                        css_name,
-                        parser,
-                        tokens,
-                    } => {
-                        let tokens_resolved = match tokens
-                            .resolve_recursively(|var_name| var_resolver.get_var_tokens(var_name))
-                        {
-                            Ok(v) => v,
-                            Err(err) => {
-                                let extra_message =
-                                    if matches!(err, ResolveTokensError::UnknownVarName(_)) {
-                                        format!(
-                                            "\nAvailable variables are {:#?}",
-                                            var_resolver.get_all_names()
-                                        )
-                                    } else {
-                                        Default::default()
-                                    };
-                                error!(
-                                    "Property '{css_name}' cannot cannot be parsed because var tokens cannot be resolved: {err}{extra_message}"
-                                );
-                                continue;
-                            }
-                        };
-                        match parser(&tokens_resolved) {
-                            Ok(values) => {
-                                for (property_ref, value) in values {
-                                    let property_id = property_registry
-                                        .resolve(&property_ref)
-                                        .expect("Error resolving dynamic property");
-                                    output.set_if_neq(property_id, value);
-                                }
-                            }
-                            Err(err) => {
-                                error!("Property '{css_name}' cannot parse var tokens:\n{err}");
-                            }
-                        }
-                    }
-                }
+                ruleset_property_to_output(property, property_registry, var_resolver, output);
             }
         }
     }
@@ -491,7 +497,7 @@ mod tests {
     struct NoVarsSupportedResolver;
 
     impl VarResolver for NoVarsSupportedResolver {
-        fn get_all_names(&self) -> FxHashSet<Arc<str>> {
+        fn get_all_names(&self) -> Vec<Arc<str>> {
             panic!("No vars support on tests")
         }
 

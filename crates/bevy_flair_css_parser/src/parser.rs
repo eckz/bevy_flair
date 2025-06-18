@@ -639,17 +639,22 @@ fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError
 }
 
 #[derive(Clone)]
+pub(crate) struct CssPropertyParser<'a> {
+    pub(crate) type_registry: &'a TypeRegistry,
+    pub(crate) property_registry: &'a PropertyRegistry,
+    pub(crate) shorthand_property_registry: &'a ShorthandPropertyRegistry,
+}
+
+#[derive(Clone)]
 struct CssParserContext<'a, 'i> {
+    property_parser: CssPropertyParser<'a>,
     declared_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
-    type_registry: &'a TypeRegistry,
-    property_registry: &'a PropertyRegistry,
-    shorthand_property_registry: &'a ShorthandPropertyRegistry,
     imports: &'a FxHashMap<String, StyleSheet>,
     media_selectors: MediaSelectors,
     current_layer: String,
 }
 
-impl CssParserContext<'_, '_> {
+impl CssPropertyParser<'_> {
     fn get_shorthand_css(&self, css_name: &str) -> Option<&ShorthandProperty> {
         self.shorthand_property_registry.get_property(css_name)
     }
@@ -697,12 +702,12 @@ impl CssParserContext<'_, '_> {
         })
     }
 
-    fn parse_ruleset_property(
+    pub(crate) fn parse_ruleset_property(
         &self,
-        property_name: CowRcStr,
+        property_name: &str,
         parser: &mut Parser,
     ) -> CssRulesetProperty {
-        if let Some(shorthand_property) = self.get_shorthand_css(&property_name) {
+        if let Some(shorthand_property) = self.get_shorthand_css(property_name) {
             let initial_state = parser.state();
             parser.look_for_var_or_env_functions();
 
@@ -750,7 +755,7 @@ impl CssParserContext<'_, '_> {
             };
         }
 
-        let Some(property_id) = self.get_css_property(&property_name) else {
+        let Some(property_id) = self.get_css_property(property_name) else {
             return CssRulesetProperty::Error(CssError::new_unlocated(
                 error_codes::basic::PROPERTY_NOT_RECOGNIZED,
                 format!("Property '{property_name}' is not recognized as a valid property",),
@@ -796,7 +801,7 @@ impl CssParserContext<'_, '_> {
 
                 match result {
                     Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
-                        property_name.as_ref().into(),
+                        property_name.into(),
                         reflect_parse_css.as_dynamic_parse_var_tokens(property_id),
                         var_tokens,
                         important_level,
@@ -1008,7 +1013,10 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
         } else if self.parse_transition && property_name.eq_ignore_ascii_case("transition") {
             let transitions: Vec<_> =
                 input.parse_comma_separated_ignoring_errors::<_, _, ()>(|parser| {
-                    let result = self.inner.parse_single_property_transition(parser);
+                    let result = self
+                        .inner
+                        .property_parser
+                        .parse_single_property_transition(parser);
                     if result.is_err() {
                         while !parser.is_exhausted() {
                             let _ = parser.next()?;
@@ -1034,7 +1042,8 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
             Ok(CssRulesetProperty::Animations(animations))
         } else {
             self.inner
-                .parse_ruleset_property(property_name, input)
+                .property_parser
+                .parse_ruleset_property(&property_name, input)
                 .into_parse_result()
         }
     }
@@ -1078,6 +1087,7 @@ impl<'i> DeclarationParser<'i> for CssFontFaceBodyParser<'_, 'i> {
         _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
         self.inner
+            .property_parser
             .parse_font_face_property(name, input)
             .into_parse_result()
     }
@@ -1456,10 +1466,12 @@ pub fn parse_css<F>(
     let mut css_style_sheet_parser = CssStyleSheetParser {
         is_top_level: true,
         inner: CssParserContext {
+            property_parser: CssPropertyParser {
+                type_registry,
+                property_registry,
+                shorthand_property_registry,
+            },
             declared_animations: Default::default(),
-            type_registry,
-            property_registry,
-            shorthand_property_registry,
             imports,
             media_selectors: MediaSelectors::empty(),
             current_layer: String::new(),
