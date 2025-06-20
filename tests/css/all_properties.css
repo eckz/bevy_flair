@@ -4,6 +4,7 @@
     box-sizing: content-box;
     position: absolute;
     overflow: clip;
+    -bevy-scrollbar-width: 3.0;
     overflow-clip-margin: padding-box 5px;
     left: 10px;
     right: 20%;
@@ -52,6 +53,7 @@
     box-sizing: content-box !important;
     position: absolute !important;
     overflow: clip !important;
+    -bevy-scrollbar-width: 3.0 !important;
     overflow-clip-margin: padding-box 5px !important;
     left: 10px !important;
     right: 20% !important;
@@ -100,6 +102,7 @@
     box-sizing: inherit;
     position: inherit;
     overflow: inherit;
+    -bevy-scrollbar-width: inherit;
     overflow-clip-margin: inherit;
     left: inherit;
     right: inherit;
@@ -148,6 +151,7 @@
     box-sizing: initial;
     position: initial;
     overflow: initial;
+    -bevy-scrollbar-width: initial;
     overflow-clip-margin: initial;
     left: initial;
     right: initial;

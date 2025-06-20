@@ -8,7 +8,7 @@ use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
 use bevy_reflect::FromType;
 use bevy_text::LineHeight;
-use bevy_ui::TextShadow;
+use bevy_ui::widget::TextShadow;
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 
 const NONE_TEXT_SHADOW: TextShadow = TextShadow {
@@ -105,7 +105,7 @@ mod tests {
     use bevy_color::palettes::css;
     use bevy_math::Vec2;
     use bevy_text::LineHeight;
-    use bevy_ui::TextShadow;
+    use bevy_ui::widget::TextShadow;
 
     #[test]
     fn string() {
@@ -114,50 +114,45 @@ mod tests {
 
     #[test]
     fn test_line_height() {
-        // TODO: LineHeight does not implement PartialEq. Try to upstream it to bevy.
-        assert!(matches!(
-            test_parse_css::<LineHeight>("10px"),
-            LineHeight::Px(10.0),
-        ));
-        assert!(matches!(
+        assert_eq!(test_parse_css::<LineHeight>("10px"), LineHeight::Px(10.0),);
+        assert_eq!(
             test_parse_css::<LineHeight>("normal"),
             LineHeight::RelativeToFont(1.2),
-        ));
-        assert!(matches!(
+        );
+        assert_eq!(
             test_parse_css::<LineHeight>("2.5"),
             LineHeight::RelativeToFont(2.5),
-        ));
-        assert!(matches!(
+        );
+        assert_eq!(
             test_parse_css::<LineHeight>("120%"),
             LineHeight::RelativeToFont(1.2),
-        ));
+        );
     }
 
     #[test]
     fn test_text_shadow() {
-        // TODO: TextShadow does not implement PartialEq. Try to upstream it to bevy.
-        assert!(matches!(
+        assert_eq!(
             test_parse_css::<TextShadow>("10px 5px"),
             TextShadow {
                 offset: Vec2 { x: 10.0, y: 5.0 },
-                ..
+                color: TextShadow::default().color
             }
-        ));
+        );
 
-        assert!(matches!(
+        assert_eq!(
             test_parse_css::<TextShadow>("10px 5px teal"),
             TextShadow {
                 offset: Vec2 { x: 10.0, y: 5.0 },
-                color
-            } if color == css::TEAL.into()
-        ));
+                color: css::TEAL.into()
+            }
+        );
 
-        assert!(matches!(
+        assert_eq!(
             test_parse_css::<TextShadow>("white calc(10px * 2) 5px"),
             TextShadow {
                 offset: Vec2 { x: 20.0, y: 5.0 },
-                color
-            } if color == css::WHITE.into()
-        ));
+                color: css::WHITE.into()
+            }
+        );
     }
 }

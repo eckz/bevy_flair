@@ -34,6 +34,8 @@ pub(crate) enum InternalPseudoStateSelector {
     Hovered,
     Focused,
     FocusedAndVisible,
+    Disabled,
+    Checked,
 }
 
 impl From<InternalPseudoStateSelector> for NodePseudoStateSelector {
@@ -45,6 +47,8 @@ impl From<InternalPseudoStateSelector> for NodePseudoStateSelector {
             InternalPseudoStateSelector::FocusedAndVisible => {
                 NodePseudoStateSelector::FocusedAndVisible
             }
+            InternalPseudoStateSelector::Disabled => NodePseudoStateSelector::Disabled,
+            InternalPseudoStateSelector::Checked => NodePseudoStateSelector::Checked,
         }
     }
 }
@@ -66,6 +70,7 @@ impl NonTSPseudoClass for InternalPseudoStateSelector {
                 | InternalPseudoStateSelector::Hovered
                 | InternalPseudoStateSelector::Focused
                 | InternalPseudoStateSelector::FocusedAndVisible
+                | InternalPseudoStateSelector::Checked
         )
     }
 }
@@ -77,6 +82,8 @@ impl cssparser::ToCss for InternalPseudoStateSelector {
             InternalPseudoStateSelector::Hovered => dest.write_str(":hover"),
             InternalPseudoStateSelector::Focused => dest.write_str(":focus"),
             InternalPseudoStateSelector::FocusedAndVisible => dest.write_str(":focus-visible"),
+            InternalPseudoStateSelector::Disabled => dest.write_str(":disabled"),
+            InternalPseudoStateSelector::Checked => dest.write_str(":checked"),
         }
     }
 }
@@ -227,6 +234,12 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
             },
             "focus-visible" => {
                 Ok(InternalPseudoStateSelector::FocusedAndVisible)
+            },
+            "disabled" => {
+                Ok(InternalPseudoStateSelector::Disabled)
+            },
+            "checked" => {
+                Ok(InternalPseudoStateSelector::Checked)
             },
             _ => {
                 Err(

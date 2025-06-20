@@ -15,7 +15,7 @@ use crate::error::CssError;
 use bevy_app::{App, Plugin};
 use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyValue};
 use bevy_flair_style::{DynamicParseVarTokens, ToCss};
-use bevy_text::{FontSmoothing, JustifyText, LineBreak, LineHeight};
+use bevy_text::{FontSmoothing, Justify, LineBreak, LineHeight};
 use bevy_ui::widget::NodeImageMode;
 
 /// A function that parses a CSS type.
@@ -95,6 +95,7 @@ macro_rules! register_type_data {
 
 impl Plugin for ReflectParsePlugin {
     fn build(&self, app: &mut App) {
+        use bevy_ui::widget::TextShadow;
         use bevy_ui::*;
 
         register_type_data!(
@@ -138,7 +139,7 @@ impl Plugin for ReflectParsePlugin {
                 FlexWrap,
                 GridAutoFlow,
                 FontSmoothing,
-                JustifyText,
+                Justify,
                 LineBreak,
             )
         );

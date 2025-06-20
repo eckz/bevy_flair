@@ -73,6 +73,8 @@ default_properties! {
     "box-sizing" { Node[".box_sizing"] },
     "position" { Node[".position_type"] },
     sub_properties "overflow" { Node[".overflow"] },
+    // css scrollbar-width supports different values (https://developer.mozilla.org/en-US/docs/Web/CSS/scrollbar-width)
+    "-bevy-scrollbar-width" { Node[".scrollbar_width"] },
     "overflow-clip-margin" { Node[".overflow_clip_margin"] },
     "left" { Node[".left"] },
     "right" { Node[".right"] },
@@ -116,8 +118,14 @@ default_properties! {
     "grid-column" { Node[".grid_column"] },
 
     // Misc components
-    "border-color" { BorderColor[".0"] },
     "background-color" { BackgroundColor[".0"] },
+
+    // We need to manually register all border-color sub-properties
+    "border-top-color" { BorderColor[".top"] },
+    "border-right-color" { BorderColor[".right"] },
+    "border-bottom-color" { BorderColor[".bottom"] },
+    "border-left-color" { BorderColor[".left"] },
+
     // We need to manually register all border-radius sub-properties
     "border-top-left-radius" { BorderRadius[".top_left"] },
     "border-top-right-radius" { BorderRadius[".top_right"] },
@@ -148,6 +156,11 @@ default_properties! {
 
     // Misc text components
     "text-shadow" { insert_if_missing: TextShadow[""] },
+
+    // TODO: Add support to new components added in bevy 0.17
+    // UiTransform
+    // BackgroundGradient
+    // BorderGradient
 }
 
 /// Register all Bevy UI properties
@@ -208,12 +221,7 @@ mod tests {
     fn registers_sub_properties() {
         let mut app = App::new();
 
-        app.add_plugins((
-            UiPlugin {
-                enable_rendering: false,
-            },
-            BevyUiPropertiesPlugin,
-        ));
+        app.add_plugins((UiPlugin, BevyUiPropertiesPlugin));
 
         app.finish();
 

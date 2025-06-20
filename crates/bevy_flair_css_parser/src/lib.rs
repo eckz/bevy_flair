@@ -6,7 +6,7 @@ use bevy_asset::AssetApp;
 use bevy_ecs::prelude::AppTypeRegistry;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_flair_core::PropertyRegistry;
-use bevy_flair_style::StyleSystemSets;
+use bevy_flair_style::StyleSystems;
 use cssparser::{BasicParseError, CowRcStr, Parser, Token};
 use derive_more::Deref;
 use std::fmt::{Debug, Display, Formatter};
@@ -220,7 +220,7 @@ impl Plugin for FlairCssParserPlugin {
 
         app.add_systems(
             PostUpdate,
-            parse_inline_style.in_set(StyleSystemSets::SetStyleData),
+            parse_inline_style.in_set(StyleSystems::SetStyleData),
         );
     }
 

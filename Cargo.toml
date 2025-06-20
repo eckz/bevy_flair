@@ -17,21 +17,22 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bevy_app = { version = "0.16.0" }
-bevy_asset = { version = "0.16.0" }
-bevy_color = { version = "0.16.0" }
-bevy_ecs = { version = "0.16.0" }
-bevy_image = {  version = "0.16.0" }
-bevy_input_focus = {  version = "0.16.0" }
-bevy_math = { version = "0.16.0" }
-bevy_reflect = { version = "0.16.0" }
-bevy_render = { version = "0.16.0" }
-bevy_scene = { version = "0.16.0" }
-bevy_text = { version = "0.16.0" }
-bevy_time = { version = "0.16.0" }
-bevy_ui = { version = "0.16.0" }
-bevy_utils = { version = "0.16.0" }
-bevy_window = { version = "0.16.0" }
+bevy_app = { version = "0.17.0-rc.1" }
+bevy_asset = { version = "0.17.0-rc.1" }
+bevy_camera = { version = "0.17.0-rc.1" }
+bevy_color = { version = "0.17.0-rc.1" }
+bevy_ecs = { version = "0.17.0-rc.1" }
+bevy_image = {  version = "0.17.0-rc.1" }
+bevy_input_focus = {  version = "0.17.0-rc.1" }
+bevy_math = { version = "0.17.0-rc.1" }
+bevy_picking = { version = "0.17.0-rc.1" }
+bevy_reflect = { version = "0.17.0-rc.1" }
+bevy_scene = { version = "0.17.0-rc.1" }
+bevy_text = { version = "0.17.0-rc.1" }
+bevy_time = { version = "0.17.0-rc.1" }
+bevy_ui = { version = "0.17.0-rc.1", features = ["bevy_ui_picking_backend"] }
+bevy_utils = { version = "0.17.0-rc.1" }
+bevy_window = { version = "0.17.0-rc.1" }
 
 bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.4.1" }
 bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.4.1" }
@@ -51,12 +52,11 @@ bevy_flair_css_parser = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
-bevy = { version = "0.16", default-features = false, features = [
+bevy = {version = "0.17.0-rc.1", default-features = false, features = [
     "std",
     "bevy_state",
-    # This is enabled to avoid a bug in Bevy: https://github.com/bevyengine/bevy/issues/19674
-    "bevy_gizmos",
     "bevy_ui",
+    "bevy_ui_render",
     "bevy_text",
     "bevy_log",
     "bevy_picking",
@@ -80,6 +80,9 @@ harness = false
 
 [profile.dev]
 debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.dev.package.bevy_flair_style]
 opt-level = 1

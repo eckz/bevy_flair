@@ -1,3 +1,4 @@
+use bevy::camera::RenderTargetInfo;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowTheme};
@@ -37,19 +38,26 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn set_primary_window_and_update<F: Fn(&mut Window) + Send + Sync + 'static>(app: &mut App, f: F) {
+fn set_window_theme(app: &mut App, window_theme: Option<WindowTheme>) {
     app.world_mut()
         .run_system_once(
-            move |mut primary_window: Single<(Entity, &mut Window), With<PrimaryWindow>>,
-                  mut resized_events: EventWriter<bevy::window::WindowResized>| {
-                f(&mut primary_window.1);
-                resized_events.write(bevy::window::WindowResized {
-                    width: 0.0,
-                    height: 0.0,
-                    window: primary_window.0,
-                });
+            move |mut primary_window: Single<(Entity, &mut Window), With<PrimaryWindow>>| {
+                primary_window.1.window_theme = window_theme;
             },
         )
+        .unwrap();
+    app.update();
+}
+
+fn set_resolution(app: &mut App, physical_size: impl Into<UVec2>, scale_factor: f32) {
+    let physical_size = physical_size.into();
+    app.world_mut()
+        .run_system_once(move |mut camera: Single<&mut Camera>| {
+            camera.computed.target_info = Some(RenderTargetInfo {
+                physical_size,
+                scale_factor,
+            });
+        })
         .unwrap();
     app.update();
 }
@@ -59,47 +67,28 @@ fn media_queries() {
     include_assets!("media_queries.css");
 
     let mut app = test_app();
+    let app = &mut app;
 
     app.add_systems(Startup, spawn_scene);
-
-    set_primary_window_and_update(&mut app, |w| {
-        w.resolution.set_physical_resolution(640, 480);
-    });
-    assert_width_eq!(app, "root", Val::Px(1.0));
-
-    set_primary_window_and_update(&mut app, |w| w.window_theme = Some(WindowTheme::Dark));
-    assert_width_eq!(app, "root", Val::Px(10.0));
-
-    set_primary_window_and_update(&mut app, |w| w.window_theme = Some(WindowTheme::Light));
-    assert_width_eq!(app, "root", Val::Px(20.0));
-
-    /* width: 640, resolution: 1, color-scheme: light*/
-    assert_width_eq!(app, "child", Val::Px(100.0));
-
-    set_primary_window_and_update(&mut app, |w| {
-        w.window_theme = None;
-        w.resolution.set_physical_resolution(640, 480);
-        w.resolution
-            .set_scale_factor_and_apply_to_physical_size(2.0)
-    });
-    assert_width_eq!(app, "child", Val::ZERO);
-
-    set_primary_window_and_update(&mut app, |w| {
-        w.resolution.set_physical_resolution(1024, 768);
-        w.resolution
-            .set_scale_factor_and_apply_to_physical_size(2.0);
-        assert_eq!(w.resolution.width(), 1024.0);
-    });
-
-    assert_width_eq!(app, "child", Val::Px(2048.0));
-
-    set_primary_window_and_update(&mut app, |w| {
-        w.resolution.set_physical_resolution(1024, 768);
-        w.resolution
-            .set_scale_factor_and_apply_to_physical_size(1.0);
-        assert_eq!(w.resolution.width(), 1024.0);
-    });
     app.update();
 
+    set_resolution(app, (640, 480), 1.0);
+    assert_width_eq!(app, "root", Val::Px(1.0));
+
+    set_window_theme(app, Some(WindowTheme::Dark));
+    assert_width_eq!(app, "root", Val::Px(10.0));
+
+    set_window_theme(app, Some(WindowTheme::Light));
+    assert_width_eq!(app, "root", Val::Px(20.0));
+    assert_width_eq!(app, "child", Val::Px(100.0));
+
+    set_window_theme(app, None);
+    set_resolution(app, (640 * 2, 480 * 2), 2.0);
+    assert_width_eq!(app, "child", Val::ZERO);
+
+    set_resolution(app, (1024 * 2, 768 * 2), 2.0);
+    assert_width_eq!(app, "child", Val::Px(2048.0));
+
+    set_resolution(app, (1024, 768), 1.0);
     assert_width_eq!(app, "child", Val::Px(1024.0));
 }

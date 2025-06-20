@@ -9,6 +9,7 @@ use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
+use bevy_reflect::FromReflect;
 use bevy_ui::{
     AlignItems, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis, RepeatedGridTrack, Val,
 };
@@ -184,13 +185,32 @@ fn parse_four_calc_values<T: Calculable>(
     parser: &mut Parser,
     mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
 ) -> Result<[PropertyValue; 4], CssError> {
+    parse_four_values(parser, |parser| {
+        parse_calc_property_value_with(parser, &mut value_parser)
+    })
+}
+
+fn parse_four_property_values<T: FromReflect>(
+    parser: &mut Parser,
+    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+) -> Result<[PropertyValue; 4], CssError> {
+    parse_four_values(parser, |parser| {
+        parse_property_value_with(parser, &mut value_parser).map(|p| p.map(ReflectValue::new))
+    })
+}
+
+/// Parses up to four values and expands them into an array of four [`PropertyValue`]s.
+///
+/// This follows the CSS shorthand pattern for properties like margin and padding.
+fn parse_four_values(
+    parser: &mut Parser,
+    mut value_parser: impl FnMut(&mut Parser) -> Result<PropertyValue, CssError>,
+) -> Result<[PropertyValue; 4], CssError> {
     let mut values = SmallVec::<[PropertyValue; 4]>::new();
 
-    values.push(parse_calc_property_value_with(parser, &mut value_parser)?);
+    values.push(value_parser(parser)?);
     while values.len() < 4 {
-        if let Ok(value) = parser
-            .try_parse_with(|parser| parse_calc_property_value_with(parser, &mut value_parser))
-        {
+        if let Ok(value) = parser.try_parse_with(|parser| value_parser(parser)) {
             values.push(value);
         } else {
             break;
@@ -293,14 +313,28 @@ macro_rules! define_css_properties {
 }
 
 define_css_properties! {
-    const BORDER_LEFT_WIDTH = "border-left-width";
+    const BORDER_TOP_COLOR = "border-top-color";
+    const BORDER_RIGHT_COLOR = "border-right-color";
+    const BORDER_BOTTOM_COLOR = "border-bottom-color";
+    const BORDER_LEFT_COLOR = "border-left-color";
+    const BORDER_TOP_WIDTH = "border-top-width";
     const BORDER_RIGHT_WIDTH = "border-right-width";
     const BORDER_BOTTOM_WIDTH = "border-bottom-width";
-    const BORDER_TOP_WIDTH = "border-top-width";
+    const BORDER_LEFT_WIDTH = "border-left-width";
     const BORDER_TOP_LEFT_RADIUS = "border-top-left-radius";
     const BORDER_TOP_RIGHT_RADIUS = "border-top-right-radius";
     const BORDER_BOTTOM_LEFT_RADIUS = "border-bottom-left-radius";
     const BORDER_BOTTOM_RIGHT_RADIUS = "border-bottom-right-radius";
+}
+
+fn parse_border_color(parser: &mut Parser) -> ShorthandParseResult {
+    let [top, right, bottom, left] = parse_four_property_values(parser, parse_color)?;
+    Ok(vec![
+        (BORDER_TOP_COLOR, top),
+        (BORDER_RIGHT_COLOR, right),
+        (BORDER_BOTTOM_COLOR, bottom),
+        (BORDER_LEFT_COLOR, left),
+    ])
 }
 
 fn parse_border_radius(parser: &mut Parser) -> ShorthandParseResult {
@@ -331,10 +365,6 @@ fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
     )
 }
 
-define_css_properties! {
-    const BORDER_COLOR = "border-color";
-}
-
 fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
     let width = parse_calc_property_value_with(parser, parse_val)?;
 
@@ -348,7 +378,13 @@ fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
     if let Ok(color) =
         parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
     {
-        result.push((BORDER_COLOR, color.map(ReflectValue::Color)));
+        let color = color.map(ReflectValue::Color);
+        result.extend([
+            (BORDER_TOP_COLOR, color.clone()),
+            (BORDER_RIGHT_COLOR, color.clone()),
+            (BORDER_BOTTOM_COLOR, color.clone()),
+            (BORDER_LEFT_COLOR, color.clone()),
+        ]);
     }
 
     Ok(result)
@@ -626,9 +662,22 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
             BORDER_RIGHT_WIDTH,
             BORDER_TOP_WIDTH,
             BORDER_BOTTOM_WIDTH,
-            BORDER_COLOR,
+            BORDER_TOP_COLOR,
+            BORDER_RIGHT_COLOR,
+            BORDER_BOTTOM_COLOR,
+            BORDER_LEFT_COLOR,
         ],
         parse_border,
+    );
+    registry.register_new(
+        "border-color",
+        [
+            BORDER_TOP_COLOR,
+            BORDER_RIGHT_COLOR,
+            BORDER_BOTTOM_COLOR,
+            BORDER_LEFT_COLOR,
+        ],
+        parse_border_color,
     );
     registry.register_new(
         "border-radius",
@@ -831,7 +880,10 @@ mod tests {
             "border-right-width" => Val::Px(3.0),
             "border-bottom-width" => Val::Px(3.0),
             "border-top-width" => Val::Px(3.0),
-            "border-color" => Color::from(css::BLACK),
+            "border-top-color" => Color::from(css::BLACK),
+            "border-right-color" => Color::from(css::BLACK),
+            "border-bottom-color" => Color::from(css::BLACK),
+            "border-left-color" => Color::from(css::BLACK),
         });
 
         test_shorthand_property!("border-width", "3px 5%", {

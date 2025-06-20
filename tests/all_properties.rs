@@ -68,6 +68,7 @@ fn all_properties() {
                 box_sizing: BoxSizing::ContentBox,
                 position_type: PositionType::Absolute,
                 overflow: Overflow::clip(),
+                scrollbar_width: 3.0,
                 overflow_clip_margin: OverflowClipMargin {
                     visual_box: OverflowClipBox::PaddingBox,
                     margin: 5.0,
@@ -118,7 +119,7 @@ fn all_properties() {
             }
         );
 
-        assert_eq!(border_color.0, css::BLUE.into());
+        assert_eq!(border_color, &BorderColor::all(css::BLUE));
         assert_eq!(background_color.0, css::BLACK.into());
         assert_eq!(border_radius, &BorderRadius::all(Val::Px(10.0)));
         assert_eq!(
@@ -141,7 +142,7 @@ fn all_properties() {
             })
         );
         assert_eq!(image_node.color, css::YELLOW.into());
-        assert!(matches!(image_node.image_mode, NodeImageMode::Stretch));
+        assert_eq!(image_node.image_mode, NodeImageMode::Stretch);
     }
 
     assert_expected_node(app.world().entity(app.find_by_unique_name("Node")));
@@ -182,7 +183,7 @@ fn all_properties() {
     assert_eq!(z_index, &ZIndex::default());
     assert_eq!(box_shadow, &BoxShadow::default());
     assert_eq!(image_node.color, Color::WHITE);
-    assert!(matches!(image_node.image_mode, NodeImageMode::Auto));
+    assert_eq!(image_node.image_mode, NodeImageMode::Auto);
 
     let text_entity = app.world().entity(app.find_by_unique_name("Text"));
 
@@ -197,7 +198,7 @@ fn all_properties() {
     ));
     assert_eq!(text_font.font_smoothing, FontSmoothing::None);
 
-    assert_eq!(text_layout.justify, JustifyText::Center);
+    assert_eq!(text_layout.justify, Justify::Center);
     assert_eq!(text_layout.linebreak, LineBreak::AnyCharacter);
 
     assert_eq!(text_shadow.color, css::RED.into());

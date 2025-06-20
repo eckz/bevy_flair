@@ -4,7 +4,10 @@ use crate::components::{
     NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, PseudoElement, PseudoElementsSupport,
     RawInlineStyle, RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
 };
-use crate::{ColorScheme, GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
+use crate::{
+    ColorScheme, GlobalChangeDetection, NodePseudoState, StyleSheet, VarResolver, VarTokens,
+    css_selector,
+};
 use bevy_ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
 use std::cmp::Ordering;
 use std::iter;
@@ -13,10 +16,12 @@ use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
 
 use crate::media_selector::MediaFeaturesProvider;
+use bevy_camera::{Camera, NormalizedRenderTarget};
+use bevy_ecs::relationship::RelationshipSourceCollection;
 use bevy_ecs::system::SystemParam;
 use bevy_flair_core::*;
 use bevy_input_focus::{InputFocus, InputFocusVisible};
-use bevy_render::camera::{Camera, NormalizedRenderTarget};
+use bevy_picking::hover::Hovered;
 use bevy_text::{TextColor, TextFont, TextLayout, TextSpan};
 use bevy_time::Time;
 use bevy_ui::prelude::*;
@@ -133,7 +138,7 @@ pub(crate) fn calculate_effective_style_sheet(
     parent_query: Query<&ChildOf, With<NodeStyleSheet>>,
     children_query: Query<&Children, With<NodeStyleSheet>>,
 ) {
-    const INVALID_STYLE_SHEET_HANDLE: Handle<StyleSheet> = Handle::Weak(AssetId::invalid());
+    const INVALID_STYLE_SHEET_ASSET_ID: AssetId<StyleSheet> = AssetId::invalid();
 
     let mut modified_style_sheets = EntityHashSet::default();
 
@@ -151,25 +156,25 @@ pub(crate) fn calculate_effective_style_sheet(
                     let style_sheet = node_style_sheet_query.get(e).ok()?;
                     match style_sheet {
                         NodeStyleSheet::Inherited => None,
-                        NodeStyleSheet::StyleSheet(style_sheet) => Some(style_sheet.clone()),
-                        NodeStyleSheet::Block => Some(INVALID_STYLE_SHEET_HANDLE),
+                        NodeStyleSheet::StyleSheet(style_sheet) => Some(style_sheet.id()),
+                        NodeStyleSheet::Block => Some(INVALID_STYLE_SHEET_ASSET_ID),
                     }
                 })
-                .unwrap_or(INVALID_STYLE_SHEET_HANDLE),
-            NodeStyleSheet::StyleSheet(style_sheet) => style_sheet.clone(),
-            NodeStyleSheet::Block => INVALID_STYLE_SHEET_HANDLE,
+                .unwrap_or(INVALID_STYLE_SHEET_ASSET_ID),
+            NodeStyleSheet::StyleSheet(style_sheet) => style_sheet.id(),
+            NodeStyleSheet::Block => INVALID_STYLE_SHEET_ASSET_ID,
         };
 
-        if matches!(style_sheet, NodeStyleSheet::StyleSheet(_)) {
+        if let NodeStyleSheet::StyleSheet(style_sheet_handle) = style_sheet {
             debug!(
                 "Stylesheet of {name_or_entity} and it's children set to: {:?}",
-                effective_style_sheet.path()
+                style_sheet_handle.path()
             );
         }
         trace!("Effective stylesheet for {name_or_entity} is {effective_style_sheet:?}");
 
         marker.mark_for_recalculation();
-        let effective_change = data.set_effective_style_sheet(effective_style_sheet);
+        let effective_change = data.set_effective_style_sheet_asset_id(effective_style_sheet);
         if effective_change {
             flags.reset();
         }
@@ -193,9 +198,9 @@ pub(crate) fn calculate_effective_style_sheet(
 // TODO: I guess this should be done automatically by bevy or winit, but it's not happening
 pub(crate) fn set_window_theme_on_change_event(
     mut windows_query: Query<&mut Window>,
-    mut events: EventReader<WindowEvent>,
+    mut window_messages: MessageReader<WindowEvent>,
 ) {
-    for event in events.read() {
+    for event in window_messages.read() {
         if let WindowEvent::WindowThemeChanged(theme_changed) = event {
             if let Ok(mut window) = windows_query.get_mut(theme_changed.window) {
                 debug!(
@@ -325,7 +330,40 @@ pub(crate) fn sync_input_focus(
     *previous_focus = (*input_focus).clone()
 }
 
-pub(crate) fn interaction_system(
+pub(crate) fn sync_marker_component_system<C: Component>(
+    action: fn(&mut NodePseudoState, bool),
+) -> impl FnMut(
+    Query<(Has<C>, &mut NodeStyleData)>,
+    Query<Entity, Added<C>>,
+    RemovedComponents<C>,
+    Local<EntityHashSet>,
+) {
+    move |mut node_style_query, added_query, mut removed_components, mut entities_changed| {
+        added_query.iter().for_each(|entity| {
+            entities_changed.add(entity);
+        });
+        removed_components.read().for_each(|removed_entity| {
+            entities_changed.add(removed_entity);
+        });
+
+        for (value, mut node_style_data) in
+            node_style_query.iter_many_unique_mut(entities_changed.drain())
+        {
+            action(&mut node_style_data.pseudo_state, value);
+        }
+    }
+}
+
+pub(crate) fn sync_hovered_system(
+    mut hovered_query: Query<(&Hovered, &mut NodeStyleData), Changed<Hovered>>,
+) {
+    for (hovered, mut data) in &mut hovered_query {
+        let pseudo_state = data.get_pseudo_state_mut();
+        pseudo_state.hovered = hovered.0;
+    }
+}
+
+pub(crate) fn sync_interaction_system(
     mut interaction_query: Query<(&Interaction, &mut NodeStyleData), Changed<Interaction>>,
 ) {
     for (interaction, mut data) in &mut interaction_query {
@@ -347,7 +385,7 @@ pub(crate) fn mark_nodes_for_recalculation_on_window_media_features_change(
     window_media_features_changed: Query<Entity, Changed<WindowMediaFeatures>>,
     mut nodes_query: Query<(
         &NodeStyleSelectorFlags,
-        &ComputedNodeTarget,
+        &ComputedUiTargetCamera,
         &mut NodeStyleMarker,
     )>,
 ) {
@@ -367,8 +405,8 @@ pub(crate) fn mark_nodes_for_recalculation_on_window_media_features_change(
             continue;
         }
 
-        for (flags, computed_node_target, mut marker) in &mut nodes_query {
-            if computed_node_target.camera() != Some(camera_entity) {
+        for (flags, ui_target_camera, mut marker) in &mut nodes_query {
+            if ui_target_camera.get() != Some(camera_entity) {
                 continue;
             }
             if flags
@@ -381,16 +419,16 @@ pub(crate) fn mark_nodes_for_recalculation_on_window_media_features_change(
     }
 }
 
-pub(crate) fn mark_nodes_for_recalculation_on_computed_node_target_change(
+pub(crate) fn mark_nodes_for_recalculation_on_render_target_info_change(
     mut compute_node_target_changed_query: Query<
         (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
-        Changed<ComputedNodeTarget>,
+        Changed<ComputedUiRenderTargetInfo>,
     >,
 ) {
     for (flags, mut marker) in &mut compute_node_target_changed_query {
         if flags
             .depends_on_media_flags
-            .contains(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET)
+            .contains(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_TARGET_INFO)
         {
             marker.mark_for_recalculation();
         }
@@ -539,7 +577,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         mut vars,
     ) in &mut style_query
     {
-        if modified_stylesheets.contains(&style_data.effective_style_sheet.id()) {
+        if modified_stylesheets.contains(&style_data.effective_style_sheet_asset_id) {
             flags.reset();
 
             properties.reset(&empty_computed_properties);
@@ -641,7 +679,7 @@ pub(crate) struct MediaFeaturesParam<'w, 's> {
     selector_flags_query: Query<'w, 's, &'static NodeStyleSelectorFlags>,
     cameras_query: Query<'w, 's, &'static Camera>,
     window_media_features_query: Query<'w, 's, &'static WindowMediaFeatures>,
-    primary_window: Option<Single<'w, Entity, With<PrimaryWindow>>>,
+    primary_window: Option<Single<'w, 's, Entity, With<PrimaryWindow>>>,
 }
 
 impl<'w, 's> MediaFeaturesParam<'w, 's> {
@@ -660,11 +698,13 @@ impl<'w, 's> MediaFeaturesParam<'w, 's> {
     pub fn get_media_features_provider<'a>(
         &'a self,
         entity: Entity,
-        computed_node_target: Option<&'a ComputedNodeTarget>,
+        computed_ui_target_camera: Option<&'a ComputedUiTargetCamera>,
+        computed_ui_render_target_info: Option<&'a ComputedUiRenderTargetInfo>,
     ) -> MediaFeaturesProviderImpl<'a, 'w, 's> {
         MediaFeaturesProviderImpl {
             entity,
-            computed_node_target,
+            computed_ui_target_camera,
+            computed_ui_render_target_info,
             params: self,
         }
     }
@@ -672,7 +712,8 @@ impl<'w, 's> MediaFeaturesParam<'w, 's> {
 
 pub(crate) struct MediaFeaturesProviderImpl<'a, 'w, 's> {
     entity: Entity,
-    computed_node_target: Option<&'a ComputedNodeTarget>,
+    computed_ui_target_camera: Option<&'a ComputedUiTargetCamera>,
+    computed_ui_render_target_info: Option<&'a ComputedUiRenderTargetInfo>,
     params: &'a MediaFeaturesParam<'w, 's>,
 }
 
@@ -688,28 +729,38 @@ impl MediaFeaturesProvider for MediaFeaturesProviderImpl<'_, '_, '_> {
     fn get_color_scheme(&self) -> Option<ColorScheme> {
         self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_WINDOW);
         self.params
-            .get_window_media_features(self.computed_node_target?.camera()?)?
+            .get_window_media_features(self.computed_ui_target_camera?.get()?)?
             .color_scheme
     }
 
     fn get_resolution(&self) -> Option<f32> {
-        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        Some(self.computed_node_target?.scale_factor())
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_TARGET_INFO);
+        Some(self.computed_ui_render_target_info?.scale_factor())
     }
 
     fn get_viewport_width(&self) -> Option<u32> {
-        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        Some(self.computed_node_target?.logical_size().as_uvec2().x)
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_TARGET_INFO);
+        Some(
+            self.computed_ui_render_target_info?
+                .logical_size()
+                .as_uvec2()
+                .x,
+        )
     }
 
     fn get_viewport_height(&self) -> Option<u32> {
-        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        Some(self.computed_node_target?.logical_size().as_uvec2().y)
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_TARGET_INFO);
+        Some(
+            self.computed_ui_render_target_info?
+                .logical_size()
+                .as_uvec2()
+                .y,
+        )
     }
 
     fn get_aspect_ratio(&self) -> Option<f32> {
-        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        let viewport_size = self.computed_node_target?.logical_size();
+        self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_TARGET_INFO);
+        let viewport_size = self.computed_ui_render_target_info?.logical_size();
         Some(viewport_size.x / viewport_size.y)
     }
 }
@@ -722,8 +773,9 @@ pub(crate) fn calculate_style_and_set_vars(
             &NodeStyleData,
             &mut NodeStyleActiveRules,
             &NodeStyleMarker,
-            // TextSpan does not have ComputedNodeTarget
-            Option<&ComputedNodeTarget>,
+            // TextSpan does not have ComputedUiTargetCamera or ComputedUiRenderTargetInfo
+            Option<&ComputedUiTargetCamera>,
+            Option<&ComputedUiRenderTargetInfo>,
             &mut NodeVars,
         )>,
         Query<&mut NodeStyleMarker>,
@@ -738,13 +790,21 @@ pub(crate) fn calculate_style_and_set_vars(
     styled_entities_query.par_iter_mut().for_each_init(
         || to_mark_descendants_parallel.borrow_local_mut(),
         |to_mark_descendants,
-         (name_or_entity, data, mut active_rules, marker, maybe_computed_node_target, mut vars)| {
+         (
+            name_or_entity,
+            data,
+            mut active_rules,
+            marker,
+            maybe_computed_ui_target_camera,
+            maybe_computed_ui_render_target_info,
+            mut vars,
+        )| {
             if !marker.needs_recalculation() {
                 return;
             }
 
             let entity = name_or_entity.entity;
-            let stylesheet_id = data.effective_style_sheet.id();
+            let stylesheet_id = data.effective_style_sheet_asset_id;
 
             let Some(style_sheet) = style_sheets.get(stylesheet_id) else {
                 // This could mean:
@@ -754,8 +814,11 @@ pub(crate) fn calculate_style_and_set_vars(
             };
 
             let element_ref = css_selector::ElementRef::new(entity, &element_ref_system_param);
-            let media_provider =
-                media_features_param.get_media_features_provider(entity, maybe_computed_node_target);
+            let media_provider = media_features_param.get_media_features_provider(
+                entity,
+                maybe_computed_ui_target_camera,
+                maybe_computed_ui_render_target_info,
+            );
             let new_rules =
                 style_sheet.get_matching_ruleset_ids_for_element(&element_ref, &media_provider);
 
@@ -809,7 +872,7 @@ pub(crate) fn set_style_properties(
             if !marker.needs_recalculation() {
                 return;
             }
-            let stylesheet_id = data.effective_style_sheet.id();
+            let stylesheet_id = data.effective_style_sheet_asset_id;
             let Some(style_sheet) = style_sheets.get(stylesheet_id) else {
                 // This could mean:
                 //  - StyleSheet is not loaded yet
@@ -871,7 +934,7 @@ mod custom_descendants_iter {
     /// Traverses the hierarchy depth-first.
     pub struct DescendantDepthFirstIter<'w, 's, D: QueryData, F: QueryFilter>
     where
-        D::ReadOnly: QueryData<Item<'w> = &'w Children>,
+        D::ReadOnly: QueryData<Item<'w, 's> = &'w Children>,
     {
         children_query: &'w Query<'w, 's, D, F>,
         stack: Vec<(Entity, Entity)>,
@@ -879,7 +942,7 @@ mod custom_descendants_iter {
 
     impl<'w, 's, D: QueryData, F: QueryFilter> DescendantDepthFirstIter<'w, 's, D, F>
     where
-        D::ReadOnly: QueryData<Item<'w> = &'w Children>,
+        D::ReadOnly: QueryData<Item<'w, 's> = &'w Children>,
     {
         /// Returns a new [`DescendantDepthFirstIter`].
         pub fn new(children_query: &'w Query<'w, 's, D, F>, entity: Entity) -> Self {
@@ -892,9 +955,9 @@ mod custom_descendants_iter {
         }
     }
 
-    impl<'w, D: QueryData, F: QueryFilter> Iterator for DescendantDepthFirstIter<'w, '_, D, F>
+    impl<'w, 's, D: QueryData, F: QueryFilter> Iterator for DescendantDepthFirstIter<'w, 's, D, F>
     where
-        D::ReadOnly: QueryData<Item<'w> = &'w Children>,
+        D::ReadOnly: QueryData<Item<'w, 's> = &'w Children>,
     {
         type Item = (Entity, Entity);
 
@@ -1026,14 +1089,14 @@ pub(crate) fn emit_animation_events(
 ) {
     for (entity, mut properties) in &mut properties_query {
         if properties.has_pending_events() {
-            properties.emit_pending_events(commands.entity(entity));
+            properties.emit_pending_events(entity, &mut commands);
         }
     }
 }
 
 pub(crate) fn emit_redraw_event(
     global_change_detection: Res<GlobalChangeDetection>,
-    mut request_redraw_writer: EventWriter<RequestRedraw>,
+    mut request_redraw_writer: MessageWriter<RequestRedraw>,
 ) {
     if global_change_detection.any_animation_active {
         request_redraw_writer.write(RequestRedraw);

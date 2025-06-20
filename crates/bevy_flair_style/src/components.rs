@@ -22,7 +22,7 @@ use crate::style_sheet::{
     RulesetProperty, StyleSheetRulesetId, VarResolver, ruleset_property_to_output,
 };
 use bevy_asset::{AssetId, Handle};
-use bevy_ecs::component::HookContext;
+use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::TypeRegistry;
 use bevy_text::TextSpan;
@@ -139,7 +139,7 @@ bitflags! {
 bitflags! {
     #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
     pub(crate) struct DependsOnMediaFeaturesFlags: usize {
-        const DEPENDS_ON_COMPUTE_NODE_TARGET = 0b01;
+        const DEPENDS_ON_COMPUTE_TARGET_INFO = 0b01;
         const DEPENDS_ON_WINDOW = 0b10;
     }
 }
@@ -212,7 +212,7 @@ impl NodeStyleSelectorFlags {
 #[derive(Debug, Clone, Default, Component, Reflect)]
 #[reflect(Debug, Clone, Default, Component)]
 pub struct NodeStyleData {
-    pub(crate) effective_style_sheet: Handle<StyleSheet>,
+    pub(crate) effective_style_sheet_asset_id: AssetId<StyleSheet>,
 
     // Data use for calculate style
     pub(crate) is_root: bool,
@@ -226,22 +226,22 @@ pub struct NodeStyleData {
 }
 
 impl NodeStyleData {
-    pub(crate) fn set_effective_style_sheet(
+    pub(crate) fn set_effective_style_sheet_asset_id(
         &mut self,
-        effective_style_sheet: Handle<StyleSheet>,
+        effective_style_sheet_asset_id: AssetId<StyleSheet>,
     ) -> bool {
-        if self.effective_style_sheet == effective_style_sheet {
+        if self.effective_style_sheet_asset_id == effective_style_sheet_asset_id {
             false
         } else {
-            self.effective_style_sheet = effective_style_sheet;
+            self.effective_style_sheet_asset_id = effective_style_sheet_asset_id;
             true
         }
     }
 
     /// Gets which stylesheet should be applied to this entity
     #[inline]
-    pub fn get_effective_style_sheet_id(&self) -> AssetId<StyleSheet> {
-        self.effective_style_sheet.id()
+    pub fn get_effective_style_sheet_asset_id(&self) -> AssetId<StyleSheet> {
+        self.effective_style_sheet_asset_id
     }
 
     /// Indicates if this entity is a root. Mainly used to match against: `:root` selectors.
@@ -878,15 +878,16 @@ impl NodeProperties {
     pub(crate) fn has_pending_events(&self) -> bool {
         !self.pending_transition_events.is_empty()
     }
-    pub(crate) fn emit_pending_events(&mut self, mut entity_commands: EntityCommands) {
-        for event in self.pending_transition_events.drain(..) {
+    pub(crate) fn emit_pending_events(&mut self, entity: Entity, commands: &mut Commands) {
+        for mut event in self.pending_transition_events.drain(..) {
+            event.entity = entity;
             trace!(
                 "TransitionEvent: {event_type:?}({property_id:?}) on {entity:?}",
                 event_type = event.event_type,
                 property_id = event.property_id,
-                entity = entity_commands.id()
+                entity = event.entity
             );
-            entity_commands.trigger(event);
+            commands.trigger(event);
         }
     }
 
@@ -1667,6 +1668,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
                 property_id: property_id!(PROPERTY_1),
                 from: value!(1.0),
@@ -1696,6 +1698,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
                 property_id: property_id!(PROPERTY_3),
                 from: value!(3.0),
@@ -1721,6 +1724,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Finished,
                 property_id: property_id!(PROPERTY_1),
                 from: value!(1.0),
@@ -1743,6 +1747,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Finished,
                 property_id: property_id!(PROPERTY_3),
                 from: value!(3.0),
@@ -1822,12 +1827,14 @@ mod tests {
             grand_child.pending_transition_events,
             vec![
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Started,
                     property_id: property_id!(PROPERTY_2),
                     from: value!(0.0),
                     to: value!(5.0),
                 },
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Started,
                     property_id: property_id!(INHERITED_PROPERTY),
                     from: value!(0.0),
@@ -1929,12 +1936,14 @@ mod tests {
             properties.pending_transition_events,
             vec![
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Started,
                     property_id: property_id!(PROPERTY_1),
                     from: value!(1.0),
                     to: value!(10.0),
                 },
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Started,
                     property_id: property_id!(PROPERTY_2),
                     from: value!(2.0),
@@ -1968,6 +1977,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Canceled,
                 property_id: property_id!(PROPERTY_2),
                 from: value!(2.0),
@@ -2009,6 +2019,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
                 property_id: property_id!(PROPERTY_1),
                 from: value!(0.0),
@@ -2045,12 +2056,14 @@ mod tests {
             properties.pending_transition_events,
             vec![
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Replaced,
                     property_id: property_id!(PROPERTY_1),
                     from: value!(0.0),
                     to: value!(5.0),
                 },
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Started,
                     property_id: property_id!(PROPERTY_1),
                     from: value!(4.0),
@@ -2091,12 +2104,14 @@ mod tests {
             properties.pending_transition_events,
             vec![
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Replaced,
                     property_id: property_id!(PROPERTY_1),
                     from: value!(4.0),
                     to: value!(0.0),
                 },
                 TransitionEvent {
+                    entity: Entity::PLACEHOLDER,
                     event_type: TransitionEventType::Started,
                     property_id: property_id!(PROPERTY_1),
                     from: value!(2.0),
@@ -2115,6 +2130,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Finished,
                 property_id: property_id!(PROPERTY_1),
                 from: value!(2.0),
@@ -2157,6 +2173,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
                 property_id: property_id!(PROPERTY_2),
                 from: value!(0.0),
@@ -2177,6 +2194,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Replaced,
                 property_id: property_id!(PROPERTY_2),
                 from: value!(0.0),
@@ -2210,6 +2228,7 @@ mod tests {
         assert_eq!(
             properties.pending_transition_events,
             vec![TransitionEvent {
+                entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
                 property_id: property_id!(PROPERTY_2),
                 from: value!(4.0),

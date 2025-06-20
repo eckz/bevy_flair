@@ -1,11 +1,15 @@
 use bevy::asset::io::memory::Dir;
 
-use bevy::ecs::component::HookContext;
+use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::input_focus::{InputFocus, InputFocusVisible};
 use bevy::prelude::*;
 
-use bevy::asset::AssetLoadFailedEvent;
+use bevy::asset::{AssetLoadFailedEvent, AssetPath};
+use bevy::image::TextureAtlasPlugin;
+use bevy::input::InputPlugin;
+use bevy::text::TextPlugin;
+use bevy::ui::UiPlugin;
 use bevy_flair::parser::{CssStyleLoaderErrorMode, CssStyleLoaderSetting};
 use bevy_flair::prelude::*;
 use std::borrow::Cow;
@@ -84,11 +88,11 @@ macro_rules! include_assets {
 }
 
 pub(crate) trait LoadStyleSheet {
-    fn load_style_sheet(&self, name: &str) -> Handle<StyleSheet>;
+    fn load_style_sheet<'a>(&self, path: impl Into<AssetPath<'a>>) -> Handle<StyleSheet>;
 }
 
 impl LoadStyleSheet for AssetServer {
-    fn load_style_sheet(&self, path: &str) -> Handle<StyleSheet> {
+    fn load_style_sheet<'a>(&self, path: impl Into<AssetPath<'a>>) -> Handle<StyleSheet> {
         self.load_with_settings(path, |settings: &mut CssStyleLoaderSetting| {
             settings.error_mode = CssStyleLoaderErrorMode::ReturnError
         })
@@ -117,20 +121,14 @@ pub(crate) fn test_app() -> App {
         AssetPlugin::default(),
         WindowPlugin::default(),
         ImagePlugin::default(),
+        TextureAtlasPlugin,
+        TextPlugin,
+        (InputPlugin, PickingPlugin, InteractionPlugin, UiPlugin),
         FlairPlugin,
     ));
 
     /* Bare minimum systems to support media selectors */
-    app.init_resource::<bevy::render::camera::ManualTextureViews>();
-    app.init_resource::<UiScale>();
-    app.add_systems(
-        PostUpdate,
-        (
-            bevy::render::camera::camera_system,
-            bevy::ui::update::update_ui_context_system.in_set(bevy::ui::UiSystem::Prepare),
-        )
-            .chain(),
-    );
+    app.init_resource::<ManualTextureViews>();
 
     app.init_resource::<InputFocus>()
         .init_resource::<InputFocusVisible>();
