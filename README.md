@@ -22,7 +22,8 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
   - `:root` selector
   - `#id` selector. Works by using the [`Name`] component
   - `.class` selector. Works by using the [`ClassList`] component
-  - `Type` selector. Works by using the [`TrackTypeNameComponentPlugin`] plugin configured by default to track: [`Node`], [`Button`], [`Label`] and [`Text`],
+  - `Type` selector. Works by using the [`TypeName`] component. 
+    - By default, is set to track:  [`Button`] as `button`, [`Label`] as `label`, [`Text`] as `text` and [`TextSpan`] as `span`,
   - `:hover`, `:active` and `:focus` pseudo class selectors. `:hover` and `:active` are automatically tracked for buttons.
   - `:nth-child(_)`, `:first-child` works just fine. e.g: `:nth_child(2n + 1)`
 - Most common css selector combinators  (Thanks to [selectors] crate):
@@ -38,7 +39,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
   - Fallback is currently not supported
 - Basic support for calc expressions using [`calc()`].
   - This is currently limited by Bevy support of mixing different types. For example, this cannot not work currently: `calc(100% - 20px)`.
-  - Currently, is valuable to do calculations using vars. For example: `calc(var(--spacing) * 2)`. 
+  - Currently, is valuable only to do calculations using vars. For example: `calc(var(--spacing) * 2)`. 
 - Support for inherited properties (e.g. `color`, `font-family` are inherited by default).
 - Font loading support using [`@font-face`].
 - Animated property changes using [`transition`].
@@ -46,6 +47,9 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 - Support for [`@media`] queries.
   - The following properties are supported: `prefers-color-scheme`, `width`, `height`, `resolution`, `aspect-ratio`.
 - Support for [`@layer`].
+- Inline css properties.
+- Support for `::before` and `::after` elements.
+  - This is an opt-in feature, you need to add [`PseudoElementsSupport`] to the element that you are targeting.
 - Different stylesheets per subtree. With the use of a different [`NodeStyleSheet`] per subtree. It's even possible to not apply any style for a given subtree.
 - Supports for custom properties. (Example TBA)
 - Supports for custom parsing. (Example TBA)
@@ -63,7 +67,8 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 [`BoxShadow`]: https://docs.rs/bevy/0.15.1/bevy/ui/struct.BoxShadow.html
 [`ZIndex`]: https://docs.rs/bevy/0.15.1/bevy/ui/struct.ZIndex.html
 [`ClassList`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/struct.ClassList.html
-[`TrackTypeNameComponentPlugin`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.TrackTypeNameComponentPlugin.html
+[`TypeName`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.TypeName.html
+[`PseudoElementsSupport`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.PseudoElementsSupport.html
 [`NodeStyleSheet`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.NodeStyleSheet.html
 [selectors]: https://crates.io/crates/selectors
 [`transition`]: https://developer.mozilla.org/en-US/docs/Web/CSS/transition
@@ -79,9 +84,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 - Multiple stylesheets at the same time. Right now it's restricted to a single stylesheet per entity.
   - This is partially mitigated by the use of `@imports`.
 - Global stylesheets. It's not possible to define a stylesheet that is applied everywhere.
-- Inline css. Right now it's not possible to define css directly in code. It has to be defined directly into an asset with the `.css` extension. 
-  It wouldn't be as easy as creating a simple macro for it, but it most definitely something to be considered.
-- Support for `!important`.
+- Real support for `!important`.
   - I don't expect it to have real usage today, specially with `@layer` support.
   - The only support is the detection of an `!important` token and ignore it with a message being emitted.
 - Support for local fonts or support fallback fonts. Right now a single font is specified using `@font-face`. In bevy this should work for the majority of users.
@@ -189,7 +192,7 @@ Another good place to start are the examples in the [examples folder](https://gi
   - If you want to use any fancy macro to spawn your bevy UI elements, or if you want to do it in a manual way, it should not matter, it should work the same way.
 - Define a default style.
   - By default, if a property is not defined, such property will not be modified. This means that is up to the author to set up fallback styling if it's needed.
-  - There is support for `initial` values, which sets the Bevy's default value, but it's not the default behaviour.
+  - There is support for `initial` values, which uses the components's default value, but it's not the default behaviour.
 - Support all css features / properties.
   - CSS is a vast specification, so there are plenty of features that might not make sense to support.
 - Being consistent with the css standard.
