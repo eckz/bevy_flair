@@ -1,0 +1,80 @@
+@font-face {
+    font-family: "FiraSans";
+    src: url("fonts/FiraSans-Regular.ttf");
+}
+
+@font-face {
+    font-family: "NotoEmoji";
+    src: url("fonts/NotoEmoji-Regular.ttf");
+}
+
+:root {
+    display: flex;
+    width: 100%;
+    height: 100%;
+
+    align-items: center;
+    justify-content: center;
+
+    font-family: "FiraSans";
+    font-size: 18px;
+}
+
+.text-container {
+    display: flex;
+
+    padding: 20px;
+    align-items: start;
+    justify-content: start;
+
+    flex-direction: column;
+    gap: 20px;
+
+    min-width: 0;
+    width: 100%;
+    min-height: 0;
+    height: 100%;
+
+    @media (min-width: 600px) {
+        min-width: 600px;
+        width: 60vw;
+    }
+
+    @media (min-height: 450px) {
+        min-height: 450px;
+        height: 60vh;
+    }
+
+    background-color: #d68a4c;
+
+    color: white;
+
+    text:last-child {
+       text-align: center;
+    }
+}
+
+.text-container::before, .text-container::after {
+    display: flex;
+    background-color: #2f394c;
+    
+    width: 100%;
+    height: 10px;
+    
+    border-radius: 15px;
+}
+
+small {
+    font-size: 13px;
+    color: yellow;
+}
+
+a {
+    color: blue;
+}
+
+a::before {
+    font-family: "NotoEmoji";
+    font-size: 12px;
+    content: "🔗";
+}

@@ -25,11 +25,13 @@ use bevy_asset::{AssetId, Handle};
 use bevy_ecs::component::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::TypeRegistry;
+use bevy_text::TextSpan;
+use bevy_ui::widget::Text;
+use bevy_ui::{Display, Node};
 use bevy_window::Window;
 use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
-use serde::Serialize;
 use smallvec::{SmallVec, smallvec};
 use std::collections::hash_map::Entry;
 use std::convert::Infallible;
@@ -99,12 +101,6 @@ impl NodeStyleMarker {
     pub(crate) fn clear_marker(&mut self) {
         self.needs_recalculation = false;
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Reflect, Serialize)]
-pub(crate) struct TypeNameWithPriority {
-    priority: u32,
-    name: &'static str,
 }
 
 /// Gathers all data needed to calculate styles.
@@ -226,6 +222,7 @@ pub struct NodeStyleData {
 
     pub(crate) type_name: Option<&'static str>,
     pub(crate) pseudo_state: NodePseudoState,
+    pub(crate) is_pseudo_element: Option<PseudoElement>,
 }
 
 impl NodeStyleData {
@@ -266,14 +263,7 @@ impl NodeStyleData {
     }
 
     /// Returns true if current entity identifies with the following type.
-    /// How the type of entity is assigned depends on the [`TrackTypeNameComponentPlugin`]
-    /// and the priority assigned to it.
-    ///
-    /// If for example, an entity is `Button` and `Node`,
-    /// but `Button` has priority 1 and `Node` has priority 0,
-    /// then the entity will identify as `Button` only.
-    ///
-    /// [`TrackTypeNameComponentPlugin`]: crate::TrackTypeNameComponentPlugin
+    /// How the type of entity is assigned depends on the [`TypeName`] component.
     #[inline]
     pub fn has_type_name(&self, type_name: &str) -> bool {
         self.type_name == Some(type_name)
@@ -1027,7 +1017,73 @@ fn on_insert_type_name(mut world: DeferredWorld, context: HookContext) {
             "Error setting type name to '{new_type_name}' on entity {entity:?} because it already has type name '{type_name}'"
         );
     }
+    trace!("{entity}.localName = {new_type_name}");
     style_data.type_name = Some(new_type_name);
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Component, Reflect)]
+#[reflect(Debug, Clone, PartialEq, Component)]
+#[component(immutable, on_insert = on_insert_pseudo_element)]
+pub(crate) enum PseudoElement {
+    /// First child of the element
+    Before,
+    /// Last child of the element
+    After,
+}
+
+fn on_insert_pseudo_element(mut world: DeferredWorld, context: HookContext) {
+    let entity = context.entity;
+    let new_pseudo_element = *world.get::<PseudoElement>(entity).unwrap();
+    let mut style_data = world
+        .get_mut::<NodeStyleData>(entity)
+        .expect("PseudoElement without NodeStyleData");
+
+    style_data.is_pseudo_element = Some(new_pseudo_element);
+}
+
+/// Adds support for both ::before and ::after pseudo-elements.
+/// This works different depending on if the element is a block or text entity.
+///
+/// Text entities are the ones that have the [`Text`] or [`TextSpan`] components.
+/// Block entities need to have a [`Node`] component.
+///
+/// If it's a block entity, two hidden [`Node`] are inserted as a child.
+/// If it's a text entity, two [`TextSpan`] with no text are inserted as a child.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Component, Reflect)]
+#[reflect(Debug, Clone, PartialEq, Default, Component)]
+#[component(immutable, on_insert = on_insert_pseudo_elements_support)]
+pub struct PseudoElementsSupport;
+
+fn on_insert_pseudo_elements_support(mut world: DeferredWorld, context: HookContext) {
+    let entity = context.entity;
+    let (entities, mut commands) = world.entities_and_commands();
+
+    let entity_ref = entities.get(entity).unwrap();
+    if entity_ref.contains::<Text>() || entity_ref.contains::<TextSpan>() {
+        commands.spawn((ChildOf(entity), PseudoElement::Before, TextSpan::default()));
+        commands.spawn((ChildOf(entity), PseudoElement::After, TextSpan::default()));
+    } else if entity_ref.contains::<Node>() {
+        commands.spawn((
+            ChildOf(entity),
+            PseudoElement::Before,
+            Node {
+                display: Display::None,
+                ..Node::DEFAULT
+            },
+        ));
+        commands.spawn((
+            ChildOf(entity),
+            PseudoElement::After,
+            Node {
+                display: Display::None,
+                ..Node::DEFAULT
+            },
+        ));
+    } else {
+        warn!(
+            "Entity {entity:?} does is not a Node, Text or TextSpan so it cannot support pseudo elements"
+        );
+    }
 }
 
 /// Contains all classes that belong to the current entity.
@@ -1234,7 +1290,7 @@ impl RawInlineStyle {
         ));
     }
 
-    /// Removes a property by it's name.
+    /// Removes a property by its name.
     fn remove(&mut self, css_name: &str) {
         self.0.retain(|(name, _)| &**name != css_name)
     }

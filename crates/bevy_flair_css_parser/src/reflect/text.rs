@@ -16,6 +16,12 @@ const NONE_TEXT_SHADOW: TextShadow = TextShadow {
     color: Color::NONE,
 };
 
+fn parse_string(parser: &mut Parser) -> Result<String, CssError> {
+    let str = parser.expect_string()?;
+
+    Ok(str.to_string())
+}
+
 fn parse_line_height(parser: &mut Parser) -> Result<LineHeight, CssError> {
     let next = parser.located_next()?;
     Ok(match &*next {
@@ -87,6 +93,12 @@ impl FromType<TextShadow> for ReflectParseCss {
     }
 }
 
+impl FromType<String> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| Ok(parse_property_value_with(parser, parse_string)?.map(ReflectValue::new)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
@@ -94,6 +106,11 @@ mod tests {
     use bevy_math::Vec2;
     use bevy_text::LineHeight;
     use bevy_ui::TextShadow;
+
+    #[test]
+    fn string() {
+        assert_eq!(test_parse_css::<String>("\"a\""), "a".to_string());
+    }
 
     #[test]
     fn test_line_height() {

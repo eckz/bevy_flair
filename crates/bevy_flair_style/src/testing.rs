@@ -11,6 +11,14 @@ macro_rules! entity {
         $entity.name = Some(smol_str::SmolStr::new_static(stringify!($name)));
         entity!(@consume ($entity) $($rest)*);
     };
+    (@consume ($entity:expr) ::before $($rest:tt)*) => {
+        $entity.is_pseudo_element = Some(crate::components::PseudoElement::Before);
+        entity!(@consume ($entity) $($rest)*);
+    };
+    (@consume ($entity:expr) ::after $($rest:tt)*) => {
+        $entity.is_pseudo_element = Some(crate::components::PseudoElement::After);
+        entity!(@consume ($entity) $($rest)*);
+    };
     (@consume ($entity:expr) :hover $($rest:tt)*) => {
         $entity.pseudo_state.hovered = true;
         entity!(@consume ($entity) $($rest)*);

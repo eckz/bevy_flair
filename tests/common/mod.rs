@@ -130,7 +130,8 @@ pub(crate) fn test_app() -> App {
         .register_type::<TextLayout>()
         .register_type::<TextFont>()
         .register_type::<TextColor>()
-        .register_type::<TextShadow>();
+        .register_type::<TextShadow>()
+        .register_type::<TextSpan>();
 
     /* Bare minimum systems to support media selectors */
     app.init_resource::<bevy::render::camera::ManualTextureViews>();

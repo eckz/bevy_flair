@@ -427,7 +427,7 @@ impl StyleSheet {
         self.css_selectors_to_rulesets
             .iter()
             .filter_map(|(s, id)| {
-                (s.matches_media_selector(media_provider) && s.matches_selector(element))
+                (s.matches_selector(element) && s.matches_media_selector(media_provider))
                     .then_some(*id)
             })
             .collect()

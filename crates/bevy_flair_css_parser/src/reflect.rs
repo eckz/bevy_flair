@@ -102,6 +102,7 @@ impl Plugin for ReflectParsePlugin {
             ReflectParseCss,
             (
                 f32,
+                String,
                 Val,
                 bevy_color::Color,
                 OverflowClipMargin,

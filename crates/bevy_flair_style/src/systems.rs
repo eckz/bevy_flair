@@ -1,11 +1,12 @@
 use crate::components::{
     AttributeList, ClassList, DependsOnMediaFeaturesFlags, EmptyComputedProperties,
     InitialPropertyValues, NodeProperties, NodeStyleActiveRules, NodeStyleData, NodeStyleMarker,
-    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, RawInlineStyle, RecalculateOnChangeFlags,
-    Siblings, WindowMediaFeatures,
+    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, PseudoElement, PseudoElementsSupport,
+    RawInlineStyle, RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
 };
 use crate::{ColorScheme, GlobalChangeDetection, StyleSheet, VarResolver, VarTokens, css_selector};
 use bevy_ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
+use std::cmp::Ordering;
 use std::iter;
 
 use bevy_asset::prelude::*;
@@ -16,9 +17,10 @@ use bevy_ecs::system::SystemParam;
 use bevy_flair_core::*;
 use bevy_input_focus::{InputFocus, InputFocusVisible};
 use bevy_render::camera::{Camera, NormalizedRenderTarget};
-use bevy_text::{TextColor, TextFont, TextLayout};
+use bevy_text::{TextColor, TextFont, TextLayout, TextSpan};
 use bevy_time::Time;
 use bevy_ui::prelude::*;
+use bevy_utils::once;
 use bevy_window::{PrimaryWindow, RequestRedraw, Window, WindowEvent};
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
@@ -31,6 +33,45 @@ pub(crate) fn reset_properties_on_added(
 ) {
     for mut properties in &mut style_query {
         properties.reset(&empty_computed_properties)
+    }
+}
+
+pub(crate) fn sort_pseudo_elements(
+    mut children_changed_query: Query<
+        &mut Children,
+        (With<PseudoElementsSupport>, Changed<Children>),
+    >,
+    pseudo_element_query: Query<&PseudoElement>,
+) {
+    for mut children in &mut children_changed_query {
+        let before_entity = children.iter().find(|child| {
+            pseudo_element_query
+                .get(*child)
+                .is_ok_and(|pe| *pe == PseudoElement::Before)
+        });
+
+        let after_entity = children.iter().find(|child| {
+            pseudo_element_query
+                .get(*child)
+                .is_ok_and(|pe| *pe == PseudoElement::After)
+        });
+
+        if before_entity.is_none() && after_entity.is_none() {
+            once!(warn!(
+                "PseudoElementsSupport entity without PseudoElement children"
+            ));
+            continue;
+        }
+
+        children.sort_by(|a, b| {
+            if before_entity == Some(*a) || after_entity == Some(*b) {
+                Ordering::Less
+            } else if before_entity == Some(*b) || after_entity == Some(*a) {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        })
     }
 }
 
@@ -210,9 +251,10 @@ pub(crate) fn calculate_is_root(
 }
 
 pub(crate) fn apply_classes(
-    mut classes_query: Query<(&ClassList, &mut NodeStyleData), Changed<ClassList>>,
+    mut classes_query: Query<(NameOrEntity, &ClassList, &mut NodeStyleData), Changed<ClassList>>,
 ) {
-    for (classes, mut style_data) in &mut classes_query {
+    for (name, classes, mut style_data) in &mut classes_query {
+        debug!("{name}.className = '{classes}'");
         style_data.classes.clone_from(&classes.0);
     }
 }
@@ -465,6 +507,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
     mut style_query: Query<(
         Entity,
         Has<Text>,
+        Has<TextSpan>,
         &NodeStyleData,
         &mut NodeStyleSelectorFlags,
         &mut NodeStyleMarker,
@@ -485,8 +528,16 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         return;
     }
 
-    for (entity, has_text, style_data, mut flags, mut marker, mut properties, mut vars) in
-        &mut style_query
+    for (
+        entity,
+        has_text,
+        has_text_span,
+        style_data,
+        mut flags,
+        mut marker,
+        mut properties,
+        mut vars,
+    ) in &mut style_query
     {
         if modified_stylesheets.contains(&style_data.effective_style_sheet.id()) {
             flags.reset();
@@ -501,26 +552,35 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
             // property like `outline` and remove it, in those cases, the Outline would keep the last value
             // causing confusion.
             // TODO: Emit an event when this happens
-            commands
-                .entity(entity)
-                .try_insert((
-                    Node::default(),
-                    BackgroundColor::default(),
-                    BorderColor::default(),
-                    BorderRadius::default(),
-                    ZIndex::default(),
-                ))
-                .try_remove::<(Outline, BoxShadow)>();
 
-            if has_text {
+            if has_text_span {
+                // TextSpan does not depend on Node
+                commands
+                    .entity(entity)
+                    .try_insert((TextColor::default(), TextFont::default()))
+                    .try_remove::<(TextLayout, TextShadow)>();
+            } else {
                 commands
                     .entity(entity)
                     .try_insert((
-                        TextColor::default(),
-                        TextFont::default(),
-                        TextLayout::default(),
+                        Node::default(),
+                        BackgroundColor::default(),
+                        BorderColor::default(),
+                        BorderRadius::default(),
+                        ZIndex::default(),
                     ))
-                    .try_remove::<(TextShadow,)>();
+                    .try_remove::<(Outline, BoxShadow)>();
+
+                if has_text {
+                    commands
+                        .entity(entity)
+                        .try_insert((
+                            TextColor::default(),
+                            TextFont::default(),
+                            TextLayout::default(),
+                        ))
+                        .try_remove::<(TextShadow,)>();
+                }
             }
         }
     }
@@ -600,7 +660,7 @@ impl<'w, 's> MediaFeaturesParam<'w, 's> {
     pub fn get_media_features_provider<'a>(
         &'a self,
         entity: Entity,
-        computed_node_target: &'a ComputedNodeTarget,
+        computed_node_target: Option<&'a ComputedNodeTarget>,
     ) -> MediaFeaturesProviderImpl<'a, 'w, 's> {
         MediaFeaturesProviderImpl {
             entity,
@@ -612,7 +672,7 @@ impl<'w, 's> MediaFeaturesParam<'w, 's> {
 
 pub(crate) struct MediaFeaturesProviderImpl<'a, 'w, 's> {
     entity: Entity,
-    computed_node_target: &'a ComputedNodeTarget,
+    computed_node_target: Option<&'a ComputedNodeTarget>,
     params: &'a MediaFeaturesParam<'w, 's>,
 }
 
@@ -628,28 +688,28 @@ impl MediaFeaturesProvider for MediaFeaturesProviderImpl<'_, '_, '_> {
     fn get_color_scheme(&self) -> Option<ColorScheme> {
         self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_WINDOW);
         self.params
-            .get_window_media_features(self.computed_node_target.camera()?)?
+            .get_window_media_features(self.computed_node_target?.camera()?)?
             .color_scheme
     }
 
     fn get_resolution(&self) -> Option<f32> {
         self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        Some(self.computed_node_target.scale_factor())
+        Some(self.computed_node_target?.scale_factor())
     }
 
     fn get_viewport_width(&self) -> Option<u32> {
         self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        Some(self.computed_node_target.logical_size().as_uvec2().x)
+        Some(self.computed_node_target?.logical_size().as_uvec2().x)
     }
 
     fn get_viewport_height(&self) -> Option<u32> {
         self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        Some(self.computed_node_target.logical_size().as_uvec2().y)
+        Some(self.computed_node_target?.logical_size().as_uvec2().y)
     }
 
     fn get_aspect_ratio(&self) -> Option<f32> {
         self.set_flags(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_NODE_TARGET);
-        let viewport_size = self.computed_node_target.logical_size();
+        let viewport_size = self.computed_node_target?.logical_size();
         Some(viewport_size.x / viewport_size.y)
     }
 }
@@ -662,7 +722,8 @@ pub(crate) fn calculate_style_and_set_vars(
             &NodeStyleData,
             &mut NodeStyleActiveRules,
             &NodeStyleMarker,
-            &ComputedNodeTarget,
+            // TextSpan does not have ComputedNodeTarget
+            Option<&ComputedNodeTarget>,
             &mut NodeVars,
         )>,
         Query<&mut NodeStyleMarker>,
@@ -677,7 +738,7 @@ pub(crate) fn calculate_style_and_set_vars(
     styled_entities_query.par_iter_mut().for_each_init(
         || to_mark_descendants_parallel.borrow_local_mut(),
         |to_mark_descendants,
-         (name_or_entity, data, mut active_rules, marker, computed_node_target, mut vars)| {
+         (name_or_entity, data, mut active_rules, marker, maybe_computed_node_target, mut vars)| {
             if !marker.needs_recalculation() {
                 return;
             }
@@ -694,7 +755,7 @@ pub(crate) fn calculate_style_and_set_vars(
 
             let element_ref = css_selector::ElementRef::new(entity, &element_ref_system_param);
             let media_provider =
-                media_features_param.get_media_features_provider(entity, computed_node_target);
+                media_features_param.get_media_features_provider(entity, maybe_computed_node_target);
             let new_rules =
                 style_sheet.get_matching_ruleset_ids_for_element(&element_ref, &media_provider);
 
@@ -1052,6 +1113,7 @@ pub(crate) fn apply_properties(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::components::PseudoElementsSupport;
     use bevy_app::prelude::*;
     use std::sync::{Arc, Mutex, PoisonError};
 
@@ -1245,5 +1307,79 @@ mod tests {
 
         let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
         assert_eq!(data.name, Some("TestInserted".into()));
+    }
+
+    #[test]
+    fn test_sort_pseudo_elements() {
+        let mut app = App::new();
+
+        app.register_required_components::<Node, NodeStyleData>();
+        app.add_systems(PostUpdate, sort_pseudo_elements);
+
+        let mut query_state = app.world_mut().query();
+
+        fn get_children<'a, const N: usize>(
+            world: &'a World,
+            root: Entity,
+            query_state: &mut QueryState<(Option<&PseudoElement>, NameOrEntity)>,
+        ) -> [(Option<PseudoElement>, &'a str); N] {
+            let children: Vec<Entity> = world
+                .entity(root)
+                .get::<Children>()
+                .expect("Children not found")
+                .iter()
+                .collect();
+
+            let query = query_state.query(world);
+            query
+                .get_many_inner(children.try_into().unwrap())
+                .unwrap()
+                .map(|(pe, name)| {
+                    (
+                        pe.copied(),
+                        name.name.as_ref().map(|n| n.as_str()).unwrap_or(""),
+                    )
+                })
+        }
+
+        let root = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                PseudoElementsSupport,
+                children![(Node::default(), Name::new("Child1")),],
+            ))
+            .id();
+
+        app.update();
+
+        let values: [_; 3] = get_children(app.world(), root, &mut query_state);
+
+        assert!(matches!(
+            values.as_slice(),
+            [
+                (Some(PseudoElement::Before), _),
+                (None, "Child1"),
+                (Some(PseudoElement::After), _),
+            ]
+        ));
+
+        // We insert a new child
+        app.world_mut()
+            .spawn((Node::default(), Name::new("Child2"), ChildOf(root)));
+
+        app.update();
+
+        let values: [_; 4] = get_children(app.world(), root, &mut query_state);
+
+        assert!(matches!(
+            values.as_slice(),
+            [
+                (Some(PseudoElement::Before), _),
+                (None, "Child1"),
+                (None, "Child2"),
+                (Some(PseudoElement::After), _),
+            ]
+        ));
     }
 }

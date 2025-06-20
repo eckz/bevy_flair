@@ -8,6 +8,7 @@ use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_flair_core::*;
 use bevy_reflect::prelude::*;
+use bevy_text::TextSpan;
 use bevy_ui::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -260,16 +261,22 @@ impl Plugin for FlairStylePlugin {
             .register_type::<NodeStyleData>()
             .register_type::<NodeStyleActiveRules>()
             .register_type::<NodeStyleMarker>()
+            .register_type::<TypeName>()
+            .register_type::<PseudoElement>()
             .register_type::<ClassList>()
             .register_type::<AttributeList>()
             .register_type::<Siblings>()
             .register_type::<NodeVars>()
             .register_required_components::<Node, NodeStyleSheet>()
+            .register_required_components::<TextSpan, NodeStyleSheet>()
             .register_required_components_with::<Button, TypeName>(|| {
                 TypeName("button")
             })
             .register_required_components_with::<Text, TypeName>(|| {
                 TypeName("text")
+            })
+            .register_required_components_with::<TextSpan, TypeName>(|| {
+                TypeName("span")
             })
             .register_required_components_with::<Label, TypeName>(|| {
                 TypeName("label")
@@ -313,7 +320,7 @@ impl Plugin for FlairStylePlugin {
                     (
                         systems::calculate_effective_style_sheet,
                         systems::compute_window_media_features,
-                        systems::sync_siblings_system,
+                        (systems::sort_pseudo_elements, systems::sync_siblings_system).chain(),
                         systems::reset_properties_on_added,
                     )
                         .in_set(StyleSystemSets::Prepare),
@@ -469,7 +476,8 @@ mod tests {
             .register_type::<TextLayout>()
             .register_type::<TextFont>()
             .register_type::<TextColor>()
-            .register_type::<TextShadow>();
+            .register_type::<TextShadow>()
+            .register_type::<TextSpan>();
 
         app.register_type::<Child>()
             .register_type::<GrandChild>()
@@ -518,6 +526,25 @@ mod tests {
         app.update();
 
         assert_world_snapshot!(app, (Child, Siblings));
+    }
+
+    #[test]
+    fn spawn_with_pseudo_elements() {
+        let mut app = app();
+
+        app.add_systems(Startup, |mut commands: Commands| {
+            commands
+                .spawn((Name::new("Root"), ROOT))
+                .with_children(|children| {
+                    children.spawn(Child);
+                    children.spawn((Child, PseudoElementsSupport, children![GrandChild]));
+                    children.spawn((Child, PseudoElementsSupport));
+                });
+        });
+
+        app.update();
+
+        assert_world_snapshot!(app, (Child, Siblings, PseudoElement));
     }
 
     #[test]

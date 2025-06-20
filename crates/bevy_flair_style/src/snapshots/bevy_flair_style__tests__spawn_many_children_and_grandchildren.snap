@@ -28,6 +28,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": StyleSheet(Weak(Uuid(
           uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -61,6 +62,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -88,6 +90,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -115,6 +118,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -142,6 +146,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -169,6 +174,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -201,6 +207,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Block,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -228,6 +235,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -255,6 +263,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
@@ -282,6 +291,7 @@ Scene(
             focused: false,
             focused_and_visible: false,
           ),
+          is_pseudo_element: None,
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(

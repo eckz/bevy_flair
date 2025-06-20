@@ -1,5 +1,7 @@
-use crate::components::NodeStyleData;
-use crate::css_selector::{CssSelectorImpl, CssString, InternalPseudoStateSelector};
+use crate::components::{NodeStyleData, PseudoElement};
+use crate::css_selector::{
+    CssPseudoElement, CssSelectorImpl, CssString, InternalPseudoStateSelector,
+};
 use ego_tree::NodeRef;
 use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
@@ -113,6 +115,18 @@ impl Element for TestElementRef<'_> {
     fn is_same_type(&self, other: &Self) -> bool {
         self.type_name.is_some() && self.type_name == other.type_name
     }
+
+    fn is_pseudo_element(&self) -> bool {
+        unimplemented!("is_pseudo_element")
+    }
+
+    fn match_pseudo_element(
+        &self,
+        _pe: &CssPseudoElement,
+        _context: &mut MatchingContext<Self::Impl>,
+    ) -> bool {
+        unimplemented!("match_pseudo_element")
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -183,13 +197,9 @@ impl Element for TestNodeRef<'_> {
 
     fn attr_matches(
         &self,
-        _ns: &selectors::attr::NamespaceConstraint<
-            &<Self::Impl as selectors::parser::SelectorImpl>::NamespaceUrl,
-        >,
-        _local_name: &<Self::Impl as selectors::parser::SelectorImpl>::LocalName,
-        _operation: &selectors::attr::AttrSelectorOperation<
-            &<Self::Impl as selectors::parser::SelectorImpl>::AttrValue,
-        >,
+        _ns: &selectors::attr::NamespaceConstraint<&CssString>,
+        _local_name: &CssString,
+        _operation: &selectors::attr::AttrSelectorOperation<&CssString>,
     ) -> bool {
         unimplemented!("attr_matches")
     }
@@ -204,6 +214,22 @@ impl Element for TestNodeRef<'_> {
 
     fn is_same_type(&self, other: &Self) -> bool {
         self.0.value().type_name.is_some() && self.0.value().type_name == other.0.value().type_name
+    }
+
+    fn is_pseudo_element(&self) -> bool {
+        self.0.value().is_pseudo_element.is_some()
+    }
+
+    fn match_pseudo_element(
+        &self,
+        pe: &CssPseudoElement,
+        _context: &mut MatchingContext<Self::Impl>,
+    ) -> bool {
+        let is_pseudo_element = self.0.value().is_pseudo_element;
+        match pe {
+            CssPseudoElement::Before => is_pseudo_element == Some(PseudoElement::Before),
+            CssPseudoElement::After => is_pseudo_element == Some(PseudoElement::After),
+        }
     }
 }
 

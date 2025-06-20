@@ -2,9 +2,11 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 
 use crate::components::{
-    NodeStyleData, NodeStyleSelectorFlags, RecalculateOnChangeFlags, Siblings,
+    NodeStyleData, NodeStyleSelectorFlags, PseudoElement, RecalculateOnChangeFlags, Siblings,
 };
-use crate::css_selector::{CssSelectorImpl, CssString, InternalPseudoStateSelector};
+use crate::css_selector::{
+    CssPseudoElement, CssSelectorImpl, CssString, InternalPseudoStateSelector,
+};
 use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
 use selectors::{Element, OpaqueElement, SelectorImpl};
@@ -14,10 +16,6 @@ use tracing::trace;
 macro_rules! impl_element_commons {
     () => {
         fn parent_node_is_shadow_root(&self) -> bool {
-            false
-        }
-
-        fn is_pseudo_element(&self) -> bool {
             false
         }
 
@@ -34,14 +32,6 @@ macro_rules! impl_element_commons {
             _ns: &<Self::Impl as selectors::parser::SelectorImpl>::BorrowedNamespaceUrl,
         ) -> bool {
             unimplemented!("has_namespace")
-        }
-
-        fn match_pseudo_element(
-            &self,
-            _pe: &crate::css_selector::CssPseudoElement,
-            _context: &mut MatchingContext<Self::Impl>,
-        ) -> bool {
-            unimplemented!("match_pseudo_element")
         }
 
         fn is_link(&self) -> bool {
@@ -273,6 +263,22 @@ impl Element for ElementRef<'_> {
             flags.iter_names().map(|(s, _)| s).collect::<Vec<_>>()
         );
         self.selector_flags.css_selector_flags.insert(flags);
+    }
+
+    fn is_pseudo_element(&self) -> bool {
+        self.data.is_pseudo_element.is_some()
+    }
+
+    fn match_pseudo_element(
+        &self,
+        pe: &CssPseudoElement,
+        _context: &mut MatchingContext<Self::Impl>,
+    ) -> bool {
+        let is_pseudo_element = self.data.is_pseudo_element;
+        match pe {
+            CssPseudoElement::Before => is_pseudo_element == Some(PseudoElement::Before),
+            CssPseudoElement::After => is_pseudo_element == Some(PseudoElement::After),
+        }
     }
 }
 

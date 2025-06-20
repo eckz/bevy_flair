@@ -81,40 +81,6 @@ impl cssparser::ToCss for InternalPseudoStateSelector {
     }
 }
 
-macro_rules! unconstructable {
-    ($($id:ident),*) => {
-        $(
-            #[derive(Clone, Eq, PartialEq, Debug)]
-            pub(crate) enum $id {}
-
-            impl Default for $id {
-                fn default() -> Self {
-                    panic!(concat!(stringify!($id), " is not constructable"))
-                }
-            }
-
-            impl <'a> From<&'a str> for $id {
-                fn from(_value: &'a str) -> Self {
-                    panic!(concat!(stringify!($id), " is not constructable"))
-                }
-            }
-
-            impl cssparser::ToCss for $id {
-                fn to_css<W: Write>(&self, _dest: &mut W) -> std::fmt::Result {
-                    unreachable!(stringify!($id))
-                }
-            }
-
-            impl precomputed_hash::PrecomputedHash for $id {
-                fn precomputed_hash(&self) -> u32 {
-                    unreachable!(stringify!($id))
-                }
-            }
-
-        )*
-    };
-}
-
 fn hash_32<T: Hash>(value: T) -> u32 {
     FxBuildHasher.hash_one(value) as u32
 }
@@ -186,8 +152,19 @@ str_wrapper! {
     CssString
 }
 
-unconstructable! {
-    CssPseudoElement
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub(crate) enum CssPseudoElement {
+    Before,
+    After,
+}
+
+impl cssparser::ToCss for CssPseudoElement {
+    fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
+        match self {
+            CssPseudoElement::Before => dest.write_str("::before"),
+            CssPseudoElement::After => dest.write_str("::after"),
+        }
+    }
 }
 
 impl PseudoElement for CssPseudoElement {
@@ -195,7 +172,7 @@ impl PseudoElement for CssPseudoElement {
 }
 
 impl SelectorImpl for CssSelectorImpl {
-    type ExtraMatchingData<'a> = ();
+    type ExtraMatchingData<'a> = (bool,);
     type AttrValue = CssString;
     type Identifier = CssString;
     type LocalName = CssString;
@@ -265,12 +242,22 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
         &self,
         location: SourceLocation,
         name: CowRcStr<'i>,
-    ) -> Result<<Self::Impl as SelectorImpl>::PseudoElement, ParseError<'i, Self::Error>> {
-        Err(
-            location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(
-                name,
-            )),
-        )
+    ) -> Result<CssPseudoElement, ParseError<'i, Self::Error>> {
+        match_ignore_ascii_case! {name.as_ref(),
+            "before" => {
+                Ok(CssPseudoElement::Before)
+            },
+            "after" => {
+                Ok(CssPseudoElement::After)
+            },
+            _ => {
+                 Err(
+                    location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(
+                        name,
+                    )),
+                )
+            }
+        }
     }
 }
 
@@ -778,5 +765,35 @@ mod tests {
         );
 
         assert_eq!(id_matches!(selector, tree), vec!["parentB"]);
+    }
+
+    #[test]
+    fn pseudo_element_before() {
+        let selector = selector! { ".parent::before" };
+        let tree = tree!(
+            entity!(:root) => {
+                entity!(#parentA.parent) => {
+                    entity!(#before::before),
+                    entity!(#childA1.child),
+                    entity!(#after::after),
+                },
+            }
+        );
+        assert_eq!(id_matches!(selector, tree), vec!["before"]);
+    }
+
+    #[test]
+    fn pseudo_element_after() {
+        let selector = selector! { ".parent::after" };
+        let tree = tree!(
+            entity!(:root) => {
+                entity!(#parentA.parent) => {
+                    entity!(#before::before),
+                    entity!(#childA1.child),
+                    entity!(#after::after),
+                },
+            }
+        );
+        assert_eq!(id_matches!(selector, tree), vec!["after"]);
     }
 }

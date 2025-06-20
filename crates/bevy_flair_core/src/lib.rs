@@ -143,6 +143,9 @@ default_properties! {
     // There is no equivalent in css for bevy LineBreak
     "-bevy-line-break" inherit { TextLayout[".linebreak"] },
 
+    // Text span
+    "content" { TextSpan[".0"] },
+
     // Misc text components
     "text-shadow" { insert_if_missing: TextShadow[""] },
 }
