@@ -232,14 +232,3 @@ impl Element for TestNodeRef<'_> {
         }
     }
 }
-
-#[cfg(not(miri))]
-macro_rules! selector {
-    ($selector:literal) => {{
-        let sel: crate::css_selector::CssSelector = $selector.try_into().unwrap();
-        sel
-    }};
-}
-
-#[cfg(not(miri))]
-pub(crate) use selector;

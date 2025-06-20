@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn root_selector() {
-        let selector = selector! { ":root" };
+        let selector = css_selector! { ":root" };
 
         let tree = tree!(entity!(:root #root.testclass));
 
@@ -548,7 +548,7 @@ mod tests {
 
     #[test]
     fn class_selector() {
-        let selector = selector! { ".testclass" };
+        let selector = css_selector! { ".testclass" };
 
         let tree = tree!(entity!(:root #root.testclass));
 
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn class_selector_matches_casing() {
-        let selector = selector! { ".testClass" };
+        let selector = css_selector! { ".testClass" };
 
         let tree = tree!(entity!(:root #root.testclass));
 
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn type_selector() {
-        let selector = selector! { "sometype.testclass" };
+        let selector = css_selector! { "sometype.testclass" };
 
         let tree = tree!(entity!(#elem sometype .testclass));
 
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn is_selector() {
-        let selector = selector! { ":is(.testclass,.otherclass, :unsupported)" };
+        let selector = css_selector! { ":is(.testclass,.otherclass, :unsupported)" };
 
         let tree = tree!(entity!(#elem sometype .testclass));
 
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn where_selector() {
-        let selector = selector! { ":where(.testclass, .otherclass)" };
+        let selector = css_selector! { ":where(.testclass, .otherclass)" };
 
         let tree = tree!(entity!(#elem sometype .testclass));
 
@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn hover_selector() {
-        let selector = selector! { ".testclass:hover" };
+        let selector = css_selector! { ".testclass:hover" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -607,8 +607,8 @@ mod tests {
 
     #[test]
     fn parent_selector() {
-        let direct_parent = selector! { ":root > .testclass" };
-        let any_ancestor = selector! { ":root .testclass" };
+        let direct_parent = css_selector! { ":root > .testclass" };
+        let any_ancestor = css_selector! { ":root .testclass" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn hover_parent_selector() {
-        let selector = selector! { ".parent:hover .child" };
+        let selector = css_selector! { ".parent:hover .child" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn first_child_selector() {
-        let selector = selector! { ".child:first-child" };
+        let selector = css_selector! { ".child:first-child" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -672,7 +672,7 @@ mod tests {
 
     #[test]
     fn nth_child_selector() {
-        let selector = selector! { ".child:nth-child(even)" };
+        let selector = css_selector! { ".child:nth-child(even)" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn sibling_selector() {
-        let selector = selector! { ".child + .child" };
+        let selector = css_selector! { ".child + .child" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -722,7 +722,7 @@ mod tests {
 
     #[test]
     fn parent_and_sibling_selector() {
-        let selector = selector! { ".parent > .child + .child" };
+        let selector = css_selector! { ".parent > .child + .child" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -747,7 +747,7 @@ mod tests {
 
     #[test]
     fn has_selector() {
-        let selector = selector! { ".parent:has( #childB2.child )" };
+        let selector = css_selector! { ".parent:has( #childB2.child )" };
 
         let tree = tree!(
             entity!(:root) => {
@@ -769,7 +769,7 @@ mod tests {
 
     #[test]
     fn pseudo_element_before() {
-        let selector = selector! { ".parent::before" };
+        let selector = css_selector! { ".parent::before" };
         let tree = tree!(
             entity!(:root) => {
                 entity!(#parentA.parent) => {
@@ -784,7 +784,7 @@ mod tests {
 
     #[test]
     fn pseudo_element_after() {
-        let selector = selector! { ".parent::after" };
+        let selector = css_selector! { ".parent::after" };
         let tree = tree!(
             entity!(:root) => {
                 entity!(#parentA.parent) => {

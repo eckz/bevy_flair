@@ -1,9 +1,11 @@
+#[cfg(not(miri))]
 macro_rules! css_selector {
     ($selector:literal) => {
         crate::css_selector::CssSelector::parse_single($selector).expect("Invalid css_selector")
     };
 }
 
+#[cfg(not(miri))]
 macro_rules! entity {
     (@consume ($entity:expr) ) => {
     };
@@ -51,5 +53,7 @@ macro_rules! entity {
     }};
 }
 
+#[cfg(not(miri))]
 pub(crate) use css_selector;
+#[cfg(not(miri))]
 pub(crate) use entity;
