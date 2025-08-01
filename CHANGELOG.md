@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added some support for `::before` and `::after`.
 
 ### Fixed
-- Using the latest version of `selectors` makes it possible to use this create in WASM.
+- Using the latest version of `selectors` makes it possible to use this crate in WASM.
+- Compatible with spawning scenes during an initial state change, which effectively spawns before `PreStartup`.
 
 ### Changed
 - `TrackTypeNameComponentPlugin` has ben replaced by a simpler single component `TypeName`.
