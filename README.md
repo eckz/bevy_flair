@@ -32,6 +32,7 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
   - Next sibling: `img + p`.
   - Subsequent-sibling: `img ~ p`.
 - Fancy selectors like `:not()`, `:has()`, `:is()` and `:where()`.
+- Support for attributes using [`AttributeList`]
 - Nested selectors are supported.
   - You can add `&:hover { .. }` inside a selector and it will work.
 - Import other stylesheets using `@import`.
@@ -70,6 +71,8 @@ With Bevy Flair, you can define the appearance and layout of Bevy UI components 
 [`TypeName`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.TypeName.html
 [`PseudoElementsSupport`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.PseudoElementsSupport.html
 [`NodeStyleSheet`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.NodeStyleSheet.html
+[`AttributeList`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.AttributeList.html
+[`InlineStyle`]: https://docs.rs/bevy_flair/latest/bevy_flair/parser/inline_styles/enum.InlineStyle.html
 [selectors]: https://crates.io/crates/selectors
 [`transition`]: https://developer.mozilla.org/en-US/docs/Web/CSS/transition
 [`@keyframes`]: https://developer.mozilla.org/en-US/docs/Web/CSS/@keyframes
@@ -207,10 +210,10 @@ Another good place to start are the examples in the [examples folder](https://gi
 ## Bevy compatibility
 
 
-| bevy | bevy_flair |
-|------|------------|
-| 0.16 | 0.2, 0.3   |
-| 0.15 | 0.1        |
+| bevy | bevy_flair    |
+|------|---------------|
+| 0.16 | 0.2, 0.3, 0.4 |
+| 0.15 | 0.1           |
 
 
 ## Contributing
