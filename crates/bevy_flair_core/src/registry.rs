@@ -163,6 +163,22 @@ impl PropertyRegistry {
         self.inner.css_names.get(css_name).copied()
     }
 
+    /// Returns the css name assigned to a property id.
+    pub fn get_css_name_by_property_id(&self, property_id: ComponentPropertyId) -> Option<&str> {
+        self.inner
+            .css_names
+            .iter()
+            .find_map(|(name, id)| (*id == property_id).then(|| name.as_ref()))
+    }
+
+    /// Returns an iterator visiting all properties with ids in inserted order.
+    /// The iterator element type is `(ComponentPropertyId, &'a ComponentProperty)`.
+    pub fn iter(&self) -> Iter<'_> {
+        Iter {
+            inner: self.inner.properties.iter().enumerate(),
+        }
+    }
+
     /// Creates a filled [`PropertyMap`] with the same value.
     pub fn create_property_map<T: Clone>(&self, default_value: T) -> PropertyMap<T> {
         let mut new_map = Vec::with_capacity(self.inner.properties.len());
@@ -375,6 +391,53 @@ impl PropertyRegistry {
                 ReflectValue::new_from_box(initial_value_reflect)
             },
         )))
+    }
+}
+
+/// An iterator over the entries of a `PropertyRegistry`.
+///
+/// This `struct` is created by the [`iter`] method on [`PropertyRegistry`]. See its
+/// documentation for more.
+///
+/// [`iter`]: PropertyRegistry::iter
+pub struct Iter<'a> {
+    inner: core::iter::Enumerate<core::slice::Iter<'a, ComponentProperty>>,
+}
+
+fn iter_map(
+    (index, property): (usize, &ComponentProperty),
+) -> (ComponentPropertyId, &ComponentProperty) {
+    (ComponentPropertyId(index as u32), property)
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = (ComponentPropertyId, &'a ComponentProperty);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(iter_map)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+
+    fn fold<B, F>(self, init: B, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(B, Self::Item) -> B,
+    {
+        self.inner.fold(init, |init, item| f(init, iter_map(item)))
+    }
+}
+
+impl<'a> DoubleEndedIterator for Iter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back().map(iter_map)
+    }
+}
+
+impl ExactSizeIterator for Iter<'_> {
+    fn len(&self) -> usize {
+        self.inner.len()
     }
 }
 

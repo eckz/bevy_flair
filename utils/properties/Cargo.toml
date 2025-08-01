@@ -1,0 +1,11 @@
+[package]
+name = "properties"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy_app = { workspace = true }
+bevy_ecs = { workspace = true }
+bevy_reflect = { workspace = true }
+bevy_flair_core = { workspace = true }
+bevy_flair_css_parser = { workspace = true }

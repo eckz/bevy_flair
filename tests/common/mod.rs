@@ -120,19 +120,6 @@ pub(crate) fn test_app() -> App {
         FlairPlugin,
     ));
 
-    app.register_type::<Node>()
-        .register_type::<BackgroundColor>()
-        .register_type::<BorderColor>()
-        .register_type::<BorderRadius>()
-        .register_type::<BoxShadow>()
-        .register_type::<ZIndex>()
-        .register_type::<ImageNode>()
-        .register_type::<TextLayout>()
-        .register_type::<TextFont>()
-        .register_type::<TextColor>()
-        .register_type::<TextShadow>()
-        .register_type::<TextSpan>();
-
     /* Bare minimum systems to support media selectors */
     app.init_resource::<bevy::render::camera::ManualTextureViews>();
     app.init_resource::<UiScale>();

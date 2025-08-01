@@ -28,6 +28,7 @@ pub mod css_selector;
 mod layers;
 mod media_selector;
 mod systems;
+mod to_css;
 mod vars;
 
 use crate::animations::{ReflectAnimationsPlugin, Transition};
@@ -36,6 +37,7 @@ use crate::components::*;
 pub use builder::*;
 pub use media_selector::*;
 pub use style_sheet::*;
+pub use to_css::*;
 pub use vars::*;
 
 pub(crate) type IdName = smol_str::SmolStr;
@@ -43,34 +45,6 @@ pub(crate) type ClassName = smol_str::SmolStr;
 pub(crate) type AttributeKey = smol_str::SmolStr;
 pub(crate) type AttributeValue = smol_str::SmolStr;
 pub(crate) type VarName = std::sync::Arc<str>;
-
-/// Trait for things the can serialize themselves in CSS syntax.
-pub trait ToCss {
-    /// Serialize `self` in CSS syntax, writing to `dest`.
-    fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result;
-
-    /// Serialize `self` in CSS syntax and return a string.
-    ///
-    /// (This is a convenience wrapper for `to_css` and probably should not be overridden.)
-    #[inline]
-    fn to_css_string(&self) -> String {
-        let mut s = String::new();
-        self.to_css(&mut s).unwrap();
-        s
-    }
-}
-
-impl<T: ToCss> ToCss for &[T] {
-    fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result {
-        for (i, t) in self.iter().enumerate() {
-            t.to_css(dest)?;
-            if i < self.len() - 1 {
-                dest.write_char(' ')?;
-            }
-        }
-        Ok(())
-    }
-}
 
 /// Represents the current pseudo state of an entity.
 /// By default, it supports only the basic pseudo classes like `:hover`, `:active`, and `:focus`.
@@ -367,7 +341,6 @@ mod tests {
     use bevy_app::App;
     use bevy_asset::weak_handle;
     use bevy_ecs::system::RunSystemOnce;
-    use bevy_text::{TextColor, TextFont, TextLayout};
     use bevy_ui::Node;
 
     const TEST_STYLE_SHEET: NodeStyleSheet =
@@ -463,21 +436,8 @@ mod tests {
             FlairStylePlugin,
         ));
 
-        app
-            // Fixed in https://github.com/bevyengine/bevy/pull/19680
-            .register_type_data::<&'static str, ReflectSerialize>()
-            .register_type::<Node>()
-            .register_type::<BackgroundColor>()
-            .register_type::<BorderColor>()
-            .register_type::<BorderRadius>()
-            .register_type::<BoxShadow>()
-            .register_type::<ZIndex>()
-            .register_type::<ImageNode>()
-            .register_type::<TextLayout>()
-            .register_type::<TextFont>()
-            .register_type::<TextColor>()
-            .register_type::<TextShadow>()
-            .register_type::<TextSpan>();
+        // Fixed in https://github.com/bevyengine/bevy/pull/19680
+        app.register_type_data::<&'static str, ReflectSerialize>();
 
         app.register_type::<Child>()
             .register_type::<GrandChild>()

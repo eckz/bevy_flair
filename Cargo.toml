@@ -77,5 +77,11 @@ default = []
 name = "flair_benches"
 harness = false
 
-[profile.dev.package."*"]
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package.bevy_flair_style]
+opt-level = 1
+
+[profile.dev.package.bevy_ui]
 opt-level = 1

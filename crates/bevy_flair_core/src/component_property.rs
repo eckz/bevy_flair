@@ -238,7 +238,7 @@ impl ComponentProperty {
         let component_type_path = component_type_info.type_path();
         let parsed_path = match ParsedPath::parse_static(path) {
             Ok(path) => path,
-            Err(err) => panic!("Failed to parse path: {}", err),
+            Err(err) => panic!("Failed to parse path: {err}"),
         };
 
         let value_type_info = match static_type_info(component_type_info, &parsed_path.0) {
@@ -277,7 +277,7 @@ impl ComponentProperty {
         let new_path = format!("{}{}", self.parsed_path, sub_path);
         let parsed_path = match ParsedPath::parse(&new_path) {
             Ok(path) => path,
-            Err(err) => panic!("Failed to parse path: {}", err),
+            Err(err) => panic!("Failed to parse path: {err}"),
         };
 
         let value_type_info = match static_type_info(self.component_type_info, &parsed_path.0) {
@@ -526,7 +526,7 @@ impl Hasher for ComponentPropertyIdHasher {
     }
 
     fn write_u32(&mut self, i: u32) {
-        debug_assert_eq!(self.hash, 0, "{}", INVALID_HASHER_USE_MESSAGE);
+        debug_assert_eq!(self.hash, 0, "{INVALID_HASHER_USE_MESSAGE}");
         self.hash = i;
     }
 }

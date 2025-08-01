@@ -214,7 +214,7 @@ mod tests {
         assert!(reflect_value.value_is::<f32>());
 
         assert_eq!(reflect_value.value_type_info().ty(), f32::type_info().ty());
-        assert_eq!(format!("{:?}", reflect_value), format!("{:?}", expected));
+        assert_eq!(format!("{reflect_value:?}"), format!("{:?}", expected));
 
         assert_eq!(reflect_value, ReflectValue::new(expected));
 
@@ -238,7 +238,7 @@ mod tests {
             reflect_value.value_type_info().ty(),
             CustomReflectStruct::type_info().ty()
         );
-        assert_eq!(format!("{:?}", reflect_value), format!("{:?}", expected));
+        assert_eq!(format!("{reflect_value:?}"), format!("{:?}", expected));
 
         assert_eq!(reflect_value, ReflectValue::new(expected));
 

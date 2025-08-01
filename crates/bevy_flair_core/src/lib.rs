@@ -165,6 +165,22 @@ macro_rules! register_sub_properties {
 
 impl Plugin for BevyUiPropertiesPlugin {
     fn build(&self, app: &mut App) {
+        // These are registered already by other plugins,
+        // but it helps on tests to not include UiPlugin or TextPlugin
+        // just for this
+        app.register_type::<Node>()
+            .register_type::<BackgroundColor>()
+            .register_type::<BorderColor>()
+            .register_type::<BorderRadius>()
+            .register_type::<BoxShadow>()
+            .register_type::<ZIndex>()
+            .register_type::<ImageNode>()
+            .register_type::<TextLayout>()
+            .register_type::<TextFont>()
+            .register_type::<TextColor>()
+            .register_type::<TextShadow>()
+            .register_type::<TextSpan>();
+
         register_sub_properties!(app => {
             UiRect,
             Overflow,
