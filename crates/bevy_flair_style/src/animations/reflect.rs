@@ -6,7 +6,7 @@ use bevy_app::{App, Plugin};
 use bevy_color::{Color, Mix, Oklaba};
 use bevy_math::{Curve, FloatExt, StableInterpolate, curve::CurveExt};
 use bevy_reflect::{FromReflect, FromType};
-use bevy_ui::Val;
+use bevy_ui::{UiTransform, Val, Val2};
 use std::any::type_name;
 use std::sync::Arc;
 use tracing::warn;
@@ -84,14 +84,13 @@ fn downcast_value<T: FromReflect>(value: ReflectValue) -> T {
     }
 }
 
-fn create_property_transition_with<T, F>(
+fn create_property_transition_with<T>(
     start: Option<ReflectValue>,
     end: ReflectValue,
-    interpolation: F,
+    interpolation: impl Fn(&T, &T, f32) -> T + 'static + Send + Sync,
 ) -> BoxedReflectCurve
 where
     T: FromReflect + Default + Send + Sync + 'static,
-    F: Fn(&T, &T, f32) -> T + 'static + Send + Sync,
 {
     let start = start
         .map(|start| downcast_value::<T>(start))
@@ -108,13 +107,12 @@ where
     Arc::new(curve.map(ReflectValue::new))
 }
 
-fn create_keyframe_animation_with<T, F>(
+fn create_keyframe_animation_with<T>(
     keyframes: &[(f32, ReflectValue, EasingFunction)],
-    interpolation: F,
+    interpolation: impl Fn(&T, &T, f32) -> T + Send + Sync + 'static,
 ) -> BoxedReflectCurve
 where
     T: FromReflect + Clone + Send + Sync + 'static,
-    F: Fn(&T, &T, f32) -> T + 'static + Send + Sync,
 {
     let samples = keyframes.iter().map(|(t, value, e)| {
         (
@@ -175,14 +173,25 @@ fn color_interpolate(a: &Color, b: &Color, t: f32) -> Color {
     a.mix(&b, t).into()
 }
 
+fn ui_transform_interpolate(a: &UiTransform, b: &UiTransform, t: f32) -> UiTransform {
+    UiTransform {
+        translation: Val2::new(
+            val_interpolate(&a.translation.x, &b.translation.x, t),
+            val_interpolate(&a.translation.y, &b.translation.y, t),
+        ),
+        scale: a.scale.lerp(b.scale, t),
+        rotation: a.rotation.slerp(b.rotation, t),
+    }
+}
+
 impl FromType<Color> for ReflectAnimatable {
     fn from_type() -> Self {
         ReflectAnimatable {
             create_property_transition_fn: |start, end| {
-                create_property_transition_with::<Color, _>(start, end, color_interpolate)
+                create_property_transition_with::<Color>(start, end, color_interpolate)
             },
             create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<Color, _>(keyframes, color_interpolate)
+                create_keyframe_animation_with::<Color>(keyframes, color_interpolate)
             },
         }
     }
@@ -192,10 +201,23 @@ impl FromType<Val> for ReflectAnimatable {
     fn from_type() -> Self {
         ReflectAnimatable {
             create_property_transition_fn: |start, end| {
-                create_property_transition_with::<Val, _>(start, end, val_interpolate)
+                create_property_transition_with::<Val>(start, end, val_interpolate)
             },
             create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<Val, _>(keyframes, val_interpolate)
+                create_keyframe_animation_with::<Val>(keyframes, val_interpolate)
+            },
+        }
+    }
+}
+
+impl FromType<UiTransform> for ReflectAnimatable {
+    fn from_type() -> Self {
+        ReflectAnimatable {
+            create_property_transition_fn: |start, end| {
+                create_property_transition_with::<UiTransform>(start, end, ui_transform_interpolate)
+            },
+            create_keyframes_animation_fn: |keyframes| {
+                create_keyframe_animation_with::<UiTransform>(keyframes, ui_transform_interpolate)
             },
         }
     }
@@ -205,14 +227,14 @@ impl FromType<f32> for ReflectAnimatable {
     fn from_type() -> Self {
         ReflectAnimatable {
             create_property_transition_fn: |from, to| {
-                create_property_transition_with::<f32, _>(
+                create_property_transition_with::<f32>(
                     from,
                     to,
                     StableInterpolate::interpolate_stable,
                 )
             },
             create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<f32, _>(
+                create_keyframe_animation_with::<f32>(
                     keyframes,
                     StableInterpolate::interpolate_stable,
                 )
@@ -228,6 +250,7 @@ impl Plugin for ReflectAnimationsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type_data::<f32, ReflectAnimatable>()
             .register_type_data::<Color, ReflectAnimatable>()
-            .register_type_data::<Val, ReflectAnimatable>();
+            .register_type_data::<Val, ReflectAnimatable>()
+            .register_type_data::<UiTransform, ReflectAnimatable>();
     }
 }

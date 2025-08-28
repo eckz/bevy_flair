@@ -44,6 +44,7 @@
     outline-offset: -1px;
     z-index: 2;
     box-shadow: -2px -3px 10px 20px green;
+    transform: translate(10%, 20%) scale(0.75) rotate(45deg);
     -bevy-image-color: yellow;
     -bevy-image-mode: stretch;
 }
@@ -93,6 +94,7 @@
     outline-offset: -1px !important;
     z-index: 2 !important;
     box-shadow: -2px -3px 10px 20px green !important;
+    transform: translate(10%, 20%) scale(0.75) rotate(45deg) !important;
     -bevy-image-color: yellow !important;
     -bevy-image-mode: stretch !important;
 }
@@ -142,6 +144,7 @@
     outline-offset: inherit;
     z-index: inherit;
     box-shadow: inherit;
+    transform: inherit;
     -bevy-image-color: inherit;
     -bevy-image-mode: inherit;
 }
@@ -190,6 +193,7 @@
     outline-offset: initial;
     z-index: initial;
     box-shadow: initial;
+    transform: initial;
     -bevy-image-color: initial;
     -bevy-image-mode: initial;
 }

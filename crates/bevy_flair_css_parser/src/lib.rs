@@ -254,7 +254,12 @@ pub(crate) mod testing {
         parse_raw_content_with(&contents, |parser| {
             let result = parse_fn(parser)?;
             let important_level = try_parse_important_level(parser);
-            assert!(matches!(important_level, ImportantLevel::Important(_)));
+
+            assert!(
+                matches!(important_level, ImportantLevel::Important(_)),
+                "Missing trailing !important from parser. Remaining contents: '{remaining_contents}'",
+                remaining_contents = &contents[parser.position().byte_index()..]
+            );
             Ok(result)
         })
     }

@@ -116,6 +116,7 @@ impl Plugin for ReflectParsePlugin {
                 GridPlacement,
                 NodeImageMode,
                 BoxShadow,
+                UiTransform,
                 LineHeight,
                 TextShadow,
             )

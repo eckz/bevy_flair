@@ -2,11 +2,13 @@
     from {
         width: 15vw;
         height: 15vh;
+        transform: rotate(0deg);
     }
 
     to {
         width: 40vw;
         height: 40vh;
+        transform: rotate(180deg);
     }
 }
 

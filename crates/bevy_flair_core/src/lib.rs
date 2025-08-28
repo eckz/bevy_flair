@@ -134,6 +134,7 @@ default_properties! {
     sub_properties "outline" { insert_if_missing: Outline[""] },
     "box-shadow" { insert_if_missing: BoxShadow[""] },
     "z-index" { ZIndex[""] },
+    "transform" { UiTransform[""] },
 
     // UiImage properties.
     // Note: The `-bevy-` css properties are not standard.
@@ -187,6 +188,7 @@ impl Plugin for BevyUiPropertiesPlugin {
             .register_type::<BorderRadius>()
             .register_type::<BoxShadow>()
             .register_type::<ZIndex>()
+            .register_type::<UiTransform>()
             .register_type::<ImageNode>()
             .register_type::<TextLayout>()
             .register_type::<TextFont>()

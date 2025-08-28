@@ -63,6 +63,7 @@ define_errors!(ui => {
     UNEXPECTED_F32_TOKEN(61, "Unexpected token for a f32 type"),
     INVALID_NUMBER_OF_SHADOW_VALS(62, "Invalid number of values for BoxShadow"),
     UNEXPECTED_LINE_HEIGHT_TOKEN(63, "Unexpected token for a LineHeight type"),
+    UNEXPECTED_ANGLE_TOKEN(61, "Unexpected token for an angle type"),
 });
 
 define_errors!(vars => {

@@ -3,13 +3,15 @@ use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
 use crate::reflect::parse_color;
-use crate::utils::parse_property_value_with;
+use crate::utils::{parse_property_value_with, try_parse_none};
 use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
+use bevy_math::{Rot2, Vec2};
 use bevy_reflect::FromType;
-use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, ZIndex};
+use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, UiTransform, Val, Val2, ZIndex};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
+use std::f32::consts;
 
 pub fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
     let next = parser.located_next()?;
@@ -81,6 +83,38 @@ pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
                 &next,
                 error_codes::UNEXPECTED_VAL_TOKEN,
                 "This is not valid Val token. 'auto', 3px, 44.2% are valid examples",
+            ));
+        }
+    })
+}
+
+pub(crate) fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
+    let next = parser.located_next()?;
+    Ok(match &*next {
+        Token::Number { value, .. } if *value == 0.0 => Rot2::IDENTITY,
+        Token::Dimension { value, unit, .. } => {
+            match_ignore_ascii_case! { unit.as_ref(),
+                "deg" => Rot2::degrees(*value),
+                "grad" => {
+                    const RADS_PER_GRAD: f32 = consts::PI / 200.0;
+                    Rot2::radians(*value * RADS_PER_GRAD)
+                },
+                "rad" => Rot2::radians(*value),
+                "turn" => Rot2::turn_fraction(*value),
+                _ => {
+                    return Err(CssError::new_located(
+                        &next,
+                        error_codes::UNEXPECTED_ANGLE_TOKEN,
+                        format!("Dimension '{unit}' is not recognized as an angle. Valid dimensions are 'deg' | 'grad' | 'rad' | 'turn'")
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(CssError::new_located(
+                &next,
+                error_codes::UNEXPECTED_ANGLE_TOKEN,
+                "This is not a valid angle token. 90deg, 100grad or 0.25turn are valid angles",
             ));
         }
     })
@@ -212,6 +246,72 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     Ok(ReflectValue::new(BoxShadow(styles)))
 }
 
+// TODO: Support translateX, and translateY
+fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Val2, CssError> {
+    let start = parser.state();
+    if parser.expect_function_matching("translate").is_err() {
+        parser.reset(&start);
+        return Ok(Val2::ZERO);
+    }
+    parser.parse_nested_block_with(|parser| {
+        let translate_x = parse_calc_value(parser, parse_val)?;
+        let translate_y = parser
+            .try_parse_with(|parser| {
+                parser.expect_comma()?;
+                parse_calc_value(parser, parse_val)
+            })
+            .unwrap_or(Val::ZERO);
+        Ok(Val2::new(translate_x, translate_y))
+    })
+}
+
+// TODO: Support scaleX, and scaleY
+fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Vec2, CssError> {
+    let start = parser.state();
+
+    if parser.expect_function_matching("scale").is_err() {
+        parser.reset(&start);
+        return Ok(Vec2::ONE);
+    }
+    parser.parse_nested_block_with(|parser| {
+        let scale_x = parse_calc_value(parser, parse_f32)?;
+        let scale_y = parser
+            .try_parse_with(|parser| {
+                parser.expect_comma()?;
+                parse_calc_value(parser, parse_f32)
+            })
+            .unwrap_or(scale_x);
+
+        Ok(Vec2::new(scale_x, scale_y))
+    })
+}
+
+// TODO: Support rotateZ
+fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Rot2, CssError> {
+    let start = parser.state();
+    if parser.expect_function_matching("rotate").is_err() {
+        parser.reset(&start);
+        return Ok(Rot2::IDENTITY);
+    }
+    parser.parse_nested_block_with(|parser| parse_calc_value(parser, parse_angle))
+}
+
+fn parse_ui_transform(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    if let Some(none) = try_parse_none::<UiTransform>(parser) {
+        return Ok(ReflectValue::new(none));
+    }
+
+    let translation = parser.try_parse_with(parse_ui_transform_translation)?;
+    let scale = parser.try_parse_with(parse_ui_transform_scale)?;
+    let rotation = parser.try_parse_with(parse_ui_transform_rotation)?;
+
+    Ok(ReflectValue::new(UiTransform {
+        translation,
+        scale,
+        rotation,
+    }))
+}
+
 impl FromType<f32> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_f32))
@@ -248,11 +348,20 @@ impl FromType<BoxShadow> for ReflectParseCss {
     }
 }
 
+impl FromType<UiTransform> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| parse_property_value_with(parser, parse_ui_transform))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_css;
     use bevy_color::palettes::css;
-    use bevy_ui::{BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, Val, ZIndex};
+    use bevy_math::{Rot2, Vec2};
+    use bevy_ui::{
+        BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, UiTransform, Val, Val2, ZIndex,
+    };
 
     #[test]
     fn test_val() {
@@ -340,6 +449,55 @@ mod tests {
                 spread_radius: Val::Px(1.0),
                 color: css::WHITE.into(),
             })
+        );
+    }
+
+    #[test]
+    fn test_ui_transform() {
+        assert_eq!(test_parse_css::<UiTransform>("none"), UiTransform::IDENTITY);
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("translate(2px)"),
+            UiTransform::from_translation(Val2::px(2.0, 0.0))
+        );
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("translate(calc(2px * 3))"),
+            UiTransform::from_translation(Val2::px(6.0, 0.0))
+        );
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("translate(10%, 15px)"),
+            UiTransform::from_translation(Val2::new(Val::Percent(10.0), Val::Px(15.0)))
+        );
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("rotate(120deg)"),
+            UiTransform::from_rotation(Rot2::degrees(120.0))
+        );
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("rotate(calc(130deg - 30deg))"),
+            UiTransform::from_rotation(Rot2::degrees(100.0))
+        );
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("rotate(-20deg)"),
+            UiTransform::from_rotation(Rot2::degrees(-20.0))
+        );
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("scale(1.5, 2.0)"),
+            UiTransform::from_scale(Vec2::new(1.5, 2.0))
+        );
+
+        assert_eq!(
+            test_parse_css::<UiTransform>("translate(10px, 0) scale(2.5) rotate(120deg)"),
+            UiTransform {
+                translation: Val2::new(Val::Px(10.0), Val::ZERO),
+                scale: Vec2::splat(2.5),
+                rotation: Rot2::degrees(120.0),
+            }
         );
     }
 }

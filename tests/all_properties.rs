@@ -49,6 +49,7 @@ fn all_properties() {
             outline,
             z_index,
             box_shadow,
+            ui_transform,
             image_node,
         ) = entity_ref.components::<(
             &Node,
@@ -58,6 +59,7 @@ fn all_properties() {
             &Outline,
             &ZIndex,
             &BoxShadow,
+            &UiTransform,
             &ImageNode,
         )>();
 
@@ -140,6 +142,14 @@ fn all_properties() {
                 spread_radius: Val::Px(20.0),
                 color: css::GREEN.into(),
             })
+        );
+        assert_eq!(
+            ui_transform,
+            &UiTransform {
+                translation: Val2::percent(10.0, 20.0),
+                scale: Vec2::splat(0.75),
+                rotation: Rot2::degrees(45.0),
+            }
         );
         assert_eq!(image_node.color, css::YELLOW.into());
         assert_eq!(image_node.image_mode, NodeImageMode::Stretch);

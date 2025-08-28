@@ -74,9 +74,10 @@ button {
     border-color: var(--button-border);
     border-radius: var(--button-border-radius);
 
-    transition: border-radius 0.6s ease-in-out, border-color 0.4s, background-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
+    transition: transform 0.2s, border-radius 0.6s ease-in-out, border-color 0.4s, background-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
 
     outline: initial;
+    transform: none;
 
     &:hover {
         background-color: var(--button-hover-bg);
@@ -88,6 +89,7 @@ button {
         border-color: var(--button-active-border);
     }
     &:hover, &:active {
+        transform: scale(1.05);
         color: var(--button-hover-text);
         border-radius: calc(var(--button-border-radius) + 5px);
     }

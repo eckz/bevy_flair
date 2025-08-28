@@ -606,6 +606,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
                         BorderColor::default(),
                         BorderRadius::default(),
                         ZIndex::default(),
+                        UiTransform::default(),
                     ))
                     .try_remove::<(Outline, BoxShadow)>();
 

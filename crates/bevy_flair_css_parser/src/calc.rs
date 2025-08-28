@@ -5,11 +5,12 @@ use bevy_reflect::{FromReflect, TypePath};
 use cssparser::{Parser, Token};
 
 use crate::utils::parse_property_global_keyword;
+use bevy_math::Rot2;
 use bevy_ui::Val;
 use smallvec::SmallVec;
 use std::convert::Infallible;
 use std::fmt::{Debug, Display};
-use std::ops::{Div, Mul, Neg};
+use std::ops::{Mul, Neg};
 use std::sync::Arc;
 use std::time::{Duration, TryFromFloatSecsError};
 use thiserror::Error;
@@ -88,6 +89,14 @@ impl CalcMul for Duration {
     }
 }
 
+impl CalcMul for Rot2 {
+    type Error = Infallible;
+
+    fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error> {
+        Ok(Rot2::radians(a.as_radians() * b))
+    }
+}
+
 macro_rules! impl_calc_mul {
     ($($ty:ty),*) => {
         $(
@@ -135,6 +144,20 @@ impl CalcAdd for f32 {
     }
 }
 
+impl CalcAdd for Rot2 {
+    const ZERO: Self = Rot2::IDENTITY;
+
+    type Error = Infallible;
+
+    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
+        Ok(Rot2::radians(a.as_radians() + b.as_radians()))
+    }
+
+    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
+        Ok(Rot2::radians(a.as_radians() - b.as_radians()))
+    }
+}
+
 impl CalcAdd for Val {
     const ZERO: Self = Val::ZERO;
 
@@ -167,9 +190,7 @@ impl CalcAdd for Val {
 
 impl<T> Calculable for T
 where
-    T: CalcAdd,
-    T: CalcMul,
-    T: Div<f32, Output = T>,
+    T: CalcAdd + CalcMul,
     T: FromReflect + TypePath + Clone + Debug + Send + Sync,
 {
 }
