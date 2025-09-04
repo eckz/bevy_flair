@@ -1,13 +1,16 @@
 mod assets;
 mod color;
 mod enums;
+mod gradient;
 mod grid;
 mod image;
 mod text;
 mod ui;
 
+pub(crate) use assets::parse_asset_path;
 pub use color::parse_color;
 pub(crate) use enums::parse_enum_as_property_value;
+pub(crate) use gradient::parse_gradient;
 pub(crate) use grid::{parse_grid_track_vec, parse_repeated_grid_track_vec};
 pub use ui::parse_val;
 
@@ -117,6 +120,8 @@ impl Plugin for ReflectParsePlugin {
                 NodeImageMode,
                 BoxShadow,
                 UiTransform,
+                BackgroundGradient,
+                BorderGradient,
                 LineHeight,
                 TextShadow,
             )

@@ -135,10 +135,12 @@ default_properties! {
     "box-shadow" { insert_if_missing: BoxShadow[""] },
     "z-index" { ZIndex[""] },
     "transform" { UiTransform[""] },
+    "-bevy-background-gradient" { insert_if_missing: BackgroundGradient[""] },
+    "border-image" { insert_if_missing: BorderGradient[""] },
 
     // UiImage properties.
     // Note: The `-bevy-` css properties are not standard.
-    "background-image" { insert_if_missing: ImageNode[".image"] },
+    "-bevy-image" { insert_if_missing: ImageNode[".image"] },
     "-bevy-image-color" { insert_if_missing: ImageNode[".color"] },
     "-bevy-image-mode" { insert_if_missing: ImageNode[".image_mode"] },
 
@@ -157,11 +159,6 @@ default_properties! {
 
     // Misc text components
     "text-shadow" { insert_if_missing: TextShadow[""] },
-
-    // TODO: Add support to new components added in bevy 0.17
-    // UiTransform
-    // BackgroundGradient
-    // BorderGradient
 }
 
 /// Register all Bevy UI properties
@@ -189,6 +186,8 @@ impl Plugin for BevyUiPropertiesPlugin {
             .register_type::<BoxShadow>()
             .register_type::<ZIndex>()
             .register_type::<UiTransform>()
+            .register_type::<BackgroundGradient>()
+            .register_type::<BorderGradient>()
             .register_type::<ImageNode>()
             .register_type::<TextLayout>()
             .register_type::<TextFont>()

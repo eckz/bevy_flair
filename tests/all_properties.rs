@@ -51,6 +51,8 @@ fn all_properties() {
             box_shadow,
             ui_transform,
             image_node,
+            background_gradient,
+            border_gradient,
         ) = entity_ref.components::<(
             &Node,
             &BorderColor,
@@ -61,6 +63,8 @@ fn all_properties() {
             &BoxShadow,
             &UiTransform,
             &ImageNode,
+            &BackgroundGradient,
+            &BorderGradient,
         )>();
 
         assert_eq!(
@@ -153,6 +157,23 @@ fn all_properties() {
         );
         assert_eq!(image_node.color, css::YELLOW.into());
         assert_eq!(image_node.image_mode, NodeImageMode::Stretch);
+
+        assert_eq!(
+            background_gradient,
+            &BackgroundGradient::from(LinearGradient::new(
+                LinearGradient::TO_RIGHT,
+                vec![css::RED.into(), css::BLUE.into()]
+            ))
+        );
+
+        assert_eq!(
+            border_gradient,
+            &BorderGradient::from(RadialGradient::new(
+                UiPosition::CENTER,
+                RadialGradientShape::FarthestCorner,
+                vec![css::RED.into(), css::BLUE.into()]
+            ))
+        )
     }
 
     assert_expected_node(app.world().entity(app.find_by_unique_name("Node")));
@@ -172,7 +193,10 @@ fn all_properties() {
         outline,
         z_index,
         box_shadow,
+        ui_transform,
         image_node,
+        background_gradient,
+        border_gradient,
     ) = with_initial_values_entity.components::<(
         &Node,
         &BorderColor,
@@ -181,7 +205,10 @@ fn all_properties() {
         &Outline,
         &ZIndex,
         &BoxShadow,
+        &UiTransform,
         &ImageNode,
+        &BackgroundGradient,
+        &BorderGradient,
     )>();
 
     assert_eq!(node, &Node::DEFAULT);
@@ -192,8 +219,14 @@ fn all_properties() {
     assert_eq!(outline, &Outline::default());
     assert_eq!(z_index, &ZIndex::default());
     assert_eq!(box_shadow, &BoxShadow::default());
+
+    assert_eq!(ui_transform, &UiTransform::default());
+
     assert_eq!(image_node.color, Color::WHITE);
     assert_eq!(image_node.image_mode, NodeImageMode::Auto);
+
+    assert_eq!(background_gradient, &BackgroundGradient(vec![]));
+    assert_eq!(border_gradient, &BorderGradient(vec![]));
 
     let text_entity = app.world().entity(app.find_by_unique_name("Text"));
 

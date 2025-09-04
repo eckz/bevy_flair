@@ -28,6 +28,10 @@ pub fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
     })
 }
 
+pub(crate) fn parse_calc_f32(parser: &mut Parser) -> Result<f32, CssError> {
+    parse_calc_value(parser, parse_f32)
+}
+
 /// Parses a [`Val`] (UI length/size value) from a CSS token.
 ///
 /// This function recognizes keywords, numbers, percentages, and length units
@@ -88,6 +92,10 @@ pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
     })
 }
 
+pub(crate) fn parse_calc_val(parser: &mut Parser) -> Result<Val, CssError> {
+    parse_calc_value(parser, parse_val)
+}
+
 pub(crate) fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
     let next = parser.located_next()?;
     Ok(match &*next {
@@ -120,15 +128,19 @@ pub(crate) fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
     })
 }
 
+pub(crate) fn parse_calc_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
+    parse_calc_value(parser, parse_angle)
+}
+
 fn parse_overflow_clip_margin(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Ok(margin) = parser.try_parse_with(|parser| parse_calc_value(parser, parse_f32)) {
+    if let Ok(margin) = parser.try_parse_with(parse_calc_f32) {
         return Ok(ReflectValue::new(OverflowClipMargin {
             margin,
             ..OverflowClipMargin::DEFAULT
         }));
     }
     let visual_box = parse_enum_value(parser)?;
-    let margin = parse_calc_value(parser, parse_f32)?;
+    let margin = parse_calc_f32(parser)?;
     Ok(ReflectValue::new(OverflowClipMargin { visual_box, margin }))
 }
 
@@ -140,11 +152,11 @@ fn parse_aspect_ratio(parser: &mut Parser) -> Result<ReflectValue, CssError> {
         let auto_value: Option<f32> = None;
         return Ok(ReflectValue::new(auto_value));
     }
-    let dividend = parse_calc_value(parser, parse_f32)?;
+    let dividend = parse_calc_f32(parser)?;
     let divisor = parser
         .try_parse_with(|parser| {
             parser.expect_delim('/')?;
-            parse_calc_value(parser, parse_f32)
+            parse_calc_f32(parser)
         })
         .unwrap_or(1.0);
     let auto_value: Option<f32> = Some(dividend / divisor);
@@ -186,10 +198,10 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
         color = new_color;
     }
 
-    values.push(parse_calc_value(parser, parse_val)?);
-    values.push(parse_calc_value(parser, parse_val)?);
+    values.push(parse_calc_val(parser)?);
+    values.push(parse_calc_val(parser)?);
 
-    while let Ok(val) = parser.try_parse_with(|parser| parse_calc_value(parser, parse_val)) {
+    while let Ok(val) = parser.try_parse_with(parse_calc_val) {
         values.push(val);
         if values.len() >= 4 {
             break;
@@ -254,11 +266,11 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Val2, CssError>
         return Ok(Val2::ZERO);
     }
     parser.parse_nested_block_with(|parser| {
-        let translate_x = parse_calc_value(parser, parse_val)?;
+        let translate_x = parse_calc_val(parser)?;
         let translate_y = parser
             .try_parse_with(|parser| {
                 parser.expect_comma()?;
-                parse_calc_value(parser, parse_val)
+                parse_calc_val(parser)
             })
             .unwrap_or(Val::ZERO);
         Ok(Val2::new(translate_x, translate_y))
@@ -274,11 +286,11 @@ fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Vec2, CssError> {
         return Ok(Vec2::ONE);
     }
     parser.parse_nested_block_with(|parser| {
-        let scale_x = parse_calc_value(parser, parse_f32)?;
+        let scale_x = parse_calc_f32(parser)?;
         let scale_y = parser
             .try_parse_with(|parser| {
                 parser.expect_comma()?;
-                parse_calc_value(parser, parse_f32)
+                parse_calc_f32(parser)
             })
             .unwrap_or(scale_x);
 
@@ -293,7 +305,7 @@ fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Rot2, CssError> {
         parser.reset(&start);
         return Ok(Rot2::IDENTITY);
     }
-    parser.parse_nested_block_with(|parser| parse_calc_value(parser, parse_angle))
+    parser.parse_nested_block_with(parse_calc_angle)
 }
 
 fn parse_ui_transform(parser: &mut Parser) -> Result<ReflectValue, CssError> {

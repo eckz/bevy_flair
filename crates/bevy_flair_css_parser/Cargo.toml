@@ -27,6 +27,7 @@ smol_str = "0.2"
 rustc-hash = "2.1"
 linked-hash-map = "0.5"
 tracing = "0.1"
+variadics_please = "1.1"
 
 bevy_app = { workspace = true }
 bevy_asset = { workspace = true }

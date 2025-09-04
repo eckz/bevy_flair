@@ -10,7 +10,7 @@ use bevy_reflect::{FromType, TypePath};
 use bevy_text::Font;
 use cssparser::Parser;
 
-fn parse_asset_path<A: TypePath>(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+pub(crate) fn parse_asset_path<A: TypePath>(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     let path = parser.expect_url_or_string()?;
     Ok(ReflectValue::new(AssetPathPlaceHolder::<A>::new(
         path.as_ref(),

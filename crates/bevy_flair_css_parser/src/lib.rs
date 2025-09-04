@@ -142,6 +142,13 @@ pub trait ParserExt<'i> {
     where
         F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, CssError>;
 
+    /// Convenience method to work with [`parse_comma_separated`] and [`CssError`].
+    ///
+    /// [`parse_comma_separated`]: Parser::parse_comma_separated
+    fn parse_comma_separated_with<T, F>(&mut self, f: F) -> Result<Vec<T>, CssError>
+    where
+        F: for<'tt> FnMut(&mut Parser<'i, 'tt>) -> Result<T, CssError>;
+
     /// Convenience method to work with [`try_parse`] and [`CssError`].
     ///
     /// [`try_parse`]: Parser::try_parse
@@ -194,6 +201,18 @@ impl<'i, 't> ParserExt<'i> for Parser<'i, 't> {
     {
         self.parse_nested_block(move |parser| f(parser).map_err(|err| err.into_parse_error()))
             .map_err(CssError::from)
+    }
+
+    fn parse_comma_separated_with<T, F>(&mut self, mut parse_one: F) -> Result<Vec<T>, CssError>
+    where
+        F: for<'tt> FnMut(&mut Parser<'i, 'tt>) -> Result<T, CssError>,
+    {
+        let mut result = Vec::with_capacity(1);
+        result.push(parse_one(self)?);
+        while self.try_parse(Self::expect_comma).is_ok() {
+            result.push(parse_one(self)?);
+        }
+        Ok(result)
     }
 
     fn try_parse_with<T, F>(&mut self, f: F) -> Result<T, CssError>

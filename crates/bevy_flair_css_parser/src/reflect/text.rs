@@ -1,6 +1,5 @@
-use crate::calc::parse_calc_value;
 use crate::reflect::parse_color;
-use crate::reflect::ui::parse_f32;
+use crate::reflect::ui::parse_calc_f32;
 use crate::utils::{parse_property_value_with, try_parse_none_with_value};
 use crate::{CssError, ParserExt, ReflectParseCss, error_codes};
 use bevy_color::Color;
@@ -57,16 +56,16 @@ fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     }
 
     if let Ok(color) = parser.try_parse_with(parse_color) {
-        let offset_x = parse_calc_value(parser, parse_f32)?;
-        let offset_y = parse_calc_value(parser, parse_f32)?;
+        let offset_x = parse_calc_f32(parser)?;
+        let offset_y = parse_calc_f32(parser)?;
 
         Ok(ReflectValue::new(TextShadow {
             offset: Vec2::new(offset_x, offset_y),
             color,
         }))
     } else {
-        let offset_x = parse_calc_value(parser, parse_f32)?;
-        let offset_y = parse_calc_value(parser, parse_f32)?;
+        let offset_x = parse_calc_f32(parser)?;
+        let offset_y = parse_calc_f32(parser)?;
 
         let color = parser
             .try_parse_with(parse_color)

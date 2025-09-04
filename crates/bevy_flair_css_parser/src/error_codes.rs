@@ -63,7 +63,12 @@ define_errors!(ui => {
     UNEXPECTED_F32_TOKEN(61, "Unexpected token for a f32 type"),
     INVALID_NUMBER_OF_SHADOW_VALS(62, "Invalid number of values for BoxShadow"),
     UNEXPECTED_LINE_HEIGHT_TOKEN(63, "Unexpected token for a LineHeight type"),
-    UNEXPECTED_ANGLE_TOKEN(61, "Unexpected token for an angle type"),
+    UNEXPECTED_ANGLE_TOKEN(64, "Unexpected token for an angle type"),
+    INVALID_COLOR_SPACE(65, "Invalid color space"),
+    INVALID_GRADIENT_FUNCTION(65, "Unexpected gradient function"),
+    UNEXPECTED_UI_POSITION_TOKEN(66, "Unexpected ui position token"),
+    UNEXPECTED_RADIAL_SHAPE_TOKEN(67, "Unexpected radial shape/size token"),
+    MISSING_GRADIENT_COLORS(68, "Unexpected radial shape/size token"),
 });
 
 define_errors!(vars => {

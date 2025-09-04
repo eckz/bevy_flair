@@ -14,12 +14,16 @@
     --button-bg: var(--color-zinc-100);
     --button-border: var(--color-zinc-400);
 
-    --button-hover-bg: var(--color-indigo-400);
-    --button-hover-border: var(--color-indigo-600);
+    --gradient-degree: 45deg;
+
+    --button-hover-bg-from: var(--color-blue-400);
+    --button-hover-bg-to: var(--color-indigo-500);
+    --button-hover-border: var(--color-indigo-700);
     --button-hover-text: var(--color-white);
 
-    --button-active-bg: var(--color-red-400);
-    --button-active-border: var(--color-red-600);
+    --button-active-bg-from: var(--color-rose-400);
+    --button-active-bg-to: var(--color-red-500);
+    --button-active-border: var(--color-red-700);
 
     --button-border-radius: 5px;
 }
@@ -70,22 +74,23 @@ button {
         height: 80px;
     }
 
-    background-color: var(--button-bg);
+    /* In order to have linear-gradient to animate, it needs to have the same number of color stops */
+    background: linear-gradient(var(--gradient-degree), var(--button-bg), 1%, var(--button-bg));
     border-color: var(--button-border);
     border-radius: var(--button-border-radius);
 
-    transition: transform 0.2s, border-radius 0.6s ease-in-out, border-color 0.4s, background-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
+    transition: background 0.6s, transform 0.6s, border-radius 1.0s ease-in-out, border-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
 
     outline: initial;
     transform: none;
 
     &:hover {
-        background-color: var(--button-hover-bg);
+        background: linear-gradient(var(--gradient-degree), var(--button-hover-bg-from), var(--button-hover-bg-to));
         border-color: var(--button-hover-border);
     }
 
     &:active {
-        background-color: var(--button-active-bg);
+        background: linear-gradient(var(--gradient-degree), var(--button-active-bg-from), var(--button-active-bg-to));
         border-color: var(--button-active-border);
     }
     &:hover, &:active {
@@ -117,7 +122,7 @@ button.dark-light-button {
 
     &:hover, &:active {
         color: var(--text-color);
-        background-color: var(--button-bg);
+        background: linear-gradient(var(--button-bg), var(--button-bg));
         border-color: var(--button-border);
     }
 }

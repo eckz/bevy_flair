@@ -540,7 +540,7 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 
 pub(crate) fn mark_as_changed_on_style_sheet_change(
     mut commands: Commands,
-    mut asset_events_reader: EventReader<AssetEvent<StyleSheet>>,
+    mut asset_msg_reader: MessageReader<AssetEvent<StyleSheet>>,
     empty_computed_properties: Res<EmptyComputedProperties>,
     mut style_query: Query<(
         Entity,
@@ -555,7 +555,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
 ) {
     let mut modified_stylesheets = FxHashSet::default();
 
-    for event in asset_events_reader.read() {
+    for event in asset_msg_reader.read() {
         if let AssetEvent::Modified { id } = event {
             debug!("Stylesheet {id:?} was modified. Reapplying all styles");
             modified_stylesheets.insert(*id);
@@ -608,7 +608,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
                         ZIndex::default(),
                         UiTransform::default(),
                     ))
-                    .try_remove::<(Outline, BoxShadow)>();
+                    .try_remove::<(Outline, BoxShadow, BackgroundGradient, BorderGradient)>();
 
                 if has_text {
                     commands

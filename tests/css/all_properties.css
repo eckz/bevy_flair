@@ -45,8 +45,12 @@
     z-index: 2;
     box-shadow: -2px -3px 10px 20px green;
     transform: translate(10%, 20%) scale(0.75) rotate(45deg);
+
     -bevy-image-color: yellow;
     -bevy-image-mode: stretch;
+
+    background-image: linear-gradient(90deg, red, blue);
+    border-image: radial-gradient(at center, red, blue);
 }
 
 .with-important {
@@ -95,8 +99,12 @@
     z-index: 2 !important;
     box-shadow: -2px -3px 10px 20px green !important;
     transform: translate(10%, 20%) scale(0.75) rotate(45deg) !important;
+
     -bevy-image-color: yellow !important;
     -bevy-image-mode: stretch !important;
+
+    background-image: linear-gradient(90deg, red, blue) !important;
+    border-image: radial-gradient(at center, red, blue) !important;
 }
 
 .with-inherited-values {
@@ -147,6 +155,8 @@
     transform: inherit;
     -bevy-image-color: inherit;
     -bevy-image-mode: inherit;
+    background-image: inherit;
+    border-image: inherit;
 }
 
 .with-initial-values {
@@ -196,6 +206,8 @@
     transform: initial;
     -bevy-image-color: initial;
     -bevy-image-mode: initial;
+    background-image: initial;
+    border-image: initial;
 }
 
 text {

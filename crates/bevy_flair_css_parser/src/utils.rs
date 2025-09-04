@@ -2,6 +2,7 @@ use crate::{CssError, ParserExt, error_codes::vars as error_codes};
 use bevy_flair_core::PropertyValue;
 use cssparser::{Parser, match_ignore_ascii_case, parse_important};
 use std::ops::Range;
+use variadics_please::all_tuples;
 
 pub(crate) fn parse_property_global_keyword<T>(
     parser: &mut Parser,
@@ -97,3 +98,32 @@ pub(crate) fn try_parse_important_level(parser: &mut Parser) -> ImportantLevel {
         ImportantLevel::Default
     }
 }
+
+pub(crate) trait CombinedParse {
+    type Output;
+
+    fn combined_parse(self, parser: &mut Parser) -> Result<Option<Self::Output>, CssError>;
+}
+
+macro_rules! impl_combined_parse {
+    ($(($F:ident, $v:ident, $T:ident)),*) => {
+        impl<$($F, $T),*> CombinedParse for ($($F,)*)
+        where $($F: Fn(&mut Parser) -> Result<Option<$T>, CssError>),* {
+            type Output = ($(Option<$T>,)*);
+
+            fn combined_parse(self, parser: &mut Parser) -> Result<Option<Self::Output>, CssError> {
+                let ($($v,)*) = self;
+                $(
+                    let $v = $v(parser)?;
+                )*
+                if $($v.is_some() ||)* false {
+                    Ok(Some(($($v,)*)))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    };
+}
+
+all_tuples!(impl_combined_parse, 1, 4, F, v, T);

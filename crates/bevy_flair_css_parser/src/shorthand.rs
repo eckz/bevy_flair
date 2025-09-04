@@ -1,7 +1,7 @@
 use crate::calc::{Calculable, parse_calc_property_value_with};
 use crate::reflect::{
-    parse_color, parse_enum_as_property_value, parse_grid_track_vec, parse_repeated_grid_track_vec,
-    parse_val,
+    parse_asset_path, parse_color, parse_enum_as_property_value, parse_gradient,
+    parse_grid_track_vec, parse_repeated_grid_track_vec, parse_val,
 };
 use crate::utils::{parse_property_global_keyword, parse_property_value_with, try_parse_none};
 use crate::{CssError, ParserExt};
@@ -9,9 +9,11 @@ use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
+use bevy_image::Image;
 use bevy_reflect::FromReflect;
 use bevy_ui::{
-    AlignItems, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis, RepeatedGridTrack, Val,
+    AlignItems, BackgroundGradient, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis,
+    RepeatedGridTrack, Val,
 };
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
@@ -226,9 +228,15 @@ fn parse_four_values(
     })
 }
 
+#[derive(Copy, Clone, PartialEq)]
+enum UsePrevious {
+    No,
+    Yes,
+}
+
 type SimpleShorthandProperty = (
     ComponentPropertyRef,
-    bool,
+    UsePrevious,
     fn(&mut Parser) -> Result<PropertyValue, CssError>,
 );
 
@@ -252,7 +260,7 @@ fn parse_simple_shorthand_property<const N: usize>(
                 result.push((property_ref, property_value));
             }
             Err(_) => {
-                if use_previous {
+                if use_previous == UsePrevious::Yes {
                     let last_value = result.last().unwrap().1.clone();
                     result.push((property_ref, last_value));
                 } else {
@@ -359,8 +367,8 @@ fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
     parse_simple_shorthand_property(
         parser,
         [
-            (OVERFLOW_X, false, parse_overflow_axis),
-            (OVERFLOW_Y, true, parse_overflow_axis),
+            (OVERFLOW_X, UsePrevious::No, parse_overflow_axis),
+            (OVERFLOW_Y, UsePrevious::Yes, parse_overflow_axis),
         ],
     )
 }
@@ -516,12 +524,12 @@ fn parse_place_items(parser: &mut Parser) -> ShorthandParseResult {
         [
             (
                 ALIGN_ITEMS,
-                false,
+                UsePrevious::No,
                 parse_enum_as_property_value::<AlignItems>,
             ),
             (
                 JUSTIFY_ITEMS,
-                false,
+                UsePrevious::No,
                 parse_enum_as_property_value::<JustifyItems>,
             ),
         ],
@@ -542,10 +550,62 @@ fn parse_gap(parser: &mut Parser) -> ShorthandParseResult {
     parse_simple_shorthand_property(
         parser,
         [
-            (COLUMN_GAP, false, parse_val_as_property_value),
-            (ROW_GAP, true, parse_val_as_property_value),
+            (COLUMN_GAP, UsePrevious::No, parse_val_as_property_value),
+            (ROW_GAP, UsePrevious::Yes, parse_val_as_property_value),
         ],
     )
+}
+
+define_css_properties! {
+    const BEVY_BACKGROUND_IMAGE = "-bevy-image";
+    const BEVY_BACKGROUND_GRADIENT = "-bevy-background-gradient";
+    const BACKGROUND_COLOR = "background-color";
+}
+
+fn parse_background_image_inner(
+    parser: &mut Parser,
+    result: &mut Vec<(ComponentPropertyRef, PropertyValue)>,
+) -> Result<(), CssError> {
+    let mut gradients = Vec::new();
+    let mut image = PropertyValue::None;
+
+    let _ = parser.parse_comma_separated_with(|parser| {
+        if let Ok(parsed_image) = parser.try_parse_with(parse_asset_path::<Image>) {
+            image = PropertyValue::Value(parsed_image);
+        } else if let Ok(parsed_gradient) = parser.try_parse_with(parse_gradient) {
+            gradients.push(parsed_gradient);
+        }
+        Ok(())
+    })?;
+
+    if image != PropertyValue::None {
+        result.push((BEVY_BACKGROUND_IMAGE, image));
+    }
+    if !gradients.is_empty() {
+        result.push((
+            BEVY_BACKGROUND_GRADIENT,
+            PropertyValue::Value(ReflectValue::new(BackgroundGradient(gradients))),
+        ))
+    }
+    Ok(())
+}
+
+fn parse_background_image(parser: &mut Parser) -> ShorthandParseResult {
+    let mut result = Vec::new();
+    parse_background_image_inner(parser, &mut result)?;
+    Ok(result)
+}
+
+fn parse_background(parser: &mut Parser) -> ShorthandParseResult {
+    let mut result = Vec::new();
+    if let Ok(background_color) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
+    {
+        result.push((BACKGROUND_COLOR, background_color.map(ReflectValue::new)));
+    }
+    parse_background_image_inner(parser, &mut result)?;
+
+    Ok(result)
 }
 
 define_css_properties! {
@@ -711,6 +771,20 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         [ALIGN_ITEMS, JUSTIFY_ITEMS],
         parse_place_items,
     );
+    registry.register_new(
+        "background-image",
+        [BEVY_BACKGROUND_IMAGE, BEVY_BACKGROUND_GRADIENT],
+        parse_background_image,
+    );
+    registry.register_new(
+        "background",
+        [
+            BACKGROUND_COLOR,
+            BEVY_BACKGROUND_IMAGE,
+            BEVY_BACKGROUND_GRADIENT,
+        ],
+        parse_background,
+    );
     registry.register_new("gap", [COLUMN_GAP, ROW_GAP], parse_gap);
     registry.register_new(
         "grid-template",
@@ -770,10 +844,14 @@ impl Plugin for ShorthandPropertiesPlugin {
 mod tests {
     use super::*;
     use crate::testing::parse_property_content_with;
-    use bevy_color::Color;
     use bevy_color::palettes::css;
+    use bevy_color::{Color, Srgba};
 
-    use bevy_ui::{GridTrack, RepeatedGridTrack};
+    use bevy_flair_style::AssetPathPlaceHolder;
+    use bevy_ui::{
+        ColorStop, Gradient, GridTrack, LinearGradient, RadialGradient, RadialGradientShape,
+        RepeatedGridTrack, UiPosition,
+    };
     use std::sync::LazyLock;
 
     static REGISTRY: LazyLock<ShorthandPropertyRegistry> = LazyLock::new(|| {
@@ -784,6 +862,12 @@ mod tests {
 
     trait IntoReflectValue {
         fn into_reflect_value(self) -> ReflectValue;
+    }
+
+    impl IntoReflectValue for Srgba {
+        fn into_reflect_value(self) -> ReflectValue {
+            ReflectValue::Color(self.into())
+        }
     }
 
     macro_rules! impl_into_reflect_value {
@@ -805,8 +889,10 @@ mod tests {
         AlignItems,
         JustifyItems,
         GridAutoFlow,
-        Vec::<RepeatedGridTrack>,
-        Vec::<GridTrack>
+        Vec<RepeatedGridTrack>,
+        Vec<GridTrack>,
+        BackgroundGradient,
+        AssetPathPlaceHolder<Image>
     );
 
     trait IntoPropertyValue {
@@ -993,6 +1079,63 @@ mod tests {
         test_shorthand_property!("place-items", "flex-end stretch", {
             "align-items" => AlignItems::FlexEnd,
             "justify-items" => JustifyItems::Stretch,
+        });
+    }
+
+    #[test]
+    fn test_background_image() {
+        test_shorthand_property!("background-image", "url('image.png')", {
+            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+        });
+
+        test_shorthand_property!("background-image", "linear-gradient(to top, blue, red)", {
+            "-bevy-background-gradient" => BackgroundGradient::from(LinearGradient::new(
+                0.0,
+                vec![
+                    ColorStop::auto(css::BLUE),
+                    ColorStop::auto(css::RED),
+                ],
+            )),
+        });
+
+        test_shorthand_property!("background-image", "url('image.png'), linear-gradient(to top, blue, red), radial-gradient(green, white)", {
+            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+            "-bevy-background-gradient" => BackgroundGradient(vec![
+                Gradient::Linear(LinearGradient::new(
+                    0.0,
+                    vec![ColorStop::auto(css::BLUE), ColorStop::auto(css::RED),]
+                )),
+                Gradient::Radial(RadialGradient::new(
+                    UiPosition::CENTER,
+                    RadialGradientShape::FarthestCorner,
+                    vec![ColorStop::auto(css::GREEN), ColorStop::auto(css::WHITE),]
+                )),
+
+            ]),
+        });
+    }
+
+    #[test]
+    fn test_background() {
+        test_shorthand_property!("background", "black", {
+            "background-color" => css::BLACK,
+        });
+
+        test_shorthand_property!("background", "red url('image.png'), linear-gradient(to top, blue, red), radial-gradient(green, white)", {
+            "background-color" => css::RED,
+            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+            "-bevy-background-gradient" => BackgroundGradient(vec![
+                Gradient::Linear(LinearGradient::new(
+                    0.0,
+                    vec![ColorStop::auto(css::BLUE), ColorStop::auto(css::RED),]
+                )),
+                Gradient::Radial(RadialGradient::new(
+                    UiPosition::CENTER,
+                    RadialGradientShape::FarthestCorner,
+                    vec![ColorStop::auto(css::GREEN), ColorStop::auto(css::WHITE),]
+                )),
+
+            ]),
         });
     }
 

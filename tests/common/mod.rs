@@ -70,8 +70,8 @@ impl FindByUniqueName for App {
     }
 }
 
-fn panic_on_load_error(mut events: EventReader<AssetLoadFailedEvent<StyleSheet>>) {
-    if let Some(event) = events.read().next() {
+fn panic_on_load_error(mut failed_loaded_messages: MessageReader<AssetLoadFailedEvent<StyleSheet>>) {
+    if let Some(event) = failed_loaded_messages.read().next() {
         panic!("Error loading '{}': {}", event.path, event.error);
     }
 }
