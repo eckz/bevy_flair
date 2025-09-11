@@ -70,14 +70,14 @@ type GetComponentFromEntityMut = for<'w> fn(EntityMut<'w>) -> Option<&'w mut dyn
 type AddComponentToWorldFn = for<'a> fn(&mut EntityWorldMut, Box<dyn Reflect>);
 
 fn get_component_from_entity<T: Component + Reflect>(
-    entity: FilteredEntityRef,
+    entity: FilteredEntityRef<'_>,
 ) -> Option<&dyn PartialReflect> {
     let component = entity.get::<T>()?;
     Some(component.as_partial_reflect())
 }
 
 fn get_component_from_entity_mut<T: Component<Mutability = Mutable> + Reflect>(
-    entity: EntityMut,
+    entity: EntityMut<'_>,
 ) -> Option<&mut dyn PartialReflect> {
     let component = entity.into_mut::<T>()?.into_inner();
     Some(component.as_partial_reflect_mut())

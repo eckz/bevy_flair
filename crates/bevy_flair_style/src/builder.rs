@@ -633,7 +633,7 @@ impl StyleSheetBuilder {
     }
 
     /// Creates a new ruleset and returns a [`RulesetBuilder`] to build such ruleset.
-    pub fn new_ruleset(&mut self) -> RulesetBuilder {
+    pub fn new_ruleset(&mut self) -> RulesetBuilder<'_> {
         let ruleset_id = StyleSheetRulesetId(self.rulesets.len());
         self.rulesets.push(BuilderRuleset::default());
 

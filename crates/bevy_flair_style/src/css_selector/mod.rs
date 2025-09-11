@@ -318,7 +318,7 @@ impl CssSelector {
     }
 
     /// Parse a single selector from a string
-    pub fn parse_single(selector: &str) -> Result<Self, SelectorError> {
+    pub fn parse_single(selector: &str) -> Result<Self, SelectorError<'_>> {
         let mut parser_input = cssparser::ParserInput::new(selector);
         let mut parser = cssparser::Parser::new(&mut parser_input);
 
@@ -336,7 +336,7 @@ impl CssSelector {
     }
 
     /// Parse a single selector from a string when the selector can be a nested selector.
-    pub fn parse_single_for_nested(selector: &str) -> Result<Self, SelectorError> {
+    pub fn parse_single_for_nested(selector: &str) -> Result<Self, SelectorError<'_>> {
         let mut parser_input = cssparser::ParserInput::new(selector);
         let mut parser = cssparser::Parser::new(&mut parser_input);
 

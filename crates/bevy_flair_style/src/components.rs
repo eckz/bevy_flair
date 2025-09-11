@@ -910,7 +910,7 @@ impl NodeProperties {
     }
 
     #[cfg(debug_assertions)]
-    pub(crate) fn pending_computed_values(&self) -> debug::PendingComputedValues {
+    pub(crate) fn pending_computed_values(&self) -> debug::PendingComputedValues<'_> {
         debug::PendingComputedValues {
             inner_iter: Box::new(
                 izip!(
