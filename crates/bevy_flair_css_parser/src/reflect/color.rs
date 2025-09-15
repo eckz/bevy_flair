@@ -164,7 +164,26 @@ impl FromParsedColor for ParsedColor {
     }
 }
 
-pub(crate) fn parse_color(parser: &mut Parser) -> Result<Color, CssError> {
+/// Parses a CSS color value into a Bevy [`Color`].
+///
+/// This function uses [`cssparser_color`] to support CSS color syntax, including:
+/// - Named colors (e.g. `"red"`, `"blue"`, `"transparent"`)
+/// - Hex codes (e.g. `#fff`, `#ff0000`, `#ff000080`)
+/// - Functional notations (e.g. `rgb(255, 0, 0)`, `rgba(255, 0, 0, 0.5)`,
+///   `hsl(120, 100%, 50%)`)
+///
+/// # Examples
+/// ```
+/// # use bevy_color::Color;
+/// # use cssparser::{Parser, ParserInput};
+/// # use bevy_flair_css_parser::parse_color;
+///
+/// let mut input = ParserInput::new("rgb(255, 0, 0)");
+/// let mut parser = Parser::new(&mut input);
+/// let color = parse_color(&mut parser).unwrap();
+/// assert_eq!(color, Color::srgb(1.0, 0.0, 0.0));
+/// ```
+pub fn parse_color(parser: &mut Parser) -> Result<Color, CssError> {
     struct ColorParser;
 
     impl cssparser_color::ColorParser<'_> for ColorParser {

@@ -59,14 +59,24 @@ enum Calc<T> {
     Mul(CalcOrValue<T>, f32),
 }
 
+/// A trait for values that can be used inside CSS `calc()` expressions.
+///
+/// Types implementing this trait must support addition, subtraction,
+/// multiplication by scalars.
+///
+/// This is implemented for [`f32`], [`Duration`], and [`Val`].
 pub trait Calculable:
     CalcAdd + CalcMul + FromReflect + TypePath + Clone + Debug + Send + Sync
 {
 }
 
+/// A trait for values that can be multiplied by a floating-point scalar
+/// inside a CSS `calc()` expression.
 pub trait CalcMul: Sized {
+    /// The error type returned if multiplication fails.
     type Error: Display;
 
+    /// Attempts to multiply the given value by a floating-point scalar.
     fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error>;
 }
 
@@ -96,12 +106,18 @@ macro_rules! impl_calc_mul {
 
 impl_calc_mul!(f32, Val);
 
+/// A trait for values that support addition and subtraction inside CSS `calc()` expressions.
 pub trait CalcAdd: Sized {
+    /// The additive identity (zero) for this type.
     const ZERO: Self;
 
+    /// The error type returned if addition or subtraction fails.
     type Error: Display;
 
+    /// Attempts to add two values of this type.
     fn try_add(a: Self, b: Self) -> Result<Self, Self::Error>;
+
+    /// Attempts to subtract one value from another.
     fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error>;
 }
 
@@ -276,6 +292,19 @@ fn parse_calc_or_value<T>(
     value_parser(parser).map(CalcOrValue::Value)
 }
 
+/// Parses a CSS `calc()` expression or raw value, and computes its result immediately.
+///
+/// # Example
+/// ```
+/// # use bevy_ui::Val;
+/// # use cssparser::Parser;
+/// # use bevy_flair_css_parser::{parse_calc_value, parse_val};
+///
+/// let mut input = cssparser::ParserInput::new("calc(2px + 3px)");
+/// let mut parser = Parser::new(&mut input);
+/// let value = parse_calc_value(&mut parser, parse_val).unwrap();
+/// assert_eq!(value, Val::Px(5.0));
+/// ```
 pub fn parse_calc_value<T>(
     parser: &mut Parser,
     mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
@@ -293,6 +322,11 @@ where
     })
 }
 
+/// Parses a CSS property value that may use `calc()` expressions or global keywords.
+///
+/// If a global keyword (such as `inherit` or `initial`, this
+/// returns the corresponding [`PropertyValue`]. Otherwise, it parses and evaluates
+/// the value as a calculable expression.
 pub fn parse_calc_property_value_with<T>(
     parser: &mut Parser,
     value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,

@@ -11,7 +11,7 @@ use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, ZIndex};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
 
-pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
+pub fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
     let next = parser.located_next()?;
     Ok(match &*next {
         Token::Number { value, .. } => *value,
@@ -26,7 +26,34 @@ pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
     })
 }
 
-pub(crate) fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
+/// Parses a [`Val`] (UI length/size value) from a CSS token.
+///
+/// This function recognizes keywords, numbers, percentages, and length units
+/// supported by Bevy's [`Val`] type:
+///
+/// - `auto` → [`Val::Auto`]
+/// - `0` → [`Val::ZERO`]
+/// - `<number>` → [`Val::Px`] (pixel value)
+/// - `<percentage>` → [`Val::Percent`] (percentage value)
+/// - `<dimension>` → one of:
+///   - `"px"` → [`Val::Px`]
+///   - `"vw"` → [`Val::Vw`]
+///   - `"vh"` → [`Val::Vh`]
+///   - `"vmin"` → [`Val::VMin`]
+///   - `"vmax"` → [`Val::VMax`]
+///
+/// # Example
+/// ```
+/// # use bevy_ui::Val;
+/// # use cssparser::{Parser, ParserInput};
+/// # use bevy_flair_css_parser::parse_val;
+///
+/// let mut input = ParserInput::new("50%");
+/// let mut parser = Parser::new(&mut input);
+/// let val = parse_val(&mut parser).unwrap();
+/// assert_eq!(val, Val::Percent(50.0));
+/// ```
+pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
     let next = parser.located_next()?;
     Ok(match &*next {
         Token::Ident(ident) if ident.as_ref() == "auto" => Val::Auto,

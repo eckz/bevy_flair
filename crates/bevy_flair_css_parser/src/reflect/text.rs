@@ -95,7 +95,7 @@ impl FromType<TextShadow> for ReflectParseCss {
 
 impl FromType<String> for ReflectParseCss {
     fn from_type() -> Self {
-        Self(|parser| Ok(parse_property_value_with(parser, parse_string)?.map(ReflectValue::new)))
+        Self(|parser| Ok(parse_property_value_with(parser, parse_string)?.into_reflect_value()))
     }
 }
 

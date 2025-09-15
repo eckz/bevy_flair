@@ -9,13 +9,17 @@ use bevy_flair_core::PropertyRegistry;
 use bevy_flair_style::StyleSystemSets;
 use cssparser::{BasicParseError, CowRcStr, Parser, Token};
 use derive_more::Deref;
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Range;
+
 pub use error::*;
 pub use inline_styles::*;
 pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
-use std::fmt::{Debug, Display, Formatter};
-use std::ops::Range;
+
+pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc_property_value_with, parse_calc_value};
+pub use utils::parse_property_value_with;
 
 mod error;
 mod parser;

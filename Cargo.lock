@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bevy",
  "bevy_app",
@@ -549,11 +549,12 @@ dependencies = [
  "bevy_flair_css_parser",
  "bevy_flair_style",
  "criterion",
+ "cssparser",
 ]
 
 [[package]]
 name = "bevy_flair_core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bevy_app",
  "bevy_color",
@@ -572,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair_css_parser"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "approx",
  "ariadne",
@@ -603,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair_style"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bevy_app",
  "bevy_asset",

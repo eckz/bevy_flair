@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 15-Sep-2025
+
+### Added
+
+- New example that show how to parse custom types, like a custom `Val` type.
+- Make some previously private parsing functions public.
+
 ## [0.4] - 1-Aug-2025
 
 ### Added

@@ -1,12 +1,12 @@
 //! This examples illustrates how to create a button that changes color and text based on its
 //! interaction state.
 
-use bevy::text::TextWriter;
-use bevy::window::{PrimaryWindow, WindowTheme};
 use bevy::{
     input_focus::InputDispatchPlugin,
     input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
     prelude::*,
+    text::TextWriter,
+    window::{PrimaryWindow, WindowTheme},
 };
 use bevy_flair::prelude::*;
 

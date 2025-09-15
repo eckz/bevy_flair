@@ -1,5 +1,5 @@
 use crate::ReflectValue;
-use bevy_reflect::Reflect;
+use bevy_reflect::{FromReflect, Reflect};
 use std::fmt::Debug;
 
 macro_rules! map_property_values {
@@ -14,16 +14,16 @@ macro_rules! map_property_values {
 }
 
 /// Generic property value that can be used to represent a value that can be inherited,
-/// set to a specific value, or reference a var.
+/// set to a specific value.
 #[derive(Clone, PartialEq, Debug)]
 pub enum PropertyValue<T = ReflectValue> {
-    /// No value is set
+    /// No specific value is set.
     None,
-    /// Inherits from parent
+    /// Inherits value from the parent.
     Inherit,
-    /// Uses the initial value
+    /// Uses the `initial` value, which basically means the default value for the property.
     Initial,
-    /// Specific Value
+    /// Specific value specified.
     Value(T),
 }
 
@@ -46,6 +46,13 @@ impl<T> PropertyValue<T> {
     /// Returns true if the property value is set to inherit from the parent values or vars
     pub fn inherits(&self) -> bool {
         matches!(self, PropertyValue::Inherit)
+    }
+}
+
+impl<T: FromReflect> PropertyValue<T> {
+    /// Maps inner value to [`ReflectValue`].
+    pub fn into_reflect_value(self) -> PropertyValue<ReflectValue> {
+        map_property_values!(self, ReflectValue::new)
     }
 }
 
