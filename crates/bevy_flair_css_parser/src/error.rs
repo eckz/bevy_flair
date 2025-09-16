@@ -264,23 +264,12 @@ impl CssErrorCode {
 /// It contains handy [`From`] conversions, so it can be used with existing [`Parser`] methods like `Parser::expect_integer()?`
 ///
 /// [`Parser`]: cssparser::Parser
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CssError {
     data: StyleErrorData,
     location: CssErrorLocation,
     #[cfg(test)]
-    pub(crate) backtrace: Box<std::backtrace::Backtrace>,
-}
-
-impl Clone for CssError {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-            location: self.location.clone(),
-            #[cfg(test)]
-            backtrace: Box::new(std::backtrace::Backtrace::capture()),
-        }
-    }
+    pub(crate) backtrace: std::sync::Arc<std::backtrace::Backtrace>,
 }
 
 impl CssError {
@@ -290,7 +279,7 @@ impl CssError {
             data,
             location,
             #[cfg(test)]
-            backtrace: Box::new(std::backtrace::Backtrace::capture()),
+            backtrace: std::sync::Arc::new(std::backtrace::Backtrace::capture()),
         }
     }
 

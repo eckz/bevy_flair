@@ -116,9 +116,19 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_enum;
-    use bevy_reflect::Reflect;
+    use crate::ReflectParseCssEnum;
+    use crate::reflect::testing::{test_parse_reflect, test_property_value_parse_fn};
+    use bevy_reflect::{FromReflect, FromType, Reflect};
     use bevy_ui::{BoxSizing, Display};
+
+    pub fn test_parse_reflect_enum<T>(contents: &str) -> T
+    where
+        T: FromReflect,
+        ReflectParseCssEnum: FromType<T>,
+    {
+        let parse_fn = <ReflectParseCssEnum as FromType<T>>::from_type().0;
+        test_property_value_parse_fn(contents, parse_fn)
+    }
 
     #[derive(Reflect, PartialEq, Debug)]
     enum CustomEnum {
@@ -129,30 +139,30 @@ mod tests {
 
     #[test]
     fn test_enum() {
-        assert_eq!(test_parse_enum::<CustomEnum>("aa"), CustomEnum::AA);
-        assert_eq!(test_parse_enum::<CustomEnum>("bb"), CustomEnum::BB);
+        assert_eq!(test_parse_reflect_enum::<CustomEnum>("aa"), CustomEnum::AA);
+        assert_eq!(test_parse_reflect_enum::<CustomEnum>("bb"), CustomEnum::BB);
         assert_eq!(
-            test_parse_enum::<CustomEnum>("some-value"),
+            test_parse_reflect_enum::<CustomEnum>("some-value"),
             CustomEnum::SomeValue
         );
     }
 
     #[test]
     fn test_display() {
-        assert_eq!(test_parse_enum::<Display>("none"), Display::None);
-        assert_eq!(test_parse_enum::<Display>("block"), Display::Block);
-        assert_eq!(test_parse_enum::<Display>("flex"), Display::Flex);
-        assert_eq!(test_parse_enum::<Display>("grid"), Display::Grid);
+        assert_eq!(test_parse_reflect::<Display>("none"), Display::None);
+        assert_eq!(test_parse_reflect::<Display>("block"), Display::Block);
+        assert_eq!(test_parse_reflect::<Display>("flex"), Display::Flex);
+        assert_eq!(test_parse_reflect::<Display>("grid"), Display::Grid);
     }
 
     #[test]
     fn test_box_sizing() {
         assert_eq!(
-            test_parse_enum::<BoxSizing>("border-box"),
+            test_parse_reflect::<BoxSizing>("border-box"),
             BoxSizing::BorderBox
         );
         assert_eq!(
-            test_parse_enum::<BoxSizing>("content-box"),
+            test_parse_reflect::<BoxSizing>("content-box"),
             BoxSizing::ContentBox
         );
     }

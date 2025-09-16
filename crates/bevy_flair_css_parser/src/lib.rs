@@ -135,6 +135,9 @@ pub trait ParserExt<'i> {
     /// Expects the next token to be an identifier, and returns it wrapped over a [`Located`].
     fn expect_located_ident(&mut self) -> Result<LocatedStr<'i>, BasicParseError<'i>>;
 
+    /// Expects the next token to be a function, and returns it wrapped over a [`Located`].
+    fn expect_located_function(&mut self) -> Result<LocatedStr<'i>, CssError>;
+
     /// Convenience method to work with [`parse_nested_block`] and [`CssError`].
     ///
     /// [`parse_nested_block`]: Parser::parse_nested_block
@@ -193,6 +196,10 @@ impl<'i, 't> ParserExt<'i> for Parser<'i, 't> {
 
     fn expect_located_ident(&mut self) -> Result<LocatedStr<'i>, BasicParseError<'i>> {
         self.located(|parser| parser.expect_ident_cloned())
+    }
+
+    fn expect_located_function(&mut self) -> Result<LocatedStr<'i>, CssError> {
+        Ok(self.located(|parser| parser.expect_function().cloned())?)
     }
 
     fn parse_nested_block_with<T, F>(&mut self, f: F) -> Result<T, CssError>
@@ -260,7 +267,8 @@ impl Plugin for FlairCssParserPlugin {
 pub(crate) mod testing {
     use crate::utils::{ImportantLevel, try_parse_important_level};
     use crate::{CssError, ErrorReportGenerator};
-    use cssparser::{Parser, ParserInput};
+    use cssparser::{ParseError, Parser, ParserInput};
+    use std::backtrace::BacktraceStatus;
 
     #[inline(always)]
     #[track_caller]
@@ -270,7 +278,7 @@ pub(crate) mod testing {
     ) -> T {
         // Adds a !important at the end to verify that parse functions don't try to consume the !important token.
         let contents = format!("{contents} !important");
-        parse_raw_content_with(&contents, |parser| {
+        let result = parse_content_with(&contents, |parser| {
             let result = parse_fn(parser)?;
             let important_level = try_parse_important_level(parser);
 
@@ -280,31 +288,84 @@ pub(crate) mod testing {
                 remaining_contents = &contents[parser.position().byte_index()..]
             );
             Ok(result)
-        })
+        });
+
+        expects_parse_ok(&contents, result)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn parse_raw_content_with<T>(
+    pub fn parse_err_property_content_with<T: core::fmt::Debug>(
         contents: &str,
         parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
-    ) -> T {
+    ) -> String {
+        let result = parse_content_with(contents, parse_fn);
+        expects_parse_err(contents, result)
+    }
+
+    const TEST_REPORT_CONFIG: ariadne::Config = ariadne::Config::new()
+        .with_color(false)
+        .with_label_attach(ariadne::LabelAttach::Start)
+        .with_char_set(ariadne::CharSet::Ascii);
+
+    #[inline(always)]
+    #[track_caller]
+    #[allow(clippy::print_stderr)]
+    pub fn parse_content_with<'i, T>(
+        contents: &'i str,
+        parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
+    ) -> Result<T, ParseError<'i, CssError>> {
         let mut input = ParserInput::new(contents);
         let mut parser = Parser::new(&mut input);
 
-        let result =
-            parser.parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
+        parser.parse_entirely(|parser| parse_fn(parser).map_err(CssError::into_parse_error))
+    }
 
+    #[inline(always)]
+    #[track_caller]
+    #[allow(clippy::print_stderr)]
+    pub fn expects_parse_ok<'i, T>(
+        contents: &'i str,
+        result: Result<T, ParseError<'i, CssError>>,
+    ) -> T {
         match result {
             Ok(value) => value,
             Err(error) => {
                 let mut style_error = CssError::from(error);
+                if style_error.backtrace.status() == BacktraceStatus::Captured {
+                    eprintln!("CssError backtrace:");
+                    eprintln!("{}", style_error.backtrace);
+                }
                 style_error.improve_location_with_sub_str(contents);
 
-                let mut report_generator = ErrorReportGenerator::new("test.css", contents);
+                let mut report_generator =
+                    ErrorReportGenerator::new_with_config("test.css", contents, TEST_REPORT_CONFIG);
                 report_generator.add_error(style_error);
 
                 panic!("{}", report_generator.into_message());
+            }
+        }
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn expects_parse_err<'i, T: core::fmt::Debug>(
+        contents: &'i str,
+        result: Result<T, ParseError<'i, CssError>>,
+    ) -> String {
+        match result {
+            Ok(value) => {
+                panic!("Parsing of '{contents}' did not failed. It produced vale '{value:?}'");
+            }
+            Err(error) => {
+                let mut style_error = CssError::from(error);
+                style_error.improve_location_with_sub_str(contents);
+
+                let mut report_generator =
+                    ErrorReportGenerator::new_with_config("test.css", contents, TEST_REPORT_CONFIG);
+                report_generator.add_error(style_error);
+
+                report_generator.into_message()
             }
         }
     }

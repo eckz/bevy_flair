@@ -79,10 +79,10 @@ button {
     border-color: var(--button-border);
     border-radius: var(--button-border-radius);
 
-    transition: background 0.6s, transform 0.6s, border-radius 1.0s ease-in-out, border-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
+    transition: background 0.6s, scale 0.6s, border-radius 1.0s ease-in-out, border-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
 
     outline: initial;
-    transform: none;
+    scale: 1.0;
 
     &:hover {
         background: linear-gradient(var(--gradient-degree), var(--button-hover-bg-from), var(--button-hover-bg-to));
@@ -94,7 +94,7 @@ button {
         border-color: var(--button-active-border);
     }
     &:hover, &:active {
-        transform: scale(1.05);
+        scale: 1.05;
         color: var(--button-hover-text);
         border-radius: calc(var(--button-border-radius) + 5px);
     }

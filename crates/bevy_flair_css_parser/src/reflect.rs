@@ -8,16 +8,19 @@ mod text;
 mod ui;
 
 pub(crate) use assets::parse_asset_path;
-pub use color::parse_color;
 pub(crate) use enums::parse_enum_as_property_value;
 pub(crate) use gradient::parse_gradient;
 pub(crate) use grid::{parse_grid_track_vec, parse_repeated_grid_track_vec};
+pub(crate) use ui::{parse_calc_angle, parse_calc_f32, parse_calc_val};
+
+pub use color::parse_color;
 pub use ui::parse_val;
 
 use crate::error::CssError;
 use bevy_app::{App, Plugin};
 use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyValue};
 use bevy_flair_style::{DynamicParseVarTokens, ToCss};
+use bevy_math::{Rot2, Vec2};
 use bevy_text::{FontSmoothing, Justify, LineBreak, LineHeight};
 use bevy_ui::widget::NodeImageMode;
 
@@ -106,8 +109,11 @@ impl Plugin for ReflectParsePlugin {
             ReflectParseCss,
             (
                 f32,
+                Vec2,
                 String,
                 Val,
+                Val2,
+                Rot2,
                 bevy_color::Color,
                 OverflowClipMargin,
                 Option<f32>,
@@ -119,7 +125,6 @@ impl Plugin for ReflectParsePlugin {
                 GridPlacement,
                 NodeImageMode,
                 BoxShadow,
-                UiTransform,
                 BackgroundGradient,
                 BorderGradient,
                 LineHeight,
@@ -154,42 +159,56 @@ impl Plugin for ReflectParsePlugin {
 
 #[cfg(test)]
 pub(crate) mod testing {
-    use crate::reflect::ReflectParseCssEnum;
-    use crate::testing::parse_property_content_with;
+    use crate::reflect::{ReflectParseCssEnum, ReflectParsePlugin};
+    use crate::testing::{parse_err_property_content_with, parse_property_content_with};
     use crate::{PropertyValueParseFn, ReflectParseCss};
+    use bevy_app::App;
+    use bevy_ecs::reflect::AppTypeRegistry;
     use bevy_flair_core::ReflectValue;
-    use bevy_reflect::{FromReflect, FromType};
+    use bevy_reflect::FromReflect;
+    use std::any::TypeId;
 
     #[inline(always)]
     #[track_caller]
-    pub fn test_parse_css<T>(contents: &str) -> T
-    where
-        T: FromReflect,
-        ReflectParseCss: FromType<T>,
-    {
-        let parse_fn = <ReflectParseCss as FromType<T>>::from_type().0;
+    fn get_parse_fn_from_plugin<T: 'static>() -> PropertyValueParseFn {
+        let type_id = TypeId::of::<T>();
+        let mut app = App::new();
+        app.add_plugins(ReflectParsePlugin);
+        let type_registry = app.world().resource::<AppTypeRegistry>().read();
+        type_registry
+            .get_type_data::<ReflectParseCss>(type_id)
+            .map(|p| p.0)
+            .or_else(|| {
+                type_registry
+                    .get_type_data::<ReflectParseCssEnum>(type_id)
+                    .map(|p| p.0)
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "Type '{}' does not implement `ReflectParseCss` nor `ReflectParseCssEnum`",
+                    std::any::type_name::<T>()
+                );
+            })
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn test_parse_reflect<T: FromReflect>(contents: &str) -> T {
+        let parse_fn = get_parse_fn_from_plugin::<T>();
         test_property_value_parse_fn(contents, parse_fn)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn test_parse_css_2<T, O>(contents: &str) -> O
-    where
-        O: FromReflect,
-        ReflectParseCss: FromType<T>,
-    {
-        let parse_fn = <ReflectParseCss as FromType<T>>::from_type().0;
-        test_property_value_parse_fn(contents, parse_fn)
+    pub fn test_err_parse_reflect<T: FromReflect>(contents: &str) -> String {
+        let parse_fn = get_parse_fn_from_plugin::<T>();
+        parse_err_property_content_with(contents, parse_fn)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn test_parse_enum<T>(contents: &str) -> T
-    where
-        T: FromReflect,
-        ReflectParseCssEnum: FromType<T>,
-    {
-        let parse_fn = <ReflectParseCssEnum as FromType<T>>::from_type().0;
+    pub fn test_parse_reflect_from_to<T: 'static, O: FromReflect>(contents: &str) -> O {
+        let parse_fn = get_parse_fn_from_plugin::<T>();
         test_property_value_parse_fn(contents, parse_fn)
     }
 

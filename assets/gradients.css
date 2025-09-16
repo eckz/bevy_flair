@@ -5,11 +5,11 @@
 
 @keyframes linear-animation {
     from {
-        -bevy-background-gradient: linear-gradient(0deg, #e66465, #9198e5);
+        background: linear-gradient(0deg, #e66465, #9198e5);
     }
 
     to {
-        -bevy-background-gradient: linear-gradient(12deg, #8a181a, 20%, #4751c5);
+        background: linear-gradient(12deg, #8a181a, 20%, #4751c5);
     }
 }
 
@@ -26,13 +26,22 @@
         width: 60vw;
         height: 60vh;
     }
+}
 
-    > text:first-child {
-        font-family: "FiraSans";
-        font-size: 20px;
+text {
+    font-family: "FiraSans";
+    font-size: 20px;
 
-        height: 80px;
-    }
+    height: 60px;
+}
+
+.bottom-text {
+    position: absolute;
+    width: 100%;
+    bottom: 10px;
+
+    height: 30px;
+    text-align: center;
 }
 
 .linear-gradient {

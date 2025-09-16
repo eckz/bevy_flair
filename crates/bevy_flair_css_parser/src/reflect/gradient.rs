@@ -595,7 +595,7 @@ impl FromType<BorderGradient> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_css;
+    use crate::reflect::testing::test_parse_reflect;
     use bevy_color::palettes::css;
     use bevy_ui::{
         AngularColorStop, BackgroundGradient, ColorStop, ConicGradient, Gradient,
@@ -606,7 +606,7 @@ mod tests {
     #[test]
     fn test_linear_gradient() {
         assert_eq!(
-            test_parse_css::<BackgroundGradient>("linear-gradient(white, red)"),
+            test_parse_reflect::<BackgroundGradient>("linear-gradient(white, red)"),
             BackgroundGradient::from(LinearGradient::new(
                 LinearGradient::TO_BOTTOM,
                 vec![ColorStop::auto(css::WHITE), ColorStop::auto(css::RED),]
@@ -614,7 +614,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "linear-gradient(90deg in hsl shorter hue, red, blue)"
             ),
             BackgroundGradient::from(
@@ -627,7 +627,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>("linear-gradient(.25turn, red, 10%, blue)"),
+            test_parse_reflect::<BackgroundGradient>("linear-gradient(.25turn, red, 10%, blue)"),
             BackgroundGradient::from(LinearGradient::new(
                 LinearGradient::TO_RIGHT,
                 vec![
@@ -638,7 +638,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "linear-gradient(to bottom right, red 20%, purple 20% 40%, yellow 40% 50%)"
             ),
             BackgroundGradient::from(LinearGradient::new(
@@ -658,7 +658,7 @@ mod tests {
     #[test]
     fn test_radial_gradient() {
         assert_eq!(
-            test_parse_css::<BackgroundGradient>("radial-gradient(white, red)"),
+            test_parse_reflect::<BackgroundGradient>("radial-gradient(white, red)"),
             BackgroundGradient::from(RadialGradient::new(
                 UiPosition::CENTER,
                 RadialGradientShape::FarthestCorner,
@@ -667,7 +667,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "radial-gradient(at left top in oklch longer hue, white, red)"
             ),
             BackgroundGradient::from(
@@ -681,7 +681,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>("radial-gradient(circle 20px, white, red)"),
+            test_parse_reflect::<BackgroundGradient>("radial-gradient(circle 20px, white, red)"),
             BackgroundGradient::from(RadialGradient::new(
                 UiPosition::CENTER,
                 RadialGradientShape::Circle(Val::Px(20.0)),
@@ -690,7 +690,9 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>("radial-gradient(ellipse 20px 40%, white, red)"),
+            test_parse_reflect::<BackgroundGradient>(
+                "radial-gradient(ellipse 20px 40%, white, red)"
+            ),
             BackgroundGradient::from(RadialGradient::new(
                 UiPosition::CENTER,
                 RadialGradientShape::Ellipse(Val::Px(20.0), Val::Percent(40.0)),
@@ -699,7 +701,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "radial-gradient(closest-side at left 10px bottom 20px, white, red)"
             ),
             BackgroundGradient::from(RadialGradient::new(
@@ -710,7 +712,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "radial-gradient(farthest-side at 40px, white 20%, red)"
             ),
             BackgroundGradient::from(RadialGradient::new(
@@ -725,7 +727,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "radial-gradient(circle closest-corner at left in hsl longer hue, red 0, blue, green 100%)"
             ),
             BackgroundGradient::from(
@@ -746,7 +748,7 @@ mod tests {
     #[test]
     fn test_conic_gradient() {
         assert_eq!(
-            test_parse_css::<BackgroundGradient>("conic-gradient(red, blue, green)"),
+            test_parse_reflect::<BackgroundGradient>("conic-gradient(red, blue, green)"),
             BackgroundGradient::from(ConicGradient::new(
                 UiPosition::CENTER,
                 vec![
@@ -758,7 +760,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "conic-gradient(from 90deg at left bottom in hsv longer hue, red, blue, green)"
             ),
             BackgroundGradient::from(
@@ -779,7 +781,7 @@ mod tests {
     #[test]
     fn test_multiple_gradients() {
         assert_eq!(
-            test_parse_css::<BackgroundGradient>(
+            test_parse_reflect::<BackgroundGradient>(
                 "radial-gradient(red, blue), linear-gradient(to top, white, red)"
             ),
             BackgroundGradient(vec![

@@ -320,6 +320,21 @@ impl AssetLoader for CssStyleLoader {
                                                     );
                                             }
                                         }
+                                        CssRulesetProperty::MultipleProperties(properties, _) => {
+                                            for (property_id, sample) in properties {
+                                                if let PropertyValue::Value(sample) = sample {
+                                                    for time in &times {
+                                                        keyframes_per_property
+                                                            .entry(property_id)
+                                                            .or_default()
+                                                            .add_keyframe_reflect_value(
+                                                                *time,
+                                                                sample.clone(),
+                                                            );
+                                                    }
+                                                }
+                                            }
+                                        }
                                         CssRulesetProperty::Error(error) => {
                                             report_generator.add_error(error);
                                         }

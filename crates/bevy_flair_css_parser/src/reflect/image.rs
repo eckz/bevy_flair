@@ -115,7 +115,7 @@ impl FromType<NodeImageMode> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_css;
+    use crate::reflect::testing::test_parse_reflect;
     use bevy_ui::prelude::{BorderRect, TextureSlicer};
 
     use bevy_ui::widget::NodeImageMode;
@@ -124,17 +124,17 @@ mod tests {
     fn test_image_mode() {
         // TODO: NodeImageMode does not implement PartialEq. Try to upstream it to bevy.
         assert!(matches!(
-            test_parse_css::<NodeImageMode>("auto"),
+            test_parse_reflect::<NodeImageMode>("auto"),
             NodeImageMode::Auto
         ));
 
         assert!(matches!(
-            test_parse_css::<NodeImageMode>("stretch"),
+            test_parse_reflect::<NodeImageMode>("stretch"),
             NodeImageMode::Stretch
         ));
 
         assert!(matches!(
-            test_parse_css::<NodeImageMode>("tiled()"),
+            test_parse_reflect::<NodeImageMode>("tiled()"),
             NodeImageMode::Tiled { .. }
         ));
 
@@ -144,11 +144,12 @@ mod tests {
         };
 
         assert!(matches!(
-            test_parse_css::<NodeImageMode>("sliced(20px)"),
+            test_parse_reflect::<NodeImageMode>("sliced(20px)"),
             NodeImageMode::Sliced(_)
         ));
 
-        let NodeImageMode::Sliced(slicer) = test_parse_css::<NodeImageMode>("sliced(20px)") else {
+        let NodeImageMode::Sliced(slicer) = test_parse_reflect::<NodeImageMode>("sliced(20px)")
+        else {
             unreachable!();
         };
 

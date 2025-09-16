@@ -71,19 +71,24 @@ define_errors!(ui => {
     MISSING_GRADIENT_COLORS(68, "Unexpected radial shape/size token"),
 });
 
+define_errors!(transform => {
+    INVALID_TRANSFORM_FUNCTION_ORDER(70, "Transform function not in order"),
+    UNEXPECTED_TRANSFORM_FUNCTION(71, "Transform function not supported"),
+});
+
 define_errors!(vars => {
-    INVALID_TOKEN(70, "Invalid token"),
-    INVALID_VAR_TOKEN(71, "Invalid var token"),
-    INVALID_VAR_NAME(72, "Var names should start with --"),
+    INVALID_TOKEN(80, "Invalid token"),
+    INVALID_VAR_TOKEN(81, "Invalid var token"),
+    INVALID_VAR_NAME(82, "Var names should start with --"),
 });
 
 define_errors!(calc => {
-    CALC_ERROR(80, "Could not calculate value"),
+    CALC_ERROR(90, "Could not calculate value"),
 });
 
 define_errors!(media_queries => {
-    UNRECOGNIZED_PROPERTY(90, "Unrecognized media query property"),
-    UNPEXPECTED_SIZE_TOKEN(91, "Unexpected token for a media size type"),
-    UNPEXPECTED_COLOR_SCHEMA_TOKEN(92, "Unexpected token for color-scheme"),
-    UNPEXPECTED_RESOLUTION_TOKEN(93, "Unexpected token for a resolution type"),
+    UNRECOGNIZED_PROPERTY(100, "Unrecognized media query property"),
+    UNPEXPECTED_SIZE_TOKEN(101, "Unexpected token for a media size type"),
+    UNPEXPECTED_COLOR_SCHEMA_TOKEN(102, "Unexpected token for color-scheme"),
+    UNPEXPECTED_RESOLUTION_TOKEN(103, "Unexpected token for a resolution type"),
 });

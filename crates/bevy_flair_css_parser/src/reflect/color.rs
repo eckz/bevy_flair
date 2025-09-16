@@ -203,7 +203,7 @@ impl FromType<Color> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_css;
+    use crate::reflect::testing::test_parse_reflect;
     use bevy_color::Color;
 
     macro_rules! color_approx_eq {
@@ -222,22 +222,22 @@ mod tests {
     #[test]
     fn test_srgb() {
         assert_eq!(
-            test_parse_css::<Color>("rgb(214, 122, 127)"),
+            test_parse_reflect::<Color>("rgb(214, 122, 127)"),
             Color::srgb_u8(214, 122, 127)
         );
 
         assert_eq!(
-            test_parse_css::<Color>("rgba(10 20 30)"),
+            test_parse_reflect::<Color>("rgba(10 20 30)"),
             Color::srgb_u8(10, 20, 30)
         );
 
         assert_eq!(
-            test_parse_css::<Color>("rgb(255 255 255 / 50%)"),
+            test_parse_reflect::<Color>("rgb(255 255 255 / 50%)"),
             Color::srgba(1.0, 1.0, 1.0, 0.5)
         );
 
         assert_eq!(
-            test_parse_css::<Color>("rgb(0, 255, 255, 50%)"),
+            test_parse_reflect::<Color>("rgb(0, 255, 255, 50%)"),
             Color::srgba(0.0, 1.0, 1.0, 0.5)
         );
     }
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_transparent() {
         assert_eq!(
-            test_parse_css::<Color>("transparent"),
+            test_parse_reflect::<Color>("transparent"),
             Color::srgba(0.0, 0.0, 0.0, 0.0)
         );
     }
@@ -294,14 +294,14 @@ mod tests {
             ("tan", css::TAN),
             ("thistle", css::THISTLE),
         ] {
-            color_approx_eq!(test_parse_css::<Color>(name), color);
+            color_approx_eq!(test_parse_reflect::<Color>(name), color);
         }
     }
 
     #[test]
     fn test_color_hash() {
         assert_eq!(
-            test_parse_css::<Color>("#009912"),
+            test_parse_reflect::<Color>("#009912"),
             Color::srgb_u8(0, 0x99, 0x12)
         );
     }
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn test_hsl() {
         assert_eq!(
-            test_parse_css::<Color>("hsl(30deg 82% 43%)"),
+            test_parse_reflect::<Color>("hsl(30deg 82% 43%)"),
             Color::hsla(30.0, 0.82, 0.43, 1.0)
         );
     }
@@ -317,12 +317,12 @@ mod tests {
     #[test]
     fn test_hwb() {
         assert_eq!(
-            test_parse_css::<Color>("hwb(152deg 0% 58% / 70%)"),
+            test_parse_reflect::<Color>("hwb(152deg 0% 58% / 70%)"),
             Color::hwba(152.0, 0., 0.58, 0.7)
         );
 
         assert_eq!(
-            test_parse_css::<Color>("hwb(152deg none none / 70%)"),
+            test_parse_reflect::<Color>("hwb(152deg none none / 70%)"),
             Color::hwba(152.0, 0., 0., 0.7)
         );
     }
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn test_lab() {
         assert_eq!(
-            test_parse_css::<Color>("lab(100% -100% 125)"),
+            test_parse_reflect::<Color>("lab(100% -100% 125)"),
             Color::lab(1.5, -1.5, 1.5)
         );
     }
@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn test_oklab() {
         assert_eq!(
-            test_parse_css::<Color>("oklab(50% -100% 0.4)"),
+            test_parse_reflect::<Color>("oklab(50% -100% 0.4)"),
             Color::oklab(0.5, -0.4, 0.4)
         );
     }
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_rgb_linear() {
         assert_eq!(
-            test_parse_css::<Color>("color(srgb-linear 0.5 0.5 0)"),
+            test_parse_reflect::<Color>("color(srgb-linear 0.5 0.5 0)"),
             Color::linear_rgba(0.5, 0.5, 0., 1.0)
         );
     }
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn test_xyz() {
         assert_eq!(
-            test_parse_css::<Color>("color(xyz 1.0 0.5 0 / 50%)"),
+            test_parse_reflect::<Color>("color(xyz 1.0 0.5 0 / 50%)"),
             Color::xyza(1.0, 0.5, 0., 0.5)
         );
     }

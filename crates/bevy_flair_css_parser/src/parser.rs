@@ -1790,7 +1790,7 @@ mod tests {
                 CssRulesetProperty::DynamicProperty(_, parser, tokens, _) => {
                     let vars = rustc_hash::FxHashMap::from_iter([$((
                         $k,
-                        crate::testing::parse_raw_content_with(&$v, crate::vars::parse_var_tokens)
+                        crate::testing::expects_parse_ok(&$v, crate::testing::parse_content_with(&$v, crate::vars::parse_var_tokens))
                     ),)*]);
 
                     let resolved_tokens = tokens.resolve_recursively(|var_name| {

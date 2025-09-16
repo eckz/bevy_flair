@@ -376,34 +376,34 @@ impl FromType<GridPlacement> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_css;
+    use crate::reflect::testing::test_parse_reflect;
     use bevy_ui::*;
 
     #[test]
     fn test_repeated_grid_track_vec() {
-        assert_eq!(test_parse_css::<Vec<RepeatedGridTrack>>("none"), vec![],);
+        assert_eq!(test_parse_reflect::<Vec<RepeatedGridTrack>>("none"), vec![],);
 
         assert_eq!(
-            test_parse_css::<Vec<RepeatedGridTrack>>("100px"),
+            test_parse_reflect::<Vec<RepeatedGridTrack>>("100px"),
             vec![GridTrack::px(100.0)],
         );
 
         assert_eq!(
-            test_parse_css::<Vec<RepeatedGridTrack>>("100px 1fr"),
+            test_parse_reflect::<Vec<RepeatedGridTrack>>("100px 1fr"),
             vec![GridTrack::px(100.0), GridTrack::flex(1.0)],
         );
 
         assert_eq!(
-            test_parse_css::<Vec<RepeatedGridTrack>>("fit-content(50%)"),
+            test_parse_reflect::<Vec<RepeatedGridTrack>>("fit-content(50%)"),
             vec![GridTrack::fit_content_percent(50.0)],
         );
 
         assert_eq!(
-            test_parse_css::<Vec<RepeatedGridTrack>>("repeat(3, 200px)"),
+            test_parse_reflect::<Vec<RepeatedGridTrack>>("repeat(3, 200px)"),
             vec![RepeatedGridTrack::repeat_many(3, [GridTrack::px(200.0)])],
         );
         assert_eq!(
-            test_parse_css::<Vec<RepeatedGridTrack>>("200px repeat(auto-fill, 100px) 300px"),
+            test_parse_reflect::<Vec<RepeatedGridTrack>>("200px repeat(auto-fill, 100px) 300px"),
             vec![
                 GridTrack::px(200.0),
                 RepeatedGridTrack::repeat_many(
@@ -417,20 +417,20 @@ mod tests {
 
     #[test]
     fn test_grid_track_vec() {
-        assert_eq!(test_parse_css::<Vec<GridTrack>>("none"), vec![]);
+        assert_eq!(test_parse_reflect::<Vec<GridTrack>>("none"), vec![]);
 
         assert_eq!(
-            test_parse_css::<Vec<GridTrack>>("150px"),
+            test_parse_reflect::<Vec<GridTrack>>("150px"),
             vec![GridTrack::px(150.0)]
         );
 
         assert_eq!(
-            test_parse_css::<Vec<GridTrack>>("50vmax"),
+            test_parse_reflect::<Vec<GridTrack>>("50vmax"),
             vec![GridTrack::vmax(50.0)]
         );
 
         assert_eq!(
-            test_parse_css::<Vec<GridTrack>>("10% 0.5fr 3fr 1fr"),
+            test_parse_reflect::<Vec<GridTrack>>("10% 0.5fr 3fr 1fr"),
             vec![
                 GridTrack::percent(10.0),
                 GridTrack::flex(0.5),
@@ -440,12 +440,12 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<Vec<GridTrack>>("fit-content(400px)"),
+            test_parse_reflect::<Vec<GridTrack>>("fit-content(400px)"),
             vec![GridTrack::fit_content_px(400.0)]
         );
 
         assert_eq!(
-            test_parse_css::<Vec<GridTrack>>("minmax(50%, 300px)"),
+            test_parse_reflect::<Vec<GridTrack>>("minmax(50%, 300px)"),
             vec![GridTrack::minmax(
                 MinTrackSizingFunction::Percent(50.0),
                 MaxTrackSizingFunction::Px(300.0)
@@ -453,7 +453,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<Vec<GridTrack>>("minmax(min-content, 1fr)"),
+            test_parse_reflect::<Vec<GridTrack>>("minmax(min-content, 1fr)"),
             vec![GridTrack::minmax(
                 MinTrackSizingFunction::MinContent,
                 MaxTrackSizingFunction::Fraction(1.0)
@@ -464,22 +464,22 @@ mod tests {
     #[test]
     fn test_grid_placement() {
         assert_eq!(
-            test_parse_css::<GridPlacement>("1"),
+            test_parse_reflect::<GridPlacement>("1"),
             GridPlacement::start(1)
         );
 
         assert_eq!(
-            test_parse_css::<GridPlacement>("1 / 3"),
+            test_parse_reflect::<GridPlacement>("1 / 3"),
             GridPlacement::start_end(1, 3)
         );
 
         assert_eq!(
-            test_parse_css::<GridPlacement>("1 / -1"),
+            test_parse_reflect::<GridPlacement>("1 / -1"),
             GridPlacement::start_end(1, -1)
         );
 
         assert_eq!(
-            test_parse_css::<GridPlacement>("1 / span 2"),
+            test_parse_reflect::<GridPlacement>("1 / span 2"),
             GridPlacement::start_span(1, 2)
         );
     }

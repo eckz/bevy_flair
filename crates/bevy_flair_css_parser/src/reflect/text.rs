@@ -100,7 +100,7 @@ impl FromType<String> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_css;
+    use crate::reflect::testing::test_parse_reflect;
     use bevy_color::palettes::css;
     use bevy_math::Vec2;
     use bevy_text::LineHeight;
@@ -108,22 +108,25 @@ mod tests {
 
     #[test]
     fn string() {
-        assert_eq!(test_parse_css::<String>("\"a\""), "a".to_string());
+        assert_eq!(test_parse_reflect::<String>("\"a\""), "a".to_string());
     }
 
     #[test]
     fn test_line_height() {
-        assert_eq!(test_parse_css::<LineHeight>("10px"), LineHeight::Px(10.0),);
         assert_eq!(
-            test_parse_css::<LineHeight>("normal"),
+            test_parse_reflect::<LineHeight>("10px"),
+            LineHeight::Px(10.0),
+        );
+        assert_eq!(
+            test_parse_reflect::<LineHeight>("normal"),
             LineHeight::RelativeToFont(1.2),
         );
         assert_eq!(
-            test_parse_css::<LineHeight>("2.5"),
+            test_parse_reflect::<LineHeight>("2.5"),
             LineHeight::RelativeToFont(2.5),
         );
         assert_eq!(
-            test_parse_css::<LineHeight>("120%"),
+            test_parse_reflect::<LineHeight>("120%"),
             LineHeight::RelativeToFont(1.2),
         );
     }
@@ -131,7 +134,7 @@ mod tests {
     #[test]
     fn test_text_shadow() {
         assert_eq!(
-            test_parse_css::<TextShadow>("10px 5px"),
+            test_parse_reflect::<TextShadow>("10px 5px"),
             TextShadow {
                 offset: Vec2 { x: 10.0, y: 5.0 },
                 color: TextShadow::default().color
@@ -139,7 +142,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<TextShadow>("10px 5px teal"),
+            test_parse_reflect::<TextShadow>("10px 5px teal"),
             TextShadow {
                 offset: Vec2 { x: 10.0, y: 5.0 },
                 color: css::TEAL.into()
@@ -147,7 +150,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<TextShadow>("white calc(10px * 2) 5px"),
+            test_parse_reflect::<TextShadow>("white calc(10px * 2) 5px"),
             TextShadow {
                 offset: Vec2 { x: 20.0, y: 5.0 },
                 color: css::WHITE.into()

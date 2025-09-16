@@ -1,19 +1,23 @@
 use crate::calc::{Calculable, parse_calc_property_value_with};
 use crate::reflect::{
-    parse_asset_path, parse_color, parse_enum_as_property_value, parse_gradient,
-    parse_grid_track_vec, parse_repeated_grid_track_vec, parse_val,
+    parse_asset_path, parse_calc_angle, parse_calc_f32, parse_calc_val, parse_color,
+    parse_enum_as_property_value, parse_gradient, parse_grid_track_vec,
+    parse_repeated_grid_track_vec, parse_val,
 };
-use crate::utils::{parse_property_global_keyword, parse_property_value_with, try_parse_none};
-use crate::{CssError, ParserExt};
+use crate::utils::{
+    CombinedParse, parse_property_global_keyword, parse_property_value_with, try_parse_none,
+};
+use crate::{CssError, ParserExt, error_codes};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
 use bevy_image::Image;
+use bevy_math::{Rot2, Vec2};
 use bevy_reflect::FromReflect;
 use bevy_ui::{
     AlignItems, BackgroundGradient, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis,
-    RepeatedGridTrack, Val,
+    RepeatedGridTrack, Val, Val2,
 };
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
@@ -712,6 +716,164 @@ fn parse_grid(parser: &mut Parser) -> ShorthandParseResult {
     ])
 }
 
+define_css_properties! {
+    const TRANSLATE = "translate";
+    const SCALE = "scale";
+    const ROTATE = "rotate";
+}
+
+fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, CssError> {
+    let start = parser.state();
+    let function = parser.expect_located_function()?;
+
+    match_ignore_ascii_case! { &*function,
+        "translate" => {
+            parser.parse_nested_block_with(|parser| {
+                let translate_x = parse_calc_val(parser)?;
+                let translate_y = parser
+                    .try_parse_with(|parser| {
+                        parser.expect_comma()?;
+                        parse_calc_val(parser)
+                    })
+                    .unwrap_or(Val::ZERO);
+                Ok(Some(Val2::new(translate_x, translate_y)))
+            })
+        },
+        "translatex" => {
+            parser.parse_nested_block_with(|parser| {
+                let translate_x = parse_calc_val(parser)?;
+                Ok(Some(Val2::new(translate_x, Val::ZERO)))
+            })
+        },
+        "translatey" => {
+            parser.parse_nested_block_with(|parser| {
+                let translate_y = parse_calc_val(parser)?;
+                Ok(Some(Val2::new(Val::ZERO, translate_y)))
+            })
+        },
+        "scale" | "scalex" | "scaley" | "rotate" | "rotatez" => {
+            parser.reset(&start);
+            Ok(None)
+        },
+        _ => {
+            Err(CssError::new_located(
+                &function,
+                error_codes::transform::UNEXPECTED_TRANSFORM_FUNCTION,
+                format!("Function '{function}' is not supported. Valid functions are 'translate' | 'translatex' | 'translatey' | 'scale' | 'scalex' | 'scaley' | 'rotate' | 'rotatez'"),
+            ))
+        },
+    }
+}
+
+const INVALID_ORDER_OF_FUNCTIONS: &str =
+    "Invalid order of functions. The only correct order is translate(..) scale(..) rotate(..)";
+
+fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssError> {
+    let start = parser.state();
+    let Ok(function) = parser.try_parse_with(|parser| parser.expect_located_function()) else {
+        return Ok(None);
+    };
+
+    match_ignore_ascii_case! { &function,
+        "scale" => {
+            parser.parse_nested_block_with(|parser| {
+                let scale_x = parse_calc_f32(parser)?;
+                let scale_y = parser
+                    .try_parse_with(|parser| {
+                        parser.expect_comma()?;
+                        parse_calc_f32(parser)
+                    })
+                    .unwrap_or(scale_x);
+
+                Ok(Some(Vec2::new(scale_x, scale_y)))
+            })
+        },
+        "scalex" => {
+            parser.parse_nested_block_with(|parser| {
+                let scale_x = parse_calc_f32(parser)?;
+                Ok(Some(Vec2::new(scale_x, 1.0)))
+            })
+        },
+        "scaley" => {
+            parser.parse_nested_block_with(|parser| {
+                let scale_y = parse_calc_f32(parser)?;
+                Ok(Some(Vec2::new(1.0, scale_y)))
+            })
+        },
+        "translate" | "translatey" | "translatex" => {
+            Err(CssError::new_located(
+                &function,
+                error_codes::transform::INVALID_TRANSFORM_FUNCTION_ORDER,
+                INVALID_ORDER_OF_FUNCTIONS
+            ))
+        },
+        _ => {
+            parser.reset(&start);
+            Ok(None)
+        },
+    }
+}
+
+fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssError> {
+    let start = parser.state();
+    let Ok(function) = parser.try_parse_with(|parser| parser.expect_located_function()) else {
+        return Ok(None);
+    };
+
+    match_ignore_ascii_case! { &function,
+        "rotate" | "rotatez" => {
+            parser.parse_nested_block_with(|parser| {
+                Ok(Some(parse_calc_angle(parser)?))
+            })
+        },
+        "scale" | "scalex" | "scaley" | "translate" | "translatey" | "translatex" => {
+            Err(CssError::new_located(
+                &function,
+                error_codes::transform::INVALID_TRANSFORM_FUNCTION_ORDER,
+                INVALID_ORDER_OF_FUNCTIONS
+            ))
+        },
+        _ => {
+            parser.reset(&start);
+            Ok(None)
+        },
+    }
+}
+
+fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
+    if try_parse_none::<()>(parser).is_some() {
+        todo!("parser");
+        // return Ok(vec![]);
+    }
+
+    let Some((translation, scale, rotation)) = (
+        parse_ui_transform_translation,
+        parse_ui_transform_scale,
+        parse_ui_transform_rotation,
+    )
+        .combined_parse(parser)?
+    else {
+        let next = parser.next().cloned()?;
+        return Err(CssError::from(
+            parser.new_unexpected_token_error::<()>(next),
+        ));
+    };
+
+    let mut result = Vec::new();
+
+    if let Some(translation) = translation {
+        result.push((TRANSLATE, ReflectValue::new(translation).into()));
+    }
+    if let Some(scale) = scale {
+        result.push((SCALE, ReflectValue::new(scale).into()));
+    }
+    if let Some(rotation) = rotation {
+        result.push((ROTATE, ReflectValue::new(rotation).into()));
+    }
+
+    Ok(result)
+}
+
 pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandPropertyRegistry) {
     registry.register_new("overflow", [OVERFLOW_X, OVERFLOW_Y], parse_overflow);
     registry.register_new("outline", [OUTLINE_WIDTH, OUTLINE_COLOR], parse_outline);
@@ -802,6 +964,7 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         ],
         parse_grid,
     );
+    registry.register_new("transform", [TRANSLATE, SCALE, ROTATE], parse_transform);
 }
 
 /// A plugin that registers common CSS shorthand properties.
@@ -843,7 +1006,6 @@ impl Plugin for ShorthandPropertiesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::parse_property_content_with;
     use bevy_color::palettes::css;
     use bevy_color::{Color, Srgba};
 
@@ -884,8 +1046,11 @@ mod tests {
 
     impl_into_reflect_value!(
         f32,
+        Vec2,
         Color,
         Val,
+        Val2,
+        Rot2,
         AlignItems,
         JustifyItems,
         GridAutoFlow,
@@ -927,13 +1092,26 @@ mod tests {
                 .get_property($property_name)
                 .expect(&format!("Property '{}' not found", $property_name));
 
-            let mut result = parse_property_content_with($contents, |parser| property.parse(parser));
+            let mut result = crate::testing::parse_property_content_with($contents, |parser| property.parse(parser));
 
             result.sort_by(|(a, _), (b, _)| a.cmp(&b));
 
             assert_eq!(result, expected);
         }};
+    }
 
+    macro_rules! test_err_shorthand_property {
+        ($property_name:literal, $contents:literal, $err:literal) => {{
+            let property = REGISTRY
+                .get_property($property_name)
+                .expect(&format!("Property '{}' not found", $property_name));
+
+            let err = crate::testing::parse_err_property_content_with($contents, |parser| {
+                property.parse(parser)
+            });
+
+            assert_eq!(err, $err);
+        }};
     }
 
     #[test]
@@ -1223,5 +1401,69 @@ mod tests {
             "grid-auto-rows" => grid_auto_rows,
             "grid-auto-columns" => grid_auto_columns,
         });
+    }
+
+    #[test]
+    fn test_transform() {
+        test_shorthand_property!("transform", "translate(2px)", {
+            "translate" => Val2::px(2.0, 0.0),
+        });
+
+        test_shorthand_property!("transform", "translate(calc(2% * 3))", {
+            "translate" => Val2::percent(6.0, 0.0),
+        });
+
+        test_shorthand_property!("transform", "translate(10%, 15px)", {
+            "translate" => Val2::new(Val::Percent(10.0), Val::Px(15.0)),
+        });
+
+        test_shorthand_property!("transform", "rotate(120deg)", {
+            "rotate" => Rot2::degrees(120.0),
+        });
+
+        test_shorthand_property!("transform", "rotate(calc(130deg - 30deg))", {
+            "rotate" => Rot2::degrees(100.0),
+        });
+
+        test_shorthand_property!("transform", "rotate(-20deg)", {
+            "rotate" => Rot2::degrees(-20.0),
+        });
+
+        test_shorthand_property!("transform", "scale(1.5, 2.0)", {
+            "scale" => Vec2::new(1.5, 2.0),
+        });
+
+        test_shorthand_property!("transform", "translate(10px, 0) scale(2.5) rotate(120deg)", {
+            "translate" => Val2::new(Val::Px(10.0), Val::ZERO),
+            "scale" => Vec2::splat(2.5),
+            "rotate" => Rot2::degrees(120.0),
+        });
+
+        test_shorthand_property!("transform", "translate(20px) rotate(120deg)", {
+            "translate" => Val2::new(Val::Px(20.0), Val::ZERO),
+            "rotate" => Rot2::degrees(120.0),
+        });
+
+        test_err_shorthand_property!("transform", "translatez(20px)", 
+            "[71] Warning: Transform function not supported
+   ,-[ test.css:1:1 ]
+   |
+ 1 | translatez(20px)
+   | |^^^^^^^^^^\x20\x20
+   | `------------ Function 'translatez' is not supported. Valid functions are 'translate' | 'translatex' | 'translatey' | 'scale' | 'scalex' | 'scaley' | 'rotate' | 'rotatez'
+---'
+"
+        );
+
+        test_err_shorthand_property!("transform", "scale(2.0, 3.0) translate(2px)",
+            "[70] Warning: Transform function not in order
+   ,-[ test.css:1:17 ]
+   |
+ 1 | scale(2.0, 3.0) translate(2px)
+   |                 |^^^^^^^^^\x20\x20
+   |                 `----------- Invalid order of functions. The only correct order is translate(..) scale(..) rotate(..)
+---'
+"
+        );
     }
 }

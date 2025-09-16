@@ -4,11 +4,11 @@ use crate::animations::EasingFunction;
 use crate::animations::curves::{LinearCurve, UnevenSampleEasedCurve};
 use bevy_app::{App, Plugin};
 use bevy_color::{Color, Mix, Oklaba};
-use bevy_math::{Curve, FloatExt, StableInterpolate, curve::CurveExt};
+use bevy_math::{Curve, FloatExt as _, Rot2, Vec2, curve::CurveExt as _};
 use bevy_reflect::{FromReflect, FromType};
 use bevy_ui::{
     AngularColorStop, BackgroundGradient, BorderGradient, ColorStop, ConicGradient, Gradient,
-    LinearGradient, RadialGradient, UiPosition, UiTransform, Val, Val2,
+    LinearGradient, RadialGradient, UiPosition, Val, Val2,
 };
 use bevy_utils::once;
 use std::any::type_name;
@@ -24,6 +24,29 @@ type CreatePropertyTransitionFn = fn(
 ) -> BoxedReflectCurve;
 
 type CreateKeyFramedAnimationFn = fn(&[(f32, ReflectValue, EasingFunction)]) -> BoxedReflectCurve;
+
+// Internal trait to represent interpolable values
+trait InterpolateValue {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self;
+}
+
+impl InterpolateValue for f32 {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        a.lerp(*b, t)
+    }
+}
+
+impl InterpolateValue for Vec2 {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        a.lerp(*b, t)
+    }
+}
+
+impl InterpolateValue for Rot2 {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        a.slerp(*b, t)
+    }
+}
 
 /// A trait that defines how a type can be animated.
 /// By default, it's implemented for [`f32`], [`Color`], and [`Val`].
@@ -49,8 +72,16 @@ type CreateKeyFramedAnimationFn = fn(&[(f32, ReflectValue, EasingFunction)]) -> 
 /// ```
 #[derive(Debug, Clone)]
 pub struct ReflectAnimatable {
-    create_property_transition_fn: CreatePropertyTransitionFn,
-    create_keyframes_animation_fn: CreateKeyFramedAnimationFn,
+    /// A function that produces a transition curve between two values
+    /// of the animatable type (e.g., linear interpolation between two `f32` values).
+    ///
+    /// This is used when a transition is needed from one property value to another.
+    pub create_property_transition_fn: CreatePropertyTransitionFn,
+
+    /// A function that produces an animation curve based on a sequence of keyframes.
+    ///
+    /// This used when an animation is specified in css.
+    pub create_keyframes_animation_fn: CreateKeyFramedAnimationFn,
 }
 
 impl ReflectAnimatable {
@@ -94,7 +125,7 @@ fn create_property_transition_with<T>(
     interpolation: impl Fn(&T, &T, f32) -> T + 'static + Send + Sync,
 ) -> BoxedReflectCurve
 where
-    T: FromReflect + Default + Send + Sync + 'static,
+    T: FromReflect + Default,
 {
     let start = start
         .map(|start| downcast_value::<T>(start))
@@ -116,7 +147,7 @@ fn create_keyframe_animation_with<T>(
     interpolation: impl Fn(&T, &T, f32) -> T + Send + Sync + 'static,
 ) -> BoxedReflectCurve
 where
-    T: FromReflect + Clone + Send + Sync + 'static,
+    T: FromReflect + Clone,
 {
     let samples = keyframes.iter().map(|(t, value, e)| {
         (
@@ -132,6 +163,19 @@ where
         UnevenSampleEasedCurve::new(samples, interpolation).expect("Invalid keyframes provided");
 
     Arc::new(curve.map(ReflectValue::new))
+}
+
+impl ReflectAnimatable {
+    fn from_reflectable_type<T: InterpolateValue + Default + FromReflect + Clone>() -> Self {
+        Self {
+            create_property_transition_fn: |start, end| {
+                create_property_transition_with::<T>(start, end, T::interpolate)
+            },
+            create_keyframes_animation_fn: |keyframes| {
+                create_keyframe_animation_with::<T>(keyframes, T::interpolate)
+            },
+        }
+    }
 }
 
 fn interpolate_list_with<T: Clone>(
@@ -198,6 +242,21 @@ fn interpolate_val(a: &Val, b: &Val, t: f32) -> Val {
     a
 }
 
+impl InterpolateValue for Val {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        interpolate_val(a, b, t)
+    }
+}
+
+impl InterpolateValue for Val2 {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        Val2::new(
+            interpolate_val(&a.x, &b.x, t),
+            interpolate_val(&a.y, &b.y, t),
+        )
+    }
+}
+
 /* Interpolate colors in Oklab*/
 fn interpolate_color(a: &Color, b: &Color, t: f32) -> Color {
     let a: Oklaba = (*a).into();
@@ -205,14 +264,9 @@ fn interpolate_color(a: &Color, b: &Color, t: f32) -> Color {
     a.mix(&b, t).into()
 }
 
-fn interpolate_ui_transform(a: &UiTransform, b: &UiTransform, t: f32) -> UiTransform {
-    UiTransform {
-        translation: Val2::new(
-            interpolate_val(&a.translation.x, &b.translation.x, t),
-            interpolate_val(&a.translation.y, &b.translation.y, t),
-        ),
-        scale: a.scale.lerp(b.scale, t),
-        rotation: a.rotation.slerp(b.rotation, t),
+impl InterpolateValue for Color {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        interpolate_color(a, b, t)
     }
 }
 
@@ -336,139 +390,146 @@ fn interpolate_gradient(a: &Gradient, b: &Gradient, t: f32) -> Gradient {
     }
 }
 
-fn interpolate_background_gradient(
-    a: &BackgroundGradient,
-    b: &BackgroundGradient,
-    t: f32,
-) -> BackgroundGradient {
-    BackgroundGradient(interpolate_list_with(
-        &a.0,
-        &b.0,
-        t,
-        interpolate_gradient,
-        "Cannot interpolate between different number of gradients",
-    ))
-}
-
-fn interpolate_border_gradient(a: &BorderGradient, b: &BorderGradient, t: f32) -> BorderGradient {
-    BorderGradient(interpolate_list_with(
-        &a.0,
-        &b.0,
-        t,
-        interpolate_gradient,
-        "Cannot interpolate between different number of gradients",
-    ))
-}
-
-impl FromType<Color> for ReflectAnimatable {
-    fn from_type() -> Self {
-        ReflectAnimatable {
-            create_property_transition_fn: |start, end| {
-                create_property_transition_with::<Color>(start, end, interpolate_color)
-            },
-            create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<Color>(keyframes, interpolate_color)
-            },
-        }
+impl InterpolateValue for BackgroundGradient {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        BackgroundGradient(interpolate_list_with(
+            &a.0,
+            &b.0,
+            t,
+            interpolate_gradient,
+            "Cannot interpolate between different number of gradients",
+        ))
     }
 }
 
-impl FromType<Val> for ReflectAnimatable {
-    fn from_type() -> Self {
-        ReflectAnimatable {
-            create_property_transition_fn: |start, end| {
-                create_property_transition_with::<Val>(start, end, interpolate_val)
-            },
-            create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<Val>(keyframes, interpolate_val)
-            },
-        }
+impl InterpolateValue for BorderGradient {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        BorderGradient(interpolate_list_with(
+            &a.0,
+            &b.0,
+            t,
+            interpolate_gradient,
+            "Cannot interpolate between different number of gradients",
+        ))
     }
 }
 
-impl FromType<UiTransform> for ReflectAnimatable {
+impl<T> FromType<T> for ReflectAnimatable
+where
+    T: InterpolateValue + Default + FromReflect + Clone + Send + Sync,
+{
     fn from_type() -> Self {
-        ReflectAnimatable {
-            create_property_transition_fn: |start, end| {
-                create_property_transition_with::<UiTransform>(start, end, interpolate_ui_transform)
-            },
-            create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<UiTransform>(keyframes, interpolate_ui_transform)
-            },
-        }
+        ReflectAnimatable::from_reflectable_type::<T>()
     }
 }
 
-impl FromType<BackgroundGradient> for ReflectAnimatable {
-    fn from_type() -> Self {
-        ReflectAnimatable {
-            create_property_transition_fn: |start, end| {
-                create_property_transition_with::<BackgroundGradient>(
-                    start,
-                    end,
-                    interpolate_background_gradient,
-                )
-            },
-            create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<BackgroundGradient>(
-                    keyframes,
-                    interpolate_background_gradient,
-                )
-            },
-        }
-    }
-}
-
-impl FromType<BorderGradient> for ReflectAnimatable {
-    fn from_type() -> Self {
-        ReflectAnimatable {
-            create_property_transition_fn: |start, end| {
-                create_property_transition_with::<BorderGradient>(
-                    start,
-                    end,
-                    interpolate_border_gradient,
-                )
-            },
-            create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<BorderGradient>(
-                    keyframes,
-                    interpolate_border_gradient,
-                )
-            },
-        }
-    }
-}
-
-impl FromType<f32> for ReflectAnimatable {
-    fn from_type() -> Self {
-        ReflectAnimatable {
-            create_property_transition_fn: |from, to| {
-                create_property_transition_with::<f32>(
-                    from,
-                    to,
-                    StableInterpolate::interpolate_stable,
-                )
-            },
-            create_keyframes_animation_fn: |keyframes| {
-                create_keyframe_animation_with::<f32>(
-                    keyframes,
-                    StableInterpolate::interpolate_stable,
-                )
-            },
-        }
-    }
-}
-
-/// A Bevy plugin that registers the [`ReflectAnimatable`] type data for [`f32`], [`Color`], and [`Val`].
+/// A Bevy plugin that registers the [`ReflectAnimatable`] type data for animatable types
+/// like [`f32`], [`Color`] or [`Val`].
 pub struct ReflectAnimationsPlugin;
+
+macro_rules! register_type_data {
+    ($app:ident, $data:path, ( $($ty:path,)* )) => {
+        $(
+            // register_type_data will fail if the type is not registered first
+            $app.register_type::<$ty>();
+            $app.register_type_data::<$ty, $data>();
+        )*
+    };
+}
 
 impl Plugin for ReflectAnimationsPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type_data::<f32, ReflectAnimatable>()
-            .register_type_data::<Color, ReflectAnimatable>()
-            .register_type_data::<Val, ReflectAnimatable>()
-            .register_type_data::<UiTransform, ReflectAnimatable>()
-            .register_type_data::<BackgroundGradient, ReflectAnimatable>()
-            .register_type_data::<BorderGradient, ReflectAnimatable>();
+        register_type_data!(
+            app,
+            ReflectAnimatable,
+            (
+                f32,
+                Vec2,
+                Rot2,
+                Color,
+                Val,
+                Val2,
+                BackgroundGradient,
+                BorderGradient,
+            )
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::animations::{ReflectAnimatable, ReflectAnimationsPlugin};
+    use bevy_app::App;
+    use bevy_ecs::prelude::AppTypeRegistry;
+    use bevy_flair_core::ReflectValue;
+    use bevy_math::{Curve, Rot2, Vec2};
+    use bevy_reflect::FromReflect;
+    use bevy_ui::Val;
+    use std::any::TypeId;
+
+    #[track_caller]
+    fn get_animatable_from_plugin<T: 'static>() -> ReflectAnimatable {
+        let type_id = TypeId::of::<T>();
+        let mut app = App::new();
+        app.add_plugins(ReflectAnimationsPlugin);
+        let type_registry = app.world().resource::<AppTypeRegistry>().read();
+        type_registry
+            .get_type_data::<ReflectAnimatable>(type_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "Type '{}' does not implement `ReflectAnimatable`",
+                    std::any::type_name::<T>()
+                );
+            })
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    fn test_transition<T: FromReflect>(from: T, to: T, t: f32) -> T {
+        let animatable = get_animatable_from_plugin::<T>();
+        let result = animatable
+            .create_property_transition_curve(Some(ReflectValue::new(from)), ReflectValue::new(to))
+            .sample_clamped(t);
+        result
+            .downcast_value()
+            .expect("ReflectAnimatable returned an invalid value")
+    }
+
+    #[test]
+    fn f32_transition() {
+        assert_eq!(test_transition::<f32>(0.0, 2.0, 0.5), 1.0);
+        assert_eq!(test_transition::<f32>(0.0, 2.0, 1.0), 2.0);
+    }
+
+    #[test]
+    fn vec2_transition() {
+        assert_eq!(
+            test_transition(Vec2::new(0.0, 0.0), Vec2::new(2.0, 4.0), 0.5),
+            Vec2::new(1.0, 2.0)
+        );
+    }
+
+    #[test]
+    fn rot2_transition() {
+        assert_eq!(
+            test_transition(Rot2::degrees(0.0), Rot2::degrees(90.0), 0.5),
+            Rot2::degrees(45.0)
+        );
+    }
+
+    #[test]
+    fn val_transition() {
+        assert_eq!(
+            test_transition(Val::Px(1.0), Val::Px(3.0), 0.5),
+            Val::Px(2.0)
+        );
+
+        assert_eq!(test_transition(Val::Auto, Val::Auto, 0.5), Val::Auto);
+
+        assert_eq!(
+            test_transition(Val::ZERO, Val::Percent(10.0), 0.5),
+            Val::Percent(5.0)
+        );
     }
 }
