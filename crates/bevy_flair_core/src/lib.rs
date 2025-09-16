@@ -134,8 +134,6 @@ default_properties! {
     sub_properties "outline" { insert_if_missing: Outline[""] },
     "box-shadow" { insert_if_missing: BoxShadow[""] },
     "z-index" { ZIndex[""] },
-    // TODO: REMOVE!!
-    "transform" { UiTransform[""] },
     "translate" { UiTransform["translation"] },
     "scale" { UiTransform["scale"] },
     "rotate" { UiTransform["rotation"] },
