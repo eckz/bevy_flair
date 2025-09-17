@@ -237,6 +237,7 @@ pub(crate) type CssParseResult<T> = Result<T, CssError>;
 ///
 /// - Registers the [`CssStyleLoader`].
 /// - Adds support for [`InlineStyle`].
+#[derive(Default)]
 pub struct FlairCssParserPlugin;
 
 impl Plugin for FlairCssParserPlugin {

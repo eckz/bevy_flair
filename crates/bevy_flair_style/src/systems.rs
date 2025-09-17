@@ -1067,8 +1067,8 @@ pub(crate) fn compute_property_values(
     Ok(())
 }
 
-pub(crate) fn tick_animations(
-    time: Res<Time>,
+pub(crate) fn tick_animations<T: Default + Send + Sync + 'static>(
+    time: Res<Time<T>>,
     mut properties_query: Query<&mut NodeProperties>,
     mut global_change_detection: ResMut<GlobalChangeDetection>,
 ) {

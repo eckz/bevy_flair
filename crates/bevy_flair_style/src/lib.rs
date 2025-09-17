@@ -5,7 +5,9 @@
 
 use bevy_app::prelude::*;
 use bevy_asset::prelude::*;
+use bevy_ecs::intern::Interned;
 use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::ScheduleLabel;
 use bevy_flair_core::*;
 use bevy_reflect::prelude::*;
 use bevy_text::TextSpan;
@@ -13,6 +15,7 @@ use bevy_ui::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Write;
+use std::marker::PhantomData;
 
 mod builder;
 pub mod components;
@@ -242,7 +245,66 @@ impl TransitionEvent {
     }
 }
 
+#[derive(Resource)]
+struct StyleAnimationsMarker(&'static str);
+
+/// Enables bevy_flair to work on a custom time and schedule.
+pub struct FlairStyleAnimationsPlugin<T: Default + Send + Sync + 'static> {
+    _ph: PhantomData<fn() -> T>,
+    schedule: Interned<dyn ScheduleLabel>,
+}
+
+impl<T: Default + Send + Sync + 'static> FlairStyleAnimationsPlugin<T> {
+    /// Creates a new [`FlairStyleAnimationsPlugin`] by specifying in which [`ScheduleLabel`]
+    /// the animations should run. By default, [`PostUpdate`] is used.
+    pub fn new(schedule: impl ScheduleLabel) -> Self {
+        Self {
+            _ph: PhantomData,
+            schedule: schedule.intern(),
+        }
+    }
+}
+
+impl<T: Default + Send + Sync + 'static> Default for FlairStyleAnimationsPlugin<T> {
+    fn default() -> Self {
+        Self::new(PostUpdate)
+    }
+}
+
+impl<T: Default + Send + Sync + 'static> Plugin for FlairStyleAnimationsPlugin<T> {
+    fn build(&self, app: &mut App) {
+        if let Some(StyleAnimationsMarker(other_plugin)) =
+            app.world().get_resource::<StyleAnimationsMarker>()
+        {
+            panic!(
+                "FlairStyleAnimationsPlugin has been instantiated already. Tried to add '{this_plugin}' when '{other_plugin}' has been inserted already",
+                this_plugin = std::any::type_name::<Self>()
+            )
+        }
+
+        app.insert_resource(StyleAnimationsMarker(std::any::type_name::<Self>()));
+
+        app.add_systems(
+            self.schedule,
+            systems::tick_animations::<T>.in_set(StyleSystems::TickAnimations),
+        );
+    }
+}
+
+/// Enables animations by using `Time<Real>` in the [`PostUpdate`] schedule label,
+/// which is the default behaviour.
+#[derive(Default)]
+pub struct FlairDefaultStyleAnimationsPlugin;
+
+impl Plugin for FlairDefaultStyleAnimationsPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(FlairStyleAnimationsPlugin::<bevy_time::Real>::default());
+    }
+}
+
 /// Plugin that adds the styling systems to Bevy.
+
+#[derive(Default)]
 pub struct FlairStylePlugin;
 
 impl Plugin for FlairStylePlugin {
@@ -340,7 +402,6 @@ impl Plugin for FlairStylePlugin {
                     )
                         .chain()
                         .in_set(StyleSystems::MarkNodesForRecalculation),
-                    systems::tick_animations.in_set(StyleSystems::TickAnimations),
                     systems::calculate_style_and_set_vars.in_set(StyleSystems::CalculateStyles),
                     systems::set_style_properties.in_set(StyleSystems::SetStyleProperties),
                     (

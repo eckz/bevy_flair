@@ -163,7 +163,18 @@ default_properties! {
     "text-shadow" { insert_if_missing: TextShadow[""] },
 }
 
+/// Initializes [`PropertyRegistry`] in the world.
+#[derive(Default)]
+pub struct PropertyRegistryPlugin;
+
+impl Plugin for PropertyRegistryPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<PropertyRegistry>();
+    }
+}
+
 /// Register all Bevy UI properties
+#[derive(Default)]
 pub struct BevyUiPropertiesPlugin;
 
 macro_rules! register_sub_properties {
