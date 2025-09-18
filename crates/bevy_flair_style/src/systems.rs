@@ -848,7 +848,7 @@ pub(crate) fn calculate_style_and_set_vars(
     }
 }
 
-pub(crate) fn set_style_properties(
+pub(crate) fn set_property_values(
     style_sheets: Res<Assets<StyleSheet>>,
     var_resolver: VarResolverParam,
     mut styled_entities_query: Query<(
@@ -1104,13 +1104,13 @@ pub(crate) fn emit_redraw_event(
     }
 }
 
-pub(crate) fn apply_properties_condition(
+pub(crate) fn apply_computed_properties_condition(
     global_change_detection: Res<GlobalChangeDetection>,
 ) -> bool {
     global_change_detection.any_property_change()
 }
 
-pub(crate) fn apply_properties(
+pub(crate) fn apply_computed_properties(
     world: &mut World,
     properties_query_state: &mut QueryState<(Entity, &mut NodeProperties)>,
     mut empty_computed_properties_local: Local<Option<EmptyComputedProperties>>,

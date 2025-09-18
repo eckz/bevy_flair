@@ -28,6 +28,7 @@ use bevy_reflect::TypeRegistry;
 use bevy_text::TextSpan;
 use bevy_ui::widget::Text;
 use bevy_ui::{Display, Node};
+use bevy_utils::once;
 use bevy_window::Window;
 use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
@@ -662,8 +663,13 @@ impl NodeProperties {
         empty_computed_properties: &EmptyComputedProperties,
         mut apply_change_fn: impl FnMut(ComponentPropertyId, ReflectValue),
     ) {
-        debug_assert!(!self.pending_computed_values.is_empty());
-        debug_assert!(!self.pending_animation_values.is_empty());
+        if self.pending_computed_values.is_empty() || self.pending_animation_values.is_empty() {
+            once!(warn!(
+                "Node has been spawned in PostUpdate after StyleSystems::ComputeProperties but before StyleSystems::ApplyComputedProperties.\
+This can cause other issues. Is recommended to spawn nodes before StyleSystems::Prepare when they are spawned in PostUpdate"
+            ));
+            return;
+        }
 
         let pending_computed_values = mem::take(&mut self.pending_computed_values);
         let pending_animation_values = mem::take(&mut self.pending_animation_values);

@@ -27,13 +27,19 @@ pub enum CssStyleLoaderError {
     UnsupportedImports,
     /// Error that could happen while reading one of the dependencies.
     #[error(transparent)]
-    LoadDirect(#[from] LoadDirectError),
+    LoadDirect(Box<LoadDirectError>),
     /// Error that could happen while building the final StyleSheet.
     #[error(transparent)]
     StyleSheetBuilder(#[from] StyleSheetBuilderError),
     /// Css reported errors when error mode is set to [`CssStyleLoaderErrorMode::ReturnError`].
     #[error("{0}")]
     Report(String),
+}
+
+impl From<LoadDirectError> for CssStyleLoaderError {
+    fn from(e: LoadDirectError) -> Self {
+        CssStyleLoaderError::LoadDirect(Box::new(e))
+    }
 }
 
 /// Different ways to handle css errors

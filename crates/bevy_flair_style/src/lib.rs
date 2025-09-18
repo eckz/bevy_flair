@@ -182,7 +182,7 @@ pub enum StyleSystems {
     CalculateStyles,
 
     /// Sets new properties, transitions and animations for nodes that are marked for recalculation.
-    SetStyleProperties,
+    SetPropertyValues,
 
     /// Converts properties set in `CalculateStyle` into computed properties. Also calculates inherited properties.
     ComputeProperties,
@@ -191,7 +191,7 @@ pub enum StyleSystems {
     EmitAnimationEvents,
 
     /// Effectively applies changes from animations and style changes into the Components.
-    ApplyProperties,
+    ApplyComputedProperties,
 
     /// Emits a [`bevy_window::RequestRedraw`] if any animation is active.
     EmitRedrawEvent,
@@ -311,17 +311,6 @@ impl Plugin for FlairStylePlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<StyleSheet>()
             .init_resource::<GlobalChangeDetection>()
-            .register_type::<WindowMediaFeatures>()
-            .register_type::<NodeStyleSheet>()
-            .register_type::<NodeStyleData>()
-            .register_type::<NodeStyleActiveRules>()
-            .register_type::<NodeStyleMarker>()
-            .register_type::<TypeName>()
-            .register_type::<PseudoElement>()
-            .register_type::<ClassList>()
-            .register_type::<AttributeList>()
-            .register_type::<Siblings>()
-            .register_type::<NodeVars>()
             .register_required_components::<Node, NodeStyleSheet>()
             .register_required_components::<TextSpan, NodeStyleSheet>()
             .register_required_components_with::<Button, TypeName>(|| {
@@ -345,13 +334,13 @@ impl Plugin for FlairStylePlugin {
                         StyleSystems::SetStyleData,
                         StyleSystems::MarkNodesForRecalculation,
                         StyleSystems::CalculateStyles,
-                        StyleSystems::SetStyleProperties,
+                        StyleSystems::SetPropertyValues,
                         StyleSystems::ComputeProperties,
-                        StyleSystems::ApplyProperties.before(bevy_ui::UiSystems::Content),
+                        StyleSystems::ApplyComputedProperties.before(bevy_ui::UiSystems::Content),
                         StyleSystems::EmitRedrawEvent,
                     )
                         .chain(),
-                    StyleSystems::TickAnimations.before(StyleSystems::SetStyleProperties),
+                    StyleSystems::TickAnimations.before(StyleSystems::SetPropertyValues),
                     StyleSystems::EmitAnimationEvents.after(StyleSystems::ComputeProperties),
                 ),
             )
@@ -403,7 +392,7 @@ impl Plugin for FlairStylePlugin {
                         .chain()
                         .in_set(StyleSystems::MarkNodesForRecalculation),
                     systems::calculate_style_and_set_vars.in_set(StyleSystems::CalculateStyles),
-                    systems::set_style_properties.in_set(StyleSystems::SetStyleProperties),
+                    systems::set_property_values.in_set(StyleSystems::SetPropertyValues),
                     (
                         systems::compute_property_values
                             .run_if(systems::compute_property_values_condition),
@@ -412,9 +401,9 @@ impl Plugin for FlairStylePlugin {
                     ).in_set(StyleSystems::ComputeProperties),
                     systems::emit_animation_events.in_set(StyleSystems::EmitAnimationEvents),
                     systems::emit_redraw_event.in_set(StyleSystems::EmitRedrawEvent),
-                    systems::apply_properties
-                        .run_if(systems::apply_properties_condition)
-                        .in_set(StyleSystems::ApplyProperties),
+                    systems::apply_computed_properties
+                        .run_if(systems::apply_computed_properties_condition)
+                        .in_set(StyleSystems::ApplyComputedProperties),
                 ),
             );
     }
@@ -508,8 +497,6 @@ mod tests {
     fn app() -> App {
         let mut app = App::new();
 
-        app.init_resource::<PropertyRegistry>();
-
         app.add_plugins((
             bevy_time::TimePlugin,
             bevy_window::WindowPlugin {
@@ -517,9 +504,15 @@ mod tests {
                 ..Default::default()
             },
             AssetPlugin::default(),
+            PropertyRegistryPlugin,
             BevyUiPropertiesPlugin,
             FlairStylePlugin,
         ));
+
+        // Not registered, but needed for testing.
+        app.register_type::<NodeStyleSheet>()
+            .register_type::<NodeStyleData>()
+            .register_type::<Siblings>();
 
         // Bevy uses auto register for these, but auto register is not enable in testing.
         app.register_type::<ChildOf>()
