@@ -3,9 +3,11 @@ use bevy::prelude::*;
 use bevy::text::{FontSmoothing, LineHeight};
 use bevy_flair::prelude::*;
 
-mod common;
+mod test_app;
+mod unique_name;
 
-use common::*;
+use test_app::*;
+use unique_name::*;
 
 fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((

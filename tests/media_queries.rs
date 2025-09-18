@@ -4,9 +4,11 @@ use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowTheme};
 use bevy_flair::prelude::*;
 
-mod common;
+mod test_app;
+mod unique_name;
 
-use common::*;
+use test_app::*;
+use unique_name::*;
 
 macro_rules! assert_width_eq {
     ($app:ident, $name:literal, $expected_width:expr) => {{

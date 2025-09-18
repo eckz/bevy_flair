@@ -4,9 +4,11 @@ use bevy::input_focus::AutoFocus;
 use bevy::prelude::*;
 use bevy_flair::prelude::*;
 
-mod common;
+mod test_app;
+mod unique_name;
 
-use common::*;
+use test_app::*;
+use unique_name::*;
 
 // Instead of writing Node::default all the time
 #[derive(Component)]

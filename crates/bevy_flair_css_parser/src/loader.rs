@@ -1,31 +1,30 @@
 use crate::ShorthandPropertyRegistry;
-use crate::error::ErrorReportGenerator;
+
 use crate::imports_parser::extract_imports;
-use crate::parser::{
-    AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
-    CssTransitionProperty, parse_css,
-};
-use crate::utils::ImportantLevel;
+use crate::internal_loader::InternalStylesheetLoader;
 use bevy_asset::io::Reader;
-use bevy_asset::{AssetLoader, AsyncReadExt, LoadContext, LoadDirectError};
-use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertyRegistry, PropertyValue};
-use bevy_flair_style::css_selector::CssSelector;
-use bevy_flair_style::{
-    AnimationKeyframesBuilder, StyleBuilderProperty, StyleSheet, StyleSheetBuilder,
-    StyleSheetBuilderError,
-};
+use bevy_asset::{AssetLoader, AssetServer, AsyncReadExt, LoadContext, LoadDirectError};
+use bevy_ecs::change_detection::{MaybeLocation, Res};
+use bevy_ecs::prelude::AppTypeRegistry;
+use bevy_ecs::system::SystemParam;
+use bevy_flair_core::PropertyRegistry;
+use bevy_flair_style::{StyleSheet, StyleSheetBuilderError};
 use bevy_reflect::TypeRegistryArc;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{error, info, warn};
+use tracing::error;
 
-/// Error that could happen while loading a CSS stylesheet using [`CssStyleLoaderError`].
+/// Errors that can occur while loading a CSS stylesheet using [`CssStyleSheetLoader`] or
+/// [`InlineCssStyleSheetParser`].
 #[derive(Debug, Error)]
 pub enum CssStyleLoaderError {
     /// Error that could happen while reading the file.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    /// Imports are not supported when loading inline.
+    #[error("Imports are unsupported for inline loader")]
+    UnsupportedImports,
     /// Error that could happen while reading one of the dependencies.
     #[error(transparent)]
     LoadDirect(#[from] LoadDirectError),
@@ -40,18 +39,18 @@ pub enum CssStyleLoaderError {
 /// Different ways to handle css errors
 #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
 pub enum CssStyleLoaderErrorMode {
-    /// Prints all errors in warn!()
+    /// Prints all errors in `warn!(), but continue loading.
     #[default]
     PrintWarn,
-    /// Prints all errors in error!()
+    /// Prints all errors in `error!()`, but continue loading.
     PrintError,
-    /// Ignore all errors
+    /// Ignore all errors silently.
     Ignore,
-    /// Return report as [`CssStyleLoaderError::Report`]
+    /// Return all parsing errors as a single [`CssStyleLoaderError::Report`] and fail to load.
     ReturnError,
 }
 
-/// Error that could happen while loading a CSS stylesheet using [`CssStyleLoaderError`].
+/// Per-stylesheet settings for [`CssStyleSheetLoader`].
 #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
 pub struct CssStyleLoaderSetting {
     /// How to report errors
@@ -59,19 +58,23 @@ pub struct CssStyleLoaderSetting {
     pub error_mode: CssStyleLoaderErrorMode,
 }
 
-/// An [`AssetLoader`] for CSS stylesheets.
-/// It capable of loading `.css` files.
-pub struct CssStyleLoader {
+/// An [`AssetLoader`] for CSS stylesheets stored in external `.css` files.
+///
+/// This loader integrates with Bevy’s asset loading pipeline and supports:
+/// - Loading stylesheets from `.css` files.
+/// - Resolving `@import` rules by recursively loading dependent stylesheets.
+/// - Error reporting and configurable error modes.
+pub struct CssStyleSheetLoader {
     type_registry_arc: TypeRegistryArc,
     property_registry: PropertyRegistry,
     shorthand_property_registry: ShorthandPropertyRegistry,
 }
 
-impl CssStyleLoader {
+impl CssStyleSheetLoader {
     /// Extensions that this loader can load. basically `.css`
     pub const EXTENSIONS: &'static [&'static str] = &["css"];
 
-    /// Creates a new [`CssStyleLoader`] with the given [`TypeRegistryArc`],  [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
+    /// Creates a new [`CssStyleSheetLoader`] with the given [`TypeRegistryArc`], [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
     pub fn new(
         type_registry_arc: TypeRegistryArc,
         property_registry: PropertyRegistry,
@@ -85,7 +88,7 @@ impl CssStyleLoader {
     }
 }
 
-impl AssetLoader for CssStyleLoader {
+impl AssetLoader for CssStyleSheetLoader {
     type Asset = StyleSheet;
     type Settings = CssStyleLoaderSetting;
     type Error = CssStyleLoaderError;
@@ -117,283 +120,96 @@ impl AssetLoader for CssStyleLoader {
             imports.insert(import_path, loaded_asset.take());
         }
 
-        let path_display = load_context.path().display().to_string();
+        let file_name = load_context.path().display().to_string();
         let type_registry = self.type_registry_arc.read();
 
-        let mut builder = StyleSheetBuilder::new();
-        let mut report_generator = ErrorReportGenerator::new(&path_display, &contents);
+        let internal_loader = InternalStylesheetLoader {
+            type_registry: &type_registry,
+            property_registry: &self.property_registry,
+            shorthand_property_registry: &self.shorthand_property_registry,
+            error_mode: settings.error_mode,
+            imports: &imports,
+        };
 
-        fn report_important_level(
-            report_generator: &mut ErrorReportGenerator,
-            level: ImportantLevel,
-        ) {
-            if let ImportantLevel::Important(location) = level {
-                report_generator.add_advice(
-                    location,
-                    "!important is not supported",
-                    "!important token is being ignored, so you can remove it",
-                );
-            }
-        }
-
-        fn report_property_errors_recursively(
-            properties: Vec<CssRulesetProperty>,
-            report_generator: &mut ErrorReportGenerator,
-        ) {
-            for property in properties {
-                match property {
-                    CssRulesetProperty::NestedRuleset(nested) => {
-                        if let Err(selectors_error) = nested.selectors {
-                            report_generator.add_error(selectors_error);
-                        }
-                        report_property_errors_recursively(nested.properties, report_generator);
-                    }
-                    CssRulesetProperty::Error(error) => {
-                        report_generator.add_error(error);
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        fn process_ruleset_recursively(
-            ruleset: CssRuleset,
-            parent_selectors: Option<&Vec<CssSelector>>,
-            builder: &mut StyleSheetBuilder,
-            report_generator: &mut ErrorReportGenerator,
-        ) {
-            match ruleset.selectors {
-                Ok(selectors) => {
-                    debug_assert!(!selectors.is_empty());
-                    let mut ruleset_builder = builder.new_ruleset();
-
-                    let selectors = match parent_selectors {
-                        None => selectors,
-                        Some(parent_selectors) => selectors
-                            .into_iter()
-                            .map(|s| s.replace_parent_selector(parent_selectors))
-                            .collect(),
-                    };
-
-                    for selector in selectors.iter().cloned() {
-                        ruleset_builder.add_css_selector(selector);
-                    }
-
-                    for property in ruleset.properties {
-                        match property {
-                            CssRulesetProperty::SingleProperty(id, value, important_level) => {
-                                ruleset_builder
-                                    .add_properties([(ComponentPropertyRef::Id(id), value)]);
-                                report_important_level(report_generator, important_level);
-                            }
-                            CssRulesetProperty::MultipleProperties(properties, important_level) => {
-                                ruleset_builder.add_properties(
-                                    properties
-                                        .into_iter()
-                                        .map(|(id, value)| (ComponentPropertyRef::Id(id), value)),
-                                );
-                                report_important_level(report_generator, important_level);
-                            }
-                            CssRulesetProperty::DynamicProperty(
-                                css_name,
-                                parser,
-                                tokens,
-                                important_level,
-                            ) => {
-                                ruleset_builder.add_properties([StyleBuilderProperty::Dynamic {
-                                    css_name,
-                                    parser,
-                                    tokens,
-                                }]);
-                                report_important_level(report_generator, important_level);
-                            }
-                            CssRulesetProperty::Transitions(property_transitions) => {
-                                for transition_fallible in property_transitions {
-                                    match transition_fallible {
-                                        Ok(CssTransitionProperty {
-                                            properties,
-                                            options,
-                                        }) => {
-                                            for property in properties {
-                                                ruleset_builder.add_property_transition(
-                                                    property,
-                                                    options.clone(),
-                                                );
-                                            }
-                                        }
-                                        Err(error) => {
-                                            report_generator.add_error(error);
-                                        }
-                                    }
-                                }
-                            }
-                            CssRulesetProperty::Animations(animations) => {
-                                for animation_fallible in animations {
-                                    match animation_fallible {
-                                        Ok(CssAnimation { name, options }) => {
-                                            ruleset_builder.add_animation(name, options);
-                                        }
-                                        Err(error) => {
-                                            report_generator.add_error(error);
-                                        }
-                                    }
-                                }
-                            }
-                            CssRulesetProperty::Var(var_name, tokens) => {
-                                ruleset_builder.add_var(var_name, tokens);
-                            }
-                            CssRulesetProperty::NestedRuleset(nested_ruleset) => {
-                                process_ruleset_recursively(
-                                    nested_ruleset,
-                                    Some(&selectors),
-                                    builder,
-                                    report_generator,
-                                );
-                                ruleset_builder = builder.new_ruleset();
-                                for selector in selectors.iter().cloned() {
-                                    ruleset_builder.add_css_selector(selector);
-                                }
-                            }
-                            CssRulesetProperty::Error(error) => {
-                                report_generator.add_error(error);
-                            }
-                        }
-                    }
-                }
-                Err(selectors_error) => {
-                    report_generator.add_error(selectors_error);
-                    // We just try to find the error properties to report them too
-                    report_property_errors_recursively(ruleset.properties, report_generator);
-                }
-            }
-        }
-
-        fn processor(
-            item: CssStyleSheetItem,
-            builder: &mut StyleSheetBuilder,
-            report_generator: &mut ErrorReportGenerator,
-        ) {
-            match item {
-                CssStyleSheetItem::EmbedStylesheet(style_sheet, layer) => {
-                    builder.embed_style_sheet(style_sheet, layer);
-                }
-                CssStyleSheetItem::Inner(items) => {
-                    for item in items {
-                        processor(item, builder, report_generator);
-                    }
-                }
-                CssStyleSheetItem::LayersDefinition(layers) => {
-                    builder.define_layers(&layers);
-                }
-                CssStyleSheetItem::RuleSet(ruleset) => {
-                    process_ruleset_recursively(ruleset, None, builder, report_generator);
-                }
-                CssStyleSheetItem::FontFace(font_face) => {
-                    for error in font_face.errors {
-                        report_generator.add_error(error);
-                    }
-                    builder.register_font_face(font_face.family_name, font_face.source);
-                }
-                CssStyleSheetItem::AnimationKeyFrames(keyframes) => {
-                    let name = keyframes.name;
-
-                    let mut keyframes_per_property =
-                        PropertiesHashMap::<AnimationKeyframesBuilder>::default();
-
-                    for k in keyframes.keyframes {
-                        match k {
-                            AnimationKeyFrame::Valid { times, properties } => {
-                                for property in properties {
-                                    match property {
-                                        CssRulesetProperty::SingleProperty(
-                                            property_id,
-                                            PropertyValue::Value(sample),
-                                            _,
-                                        ) => {
-                                            for time in &times {
-                                                keyframes_per_property
-                                                    .entry(property_id)
-                                                    .or_default()
-                                                    .add_keyframe_reflect_value(
-                                                        *time,
-                                                        sample.clone(),
-                                                    );
-                                            }
-                                        }
-                                        CssRulesetProperty::MultipleProperties(properties, _) => {
-                                            for (property_id, sample) in properties {
-                                                if let PropertyValue::Value(sample) = sample {
-                                                    for time in &times {
-                                                        keyframes_per_property
-                                                            .entry(property_id)
-                                                            .or_default()
-                                                            .add_keyframe_reflect_value(
-                                                                *time,
-                                                                sample.clone(),
-                                                            );
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        CssRulesetProperty::Error(error) => {
-                                            report_generator.add_error(error);
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                            }
-                            AnimationKeyFrame::Error(error) => {
-                                report_generator.add_error(error);
-                            }
-                        }
-                    }
-
-                    builder.add_animation_keyframes(
-                        name,
-                        keyframes_per_property
-                            .into_iter()
-                            .filter_map(|(p, b)| Some((p, b.build().ok()?))),
-                    );
-                }
-                CssStyleSheetItem::Error(error) => {
-                    report_generator.add_error(error);
-                }
-            }
-        }
-
-        parse_css(
-            &type_registry,
-            &self.property_registry,
-            &self.shorthand_property_registry,
-            &imports,
-            &contents,
-            |item| {
-                processor(item, &mut builder, &mut report_generator);
-            },
-        );
-
-        if report_generator.contains_errors() {
-            match settings.error_mode {
-                CssStyleLoaderErrorMode::PrintWarn => {
-                    warn!("\n{}", report_generator.into_message());
-                }
-                CssStyleLoaderErrorMode::PrintError => {
-                    error!("\n{}", report_generator.into_message());
-                }
-                CssStyleLoaderErrorMode::ReturnError => {
-                    return Err(CssStyleLoaderError::Report(report_generator.into_message()));
-                }
-                CssStyleLoaderErrorMode::Ignore => {}
-            }
-        } else if !report_generator.is_empty() {
-            info!("\n{}", report_generator.into_message());
-        }
-
-        builder.remove_all_empty_rulesets();
+        let builder = internal_loader.load_stylesheet(&file_name, &contents)?;
         Ok(builder.build_with_load_context(&self.property_registry, load_context)?)
     }
 
     fn extensions(&self) -> &[&str] {
         Self::EXTENSIONS
+    }
+}
+
+/// A helper system parameter for parsing **inline CSS stylesheets** directly from string contents.
+///
+/// Unlike [`CssStyleSheetLoader`], which loads stylesheets from external `.css` files via the asset pipeline,
+/// `CssStyleSheetParser` is designed for cases where CSS is embedded directly inside code.
+/// Only disadvantage is that `@import` is not supported.
+///
+/// # Example
+///
+/// ```no_run
+/// # use bevy_asset::Assets;
+/// # use bevy_ecs::change_detection::ResMut;
+/// # use bevy_ecs::system::Commands;
+/// # use bevy_ui::widget::Button;
+/// # use bevy_flair_css_parser::InlineCssStyleSheetParser;
+/// # use bevy_flair_style::components::NodeStyleSheet;
+/// # use bevy_flair_style::StyleSheet;
+///
+/// fn setup(mut commands: Commands, loader: InlineCssStyleSheetParser, mut assets: ResMut<Assets<StyleSheet>>,) {
+///     let stylesheet = loader
+///         .load_stylesheet("
+///             button {
+///                 color: red;
+///             }
+///         ")
+///         .unwrap();
+///     let handle_id = assets.add(stylesheet);
+///     commands.spawn((
+///         Button,
+///         NodeStyleSheet::new(handle_id),
+///     ));
+/// }
+/// ```
+#[derive(SystemParam)]
+pub struct InlineCssStyleSheetParser<'w> {
+    app_type_registry: Res<'w, AppTypeRegistry>,
+    property_registry: Res<'w, PropertyRegistry>,
+    shorthand_property_registry: Res<'w, ShorthandPropertyRegistry>,
+    asset_server: Res<'w, AssetServer>,
+}
+
+impl<'w> InlineCssStyleSheetParser<'w> {
+    /// Loads a [`StyleSheet`] from inline CSS contents.
+    #[track_caller]
+    pub fn load_stylesheet(&self, contents: &str) -> Result<StyleSheet, CssStyleLoaderError> {
+        let file_name = MaybeLocation::caller()
+            .into_option()
+            .map(|l| format!("<{l}>.css"))
+            .unwrap_or("<inline>.css".into());
+
+        let mut has_imports = false;
+
+        extract_imports(contents, |_| {
+            has_imports = true;
+        });
+
+        if has_imports {
+            return Err(CssStyleLoaderError::UnsupportedImports);
+        }
+
+        let imports = FxHashMap::default();
+        let type_registry = &self.app_type_registry.read();
+        let internal_loader = InternalStylesheetLoader {
+            type_registry,
+            property_registry: &self.property_registry,
+            shorthand_property_registry: &self.shorthand_property_registry,
+            error_mode: CssStyleLoaderErrorMode::ReturnError,
+            imports: &imports,
+        };
+
+        let builder = internal_loader.load_stylesheet(&file_name, contents)?;
+        Ok(builder.build_with_asset_server(&self.property_registry, &self.asset_server)?)
     }
 }

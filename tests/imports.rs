@@ -1,12 +1,12 @@
-use crate::common::*;
-use bevy::app::Startup;
-use bevy::asset::AssetServer;
 use bevy::color::palettes::css;
-use bevy::prelude::{Commands, Component, Res};
-use bevy::ui::{BackgroundColor, Node, Val};
+use bevy::prelude::*;
 use bevy_flair::prelude::*;
 
-mod common;
+mod test_app;
+mod unique_name;
+
+use test_app::*;
+use unique_name::*;
 
 #[derive(Component)]
 #[require(Node, UniqueName::new("root"))]

@@ -28,6 +28,7 @@ mod calc;
 mod error_codes;
 mod imports_parser;
 mod inline_styles;
+mod internal_loader;
 mod loader;
 mod reflect;
 mod shorthand;
@@ -235,14 +236,14 @@ pub(crate) type CssParseResult<T> = Result<T, CssError>;
 
 /// Add support for css parsing infrastructure.
 ///
-/// - Registers the [`CssStyleLoader`].
+/// - Registers the [`CssStyleSheetLoader`].
 /// - Adds support for [`InlineStyle`].
 #[derive(Default)]
 pub struct FlairCssParserPlugin;
 
 impl Plugin for FlairCssParserPlugin {
     fn build(&self, app: &mut App) {
-        app.preregister_asset_loader::<CssStyleLoader>(CssStyleLoader::EXTENSIONS);
+        app.preregister_asset_loader::<CssStyleSheetLoader>(CssStyleSheetLoader::EXTENSIONS);
         app.add_plugins((ReflectParsePlugin, ShorthandPropertiesPlugin));
 
         app.add_systems(
@@ -256,7 +257,7 @@ impl Plugin for FlairCssParserPlugin {
         let type_registry_arc = world.resource::<AppTypeRegistry>().0.clone();
         let property_registry = world.resource::<PropertyRegistry>().clone();
         let shorthand_registry = world.resource::<ShorthandPropertyRegistry>().clone();
-        app.register_asset_loader(CssStyleLoader::new(
+        app.register_asset_loader(CssStyleSheetLoader::new(
             type_registry_arc,
             property_registry,
             shorthand_registry,

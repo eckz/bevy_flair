@@ -28,7 +28,6 @@ use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
 use std::sync::Arc;
-use tracing::warn;
 
 /// Type of result expected from a shorthand parse function.
 pub type ShorthandParseResult = Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError>;
@@ -995,11 +994,13 @@ impl Plugin for ShorthandPropertiesPlugin {
                 .get_property_id_by_css_name(css_name)
                 .is_some()
             {
-                let msg = format!("Shorthand property '{css_name}' is registered both in PropertyRegistry and ShorthandPropertyRegistry");
+                let msg = format!(
+                    "Shorthand property '{css_name}' is registered both in PropertyRegistry and ShorthandPropertyRegistry"
+                );
                 #[cfg(debug_assertions)]
                 panic!("{msg}");
                 #[cfg(not(debug_assertions))]
-                warn!("{msg}");
+                tracing::warn!("{msg}");
             }
         }
     }
