@@ -985,7 +985,7 @@ impl Plugin for ShorthandPropertiesPlugin {
         register_default_shorthand_properties(registry);
     }
 
-    /// Warns about conflicts between the [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
+    /// Panics (in debug mode) or Warns (in release mode) about conflicts between the [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
     fn finish(&self, app: &mut App) {
         let property_registry = app.world().resource::<PropertyRegistry>();
         let shorthand_registry = app.world().resource::<ShorthandPropertyRegistry>();
@@ -995,9 +995,11 @@ impl Plugin for ShorthandPropertiesPlugin {
                 .get_property_id_by_css_name(css_name)
                 .is_some()
             {
-                warn!(
-                    "Shorthand property '{css_name}' is registered both in PropertyRegistry and ShorthandPropertyRegistry"
-                );
+                let msg = format!("Shorthand property '{css_name}' is registered both in PropertyRegistry and ShorthandPropertyRegistry");
+                #[cfg(debug_assertions)]
+                panic!("{msg}");
+                #[cfg(not(debug_assertions))]
+                warn!("{msg}");
             }
         }
     }
