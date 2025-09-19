@@ -9,7 +9,7 @@
 
 use bevy::{
     ecs::spawn::SpawnWith,
-    input::{InputSystem, common_conditions::input_just_pressed},
+    input::{InputSystems, common_conditions::input_just_pressed},
     input_focus::{AutoFocus, InputDispatchPlugin, InputFocus, directional_navigation::*},
     math::CompassOctant,
     prelude::*,
@@ -152,8 +152,10 @@ fn navigate(action_state: Res<ActionState>, mut directional_navigation: Directio
     }
 }
 
-#[derive(Debug, Default, Event)]
-struct ButtonActivate;
+#[derive(Debug, EntityEvent)]
+struct ButtonActivate {
+    pub entity: Entity,
+}
 
 fn interact_with_focused_button(
     mut commands: Commands,
@@ -164,52 +166,42 @@ fn interact_with_focused_button(
         .pressed_actions
         .contains(&DirectionalNavigationAction::Select)
     {
-        if let Some(focused_entity) = input_focus.0 {
-            commands.trigger_targets(ButtonActivate, focused_entity);
+        if let Some(entity) = input_focus.0 {
+            commands.trigger(ButtonActivate { entity });
         }
     }
 }
 
 fn on_click_button_observer(
-    trigger: Trigger<Pointer<Click>>,
+    on_click: On<Pointer<Click>>,
     mut commands: Commands,
     has_button_query: Query<Has<Button>>,
 ) {
-    let entity = trigger.target();
+    let entity = on_click.original_event_target();
     if has_button_query.get(entity).unwrap() {
-        commands.trigger_targets(ButtonActivate, entity);
+        commands.trigger(ButtonActivate { entity });
     }
 }
 
-fn on_hover_button_observer(
-    trigger: Trigger<Pointer<Over>>,
+// Focuses buttons on hover
+fn focus_on_over_button_observer(
+    on_pointer_over: On<Pointer<Over>>,
     mut focus: ResMut<InputFocus>,
     has_button_query: Query<Has<Button>>,
 ) {
-    let entity = trigger.target();
+    let entity = on_pointer_over.original_event_target();
     if has_button_query.get(entity).unwrap_or(false) {
-        focus.set(entity);
-    }
-}
-
-fn fix_auto_focus(
-    mut focus: ResMut<InputFocus>,
-    auto_focus_added: Query<Entity, Added<AutoFocus>>,
-) {
-    if let Some(entity) = auto_focus_added.iter().next() {
         focus.set(entity);
     }
 }
 
 fn navigation_plugin(app: &mut App) {
     app.init_resource::<ActionState>()
-        .add_event::<ButtonActivate>()
         .add_observer(on_click_button_observer)
-        .add_observer(on_hover_button_observer)
-        .add_systems(Update, fix_auto_focus)
+        .add_observer(focus_on_over_button_observer)
         .add_systems(
             PreUpdate,
-            (process_inputs, navigate).chain().after(InputSystem),
+            (process_inputs, navigate).chain().after(InputSystems),
         )
         .add_systems(Update, interact_with_focused_button);
 }
@@ -232,7 +224,6 @@ fn main() {
             navigation_plugin,
         ))
         .init_state::<GameState>()
-        .enable_state_scoped_entities::<GameState>()
         .add_systems(Startup, spawn_camera)
         .add_systems(OnEnter(GameState::Menu), spawn_menu)
         .add_systems(
@@ -260,7 +251,7 @@ fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
 
     commands.spawn((
-        StateScoped(GameState::Menu),
+        DespawnOnExit(GameState::Menu),
         Name::new("Root"),
         Node {
             // We set display None so it's hidden until the css is loaded
@@ -280,24 +271,23 @@ fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ));
 
                 spawner.spawn((button("Continue"), AutoFocus)).observe(
-                    |_trigger: Trigger<ButtonActivate>| {
+                    |_trigger: On<ButtonActivate>| {
                         info!("Button continue selected");
                     },
                 );
                 spawner.spawn(button("New"));
 
                 spawner.spawn(button("Return")).observe(
-                    |_trigger: Trigger<ButtonActivate>,
-                     mut next_state: ResMut<NextState<GameState>>| {
+                    |_trigger: On<ButtonActivate>, mut next_state: ResMut<NextState<GameState>>| {
                         info!("Returning to game");
                         next_state.set(GameState::Game);
                     },
                 );
 
                 spawner.spawn(button("Quit")).observe(
-                    |_trigger: Trigger<ButtonActivate>, mut exit_event: EventWriter<AppExit>| {
+                    |_trigger: On<ButtonActivate>, mut exit_msg: MessageWriter<AppExit>| {
                         info!("Exiting");
-                        exit_event.write_default();
+                        exit_msg.write_default();
                     },
                 );
 

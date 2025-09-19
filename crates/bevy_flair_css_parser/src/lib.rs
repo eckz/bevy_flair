@@ -6,7 +6,7 @@ use bevy_asset::AssetApp;
 use bevy_ecs::prelude::AppTypeRegistry;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_flair_core::PropertyRegistry;
-use bevy_flair_style::StyleSystemSets;
+use bevy_flair_style::StyleSystems;
 use cssparser::{BasicParseError, CowRcStr, Parser, Token};
 use derive_more::Deref;
 use std::fmt::{Debug, Display, Formatter};
@@ -28,6 +28,7 @@ mod calc;
 mod error_codes;
 mod imports_parser;
 mod inline_styles;
+mod internal_loader;
 mod loader;
 mod reflect;
 mod shorthand;
@@ -135,12 +136,22 @@ pub trait ParserExt<'i> {
     /// Expects the next token to be an identifier, and returns it wrapped over a [`Located`].
     fn expect_located_ident(&mut self) -> Result<LocatedStr<'i>, BasicParseError<'i>>;
 
+    /// Expects the next token to be a function, and returns it wrapped over a [`Located`].
+    fn expect_located_function(&mut self) -> Result<LocatedStr<'i>, CssError>;
+
     /// Convenience method to work with [`parse_nested_block`] and [`CssError`].
     ///
     /// [`parse_nested_block`]: Parser::parse_nested_block
     fn parse_nested_block_with<T, F>(&mut self, f: F) -> Result<T, CssError>
     where
         F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, CssError>;
+
+    /// Convenience method to work with [`parse_comma_separated`] and [`CssError`].
+    ///
+    /// [`parse_comma_separated`]: Parser::parse_comma_separated
+    fn parse_comma_separated_with<T, F>(&mut self, f: F) -> Result<Vec<T>, CssError>
+    where
+        F: for<'tt> FnMut(&mut Parser<'i, 'tt>) -> Result<T, CssError>;
 
     /// Convenience method to work with [`try_parse`] and [`CssError`].
     ///
@@ -188,12 +199,28 @@ impl<'i, 't> ParserExt<'i> for Parser<'i, 't> {
         self.located(|parser| parser.expect_ident_cloned())
     }
 
+    fn expect_located_function(&mut self) -> Result<LocatedStr<'i>, CssError> {
+        Ok(self.located(|parser| parser.expect_function().cloned())?)
+    }
+
     fn parse_nested_block_with<T, F>(&mut self, f: F) -> Result<T, CssError>
     where
         F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, CssError>,
     {
         self.parse_nested_block(move |parser| f(parser).map_err(|err| err.into_parse_error()))
             .map_err(CssError::from)
+    }
+
+    fn parse_comma_separated_with<T, F>(&mut self, mut parse_one: F) -> Result<Vec<T>, CssError>
+    where
+        F: for<'tt> FnMut(&mut Parser<'i, 'tt>) -> Result<T, CssError>,
+    {
+        let mut result = Vec::with_capacity(1);
+        result.push(parse_one(self)?);
+        while self.try_parse(Self::expect_comma).is_ok() {
+            result.push(parse_one(self)?);
+        }
+        Ok(result)
     }
 
     fn try_parse_with<T, F>(&mut self, f: F) -> Result<T, CssError>
@@ -209,18 +236,19 @@ pub(crate) type CssParseResult<T> = Result<T, CssError>;
 
 /// Add support for css parsing infrastructure.
 ///
-/// - Registers the [`CssStyleLoader`].
+/// - Registers the [`CssStyleSheetLoader`].
 /// - Adds support for [`InlineStyle`].
+#[derive(Default)]
 pub struct FlairCssParserPlugin;
 
 impl Plugin for FlairCssParserPlugin {
     fn build(&self, app: &mut App) {
-        app.preregister_asset_loader::<CssStyleLoader>(CssStyleLoader::EXTENSIONS);
+        app.preregister_asset_loader::<CssStyleSheetLoader>(CssStyleSheetLoader::EXTENSIONS);
         app.add_plugins((ReflectParsePlugin, ShorthandPropertiesPlugin));
 
         app.add_systems(
             PostUpdate,
-            parse_inline_style.in_set(StyleSystemSets::SetStyleData),
+            parse_inline_style.in_set(StyleSystems::SetStyleData),
         );
     }
 
@@ -229,7 +257,7 @@ impl Plugin for FlairCssParserPlugin {
         let type_registry_arc = world.resource::<AppTypeRegistry>().0.clone();
         let property_registry = world.resource::<PropertyRegistry>().clone();
         let shorthand_registry = world.resource::<ShorthandPropertyRegistry>().clone();
-        app.register_asset_loader(CssStyleLoader::new(
+        app.register_asset_loader(CssStyleSheetLoader::new(
             type_registry_arc,
             property_registry,
             shorthand_registry,
@@ -241,7 +269,8 @@ impl Plugin for FlairCssParserPlugin {
 pub(crate) mod testing {
     use crate::utils::{ImportantLevel, try_parse_important_level};
     use crate::{CssError, ErrorReportGenerator};
-    use cssparser::{Parser, ParserInput};
+    use cssparser::{ParseError, Parser, ParserInput};
+    use std::backtrace::BacktraceStatus;
 
     #[inline(always)]
     #[track_caller]
@@ -251,36 +280,94 @@ pub(crate) mod testing {
     ) -> T {
         // Adds a !important at the end to verify that parse functions don't try to consume the !important token.
         let contents = format!("{contents} !important");
-        parse_raw_content_with(&contents, |parser| {
+        let result = parse_content_with(&contents, |parser| {
             let result = parse_fn(parser)?;
             let important_level = try_parse_important_level(parser);
-            assert!(matches!(important_level, ImportantLevel::Important(_)));
+
+            assert!(
+                matches!(important_level, ImportantLevel::Important(_)),
+                "Missing trailing !important from parser. Remaining contents: '{remaining_contents}'",
+                remaining_contents = &contents[parser.position().byte_index()..]
+            );
             Ok(result)
-        })
+        });
+
+        expects_parse_ok(&contents, result)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn parse_raw_content_with<T>(
+    pub fn parse_err_property_content_with<T: core::fmt::Debug>(
         contents: &str,
         parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
-    ) -> T {
+    ) -> String {
+        let result = parse_content_with(contents, parse_fn);
+        expects_parse_err(contents, result)
+    }
+
+    const TEST_REPORT_CONFIG: ariadne::Config = ariadne::Config::new()
+        .with_color(false)
+        .with_label_attach(ariadne::LabelAttach::Start)
+        .with_char_set(ariadne::CharSet::Ascii);
+
+    #[inline(always)]
+    #[track_caller]
+    #[allow(clippy::print_stderr)]
+    pub fn parse_content_with<'i, T>(
+        contents: &'i str,
+        parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
+    ) -> Result<T, ParseError<'i, CssError>> {
         let mut input = ParserInput::new(contents);
         let mut parser = Parser::new(&mut input);
 
-        let result =
-            parser.parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
+        parser.parse_entirely(|parser| parse_fn(parser).map_err(CssError::into_parse_error))
+    }
 
+    #[inline(always)]
+    #[track_caller]
+    #[allow(clippy::print_stderr)]
+    pub fn expects_parse_ok<'i, T>(
+        contents: &'i str,
+        result: Result<T, ParseError<'i, CssError>>,
+    ) -> T {
         match result {
             Ok(value) => value,
             Err(error) => {
                 let mut style_error = CssError::from(error);
+                if style_error.backtrace.status() == BacktraceStatus::Captured {
+                    eprintln!("CssError backtrace:");
+                    eprintln!("{}", style_error.backtrace);
+                }
                 style_error.improve_location_with_sub_str(contents);
 
-                let mut report_generator = ErrorReportGenerator::new("test.css", contents);
+                let mut report_generator =
+                    ErrorReportGenerator::new_with_config("test.css", contents, TEST_REPORT_CONFIG);
                 report_generator.add_error(style_error);
 
                 panic!("{}", report_generator.into_message());
+            }
+        }
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn expects_parse_err<'i, T: core::fmt::Debug>(
+        contents: &'i str,
+        result: Result<T, ParseError<'i, CssError>>,
+    ) -> String {
+        match result {
+            Ok(value) => {
+                panic!("Parsing of '{contents}' did not failed. It produced vale '{value:?}'");
+            }
+            Err(error) => {
+                let mut style_error = CssError::from(error);
+                style_error.improve_location_with_sub_str(contents);
+
+                let mut report_generator =
+                    ErrorReportGenerator::new_with_config("test.css", contents, TEST_REPORT_CONFIG);
+                report_generator.add_error(style_error);
+
+                report_generator.into_message()
             }
         }
     }

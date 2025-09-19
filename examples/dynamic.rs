@@ -20,14 +20,18 @@ use std::mem;
 
 mod focus_plugin {
     use bevy::input_focus::tab_navigation::TabNavigationPlugin;
-    use bevy::input_focus::{InputDispatchPlugin, InputFocus, InputFocusSet};
+    use bevy::input_focus::{InputDispatchPlugin, InputFocus, InputFocusSystems};
     use bevy::prelude::*;
 
-    #[derive(Copy, Clone, Event)]
-    pub struct FocusIn;
+    #[derive(Copy, Clone, EntityEvent)]
+    pub struct FocusIn {
+        pub entity: Entity,
+    }
 
-    #[derive(Copy, Clone, Event)]
-    pub struct FocusOut;
+    #[derive(Copy, Clone, EntityEvent)]
+    pub struct FocusOut {
+        pub entity: Entity,
+    }
 
     fn trigger_on_focus_change(
         mut commands: Commands,
@@ -38,12 +42,12 @@ mod focus_plugin {
             return;
         }
 
-        if let Some(previous_focus) = previous_focus.0 {
-            commands.trigger_targets(FocusOut, previous_focus);
+        if let Some(entity) = previous_focus.0 {
+            commands.trigger(FocusOut { entity });
         }
 
-        if let Some(input_focus) = input_focus.0 {
-            commands.trigger_targets(FocusIn, input_focus);
+        if let Some(entity) = input_focus.0 {
+            commands.trigger(FocusIn { entity });
         }
 
         *previous_focus = (*input_focus).clone()
@@ -53,7 +57,7 @@ mod focus_plugin {
         app.add_plugins((InputDispatchPlugin, TabNavigationPlugin))
             .add_systems(
                 PreUpdate,
-                trigger_on_focus_change.in_set(InputFocusSet::Dispatch),
+                trigger_on_focus_change.in_set(InputFocusSystems::Dispatch),
             );
     }
 }
@@ -63,7 +67,7 @@ mod input_text_plugin {
     use bevy::input::ButtonState;
     use bevy::input::keyboard::KeyboardInput;
     use bevy::input_focus::{
-        FocusedInput, InputFocus, InputFocusSet, InputFocusVisible, dispatch_focused_input,
+        FocusedInput, InputFocus, InputFocusSystems, InputFocusVisible, dispatch_focused_input,
     };
     use bevy::prelude::*;
     use bevy::text::TextWriter;
@@ -79,43 +83,43 @@ mod input_text_plugin {
     pub struct InputEnter(pub String);
 
     fn input_focus_on_click(
-        trigger: Trigger<Pointer<Click>>,
+        on_click: On<Pointer<Click>>,
         mut focus: ResMut<InputFocus>,
         input_query: Query<(), With<Input>>,
     ) {
-        if input_query.contains(trigger.target()) {
-            focus.set(trigger.target());
+        if input_query.contains(on_click.entity) {
+            focus.set(on_click.entity);
         }
     }
 
     fn enable_ime_on_focus_in(
-        trigger: Trigger<FocusIn>,
+        on_focus_in: On<FocusIn>,
         input_query: Query<(), With<Input>>,
         mut primary_window: Single<&mut Window, With<PrimaryWindow>>,
     ) {
-        let Ok(()) = input_query.get(trigger.target()) else {
+        let Ok(()) = input_query.get(on_focus_in.entity) else {
             return;
         };
         primary_window.ime_enabled = true;
     }
 
     fn disable_ime_on_focus_out(
-        trigger: Trigger<FocusOut>,
+        on_focus_out: On<FocusOut>,
         input_query: Query<(), With<Input>>,
         mut primary_window: Single<&mut Window, With<PrimaryWindow>>,
     ) {
-        if !input_query.contains(trigger.target()) {
+        if !input_query.contains(on_focus_out.entity) {
             return;
         }
         primary_window.ime_enabled = false;
     }
 
     fn ime_observer(
-        trigger: Trigger<FocusedInput<Ime>>,
+        on_focused_ime: On<FocusedInput<Ime>>,
         children_query: Query<&Children, With<Input>>,
         mut text_writer: TextWriter<Text>,
     ) -> Result {
-        let target = trigger.target();
+        let target = on_focused_ime.focused_entity;
 
         if !children_query.contains(target) {
             return Ok(());
@@ -124,7 +128,7 @@ mod input_text_plugin {
         if let FocusedInput {
             input: Ime::Commit { value, .. },
             ..
-        } = trigger.event()
+        } = on_focused_ime.event()
         {
             let child = children_query.get(target)?[0];
             let mut string = text_writer.text(child, 0);
@@ -135,25 +139,25 @@ mod input_text_plugin {
     }
 
     fn keyboard_input_observer(
-        mut trigger: Trigger<FocusedInput<KeyboardInput>>,
+        mut on_focused_keyboard_input: On<FocusedInput<KeyboardInput>>,
         mut commands: Commands,
         children_query: Query<&Children, With<Input>>,
         mut text_writer: TextWriter<Text>,
     ) -> Result {
-        let target = trigger.target();
-        if matches!(trigger.input.key_code, KeyCode::Tab) {
+        let target = on_focused_keyboard_input.focused_entity;
+        if matches!(on_focused_keyboard_input.input.key_code, KeyCode::Tab) {
             return Ok(());
         }
 
         if !children_query.contains(target) {
             return Ok(());
         }
-        trigger.propagate(false);
-        if trigger.input.state != ButtonState::Pressed {
+        on_focused_keyboard_input.propagate(false);
+        if on_focused_keyboard_input.input.state != ButtonState::Pressed {
             return Ok(());
         }
-        let is_enter = matches!(trigger.input.key_code, KeyCode::Enter);
-        let is_backspace = matches!(trigger.input.key_code, KeyCode::Backspace);
+        let is_enter = matches!(on_focused_keyboard_input.input.key_code, KeyCode::Enter);
+        let is_backspace = matches!(on_focused_keyboard_input.input.key_code, KeyCode::Backspace);
 
         let child = children_query.get(target)?[0];
         let mut string = text_writer.text(child, 0);
@@ -167,7 +171,12 @@ mod input_text_plugin {
             if !string.is_empty() {
                 string.pop();
             }
-        } else if let Some(new_text) = trigger.input.text.as_ref().map(|a| a.as_ref()) {
+        } else if let Some(new_text) = on_focused_keyboard_input
+            .input
+            .text
+            .as_ref()
+            .map(|a| a.as_ref())
+        {
             if new_text.chars().all(is_printable_char) {
                 string.push_str(new_text);
             }
@@ -190,7 +199,7 @@ mod input_text_plugin {
         app.insert_resource(InputFocusVisible(true))
             .add_systems(
                 PreUpdate,
-                dispatch_focused_input::<Ime>.in_set(InputFocusSet::Dispatch),
+                dispatch_focused_input::<Ime>.in_set(InputFocusSystems::Dispatch),
             )
             .add_observer(enable_ime_on_focus_in)
             .add_observer(disable_ime_on_focus_out)
@@ -224,7 +233,7 @@ struct ItemsContainer;
 struct RemoveButton;
 
 fn input_enter_observer(
-    mut trigger: Trigger<InputEnter>,
+    mut trigger: On<InputEnter>,
     mut commands: Commands,
     items_container: Single<Entity, With<ItemsContainer>>,
 ) -> Result {
@@ -250,33 +259,30 @@ fn input_enter_observer(
 }
 
 fn remove_button_on_click(
-    trigger: Trigger<Pointer<Click>>,
+    on_click: On<Pointer<Click>>,
     mut commands: Commands,
     remove_button_query: Query<(), With<RemoveButton>>,
     parent_query: Query<&ChildOf>,
 ) {
-    if remove_button_query.contains(trigger.target()) {
-        let parent = parent_query
-            .iter_ancestors(trigger.target())
-            .next()
-            .unwrap();
+    if remove_button_query.contains(on_click.entity) {
+        let parent = parent_query.iter_ancestors(on_click.entity).next().unwrap();
         commands.entity(parent).despawn();
     }
 }
 
 fn remove_button_on_enter(
-    mut trigger: Trigger<FocusedInput<KeyboardInput>>,
+    mut on_focused_keyboard_input: On<FocusedInput<KeyboardInput>>,
     mut commands: Commands,
     remove_button_query: Query<(), With<RemoveButton>>,
     parent_query: Query<&ChildOf>,
 ) {
-    if matches!(trigger.input.key_code, KeyCode::Enter)
-        && remove_button_query.contains(trigger.target())
+    if matches!(on_focused_keyboard_input.input.key_code, KeyCode::Enter)
+        && remove_button_query.contains(on_focused_keyboard_input.original_event_target())
     {
-        trigger.propagate(false);
+        on_focused_keyboard_input.propagate(false);
 
         let parent = parent_query
-            .iter_ancestors(trigger.target())
+            .iter_ancestors(on_focused_keyboard_input.original_event_target())
             .next()
             .unwrap();
         commands.entity(parent).despawn();

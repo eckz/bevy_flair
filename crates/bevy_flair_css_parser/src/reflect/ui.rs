@@ -3,15 +3,17 @@ use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
 use crate::reflect::parse_color;
-use crate::utils::parse_property_value_with;
+use crate::utils::{parse_property_value_with, try_parse_none};
 use crate::{ParserExt, ReflectParseCss};
-use bevy_flair_core::ReflectValue;
+use bevy_flair_core::{PropertyValue, ReflectValue};
+use bevy_math::{Rot2, Vec2};
 use bevy_reflect::FromType;
-use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, ZIndex};
+use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
+use std::f32::consts;
 
-pub fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
+pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
     let next = parser.located_next()?;
     Ok(match &*next {
         Token::Number { value, .. } => *value,
@@ -24,6 +26,20 @@ pub fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
             ));
         }
     })
+}
+
+pub(crate) fn parse_calc_f32(parser: &mut Parser) -> Result<f32, CssError> {
+    parse_calc_value(parser, parse_f32)
+}
+
+pub(crate) fn parse_vec2(parser: &mut Parser) -> Result<Vec2, CssError> {
+    if let Some(none) = try_parse_none(parser) {
+        return Ok(none);
+    }
+
+    let x = parse_calc_f32(parser)?;
+    let y = parser.try_parse_with(parse_calc_f32).unwrap_or(x);
+    Ok(Vec2::new(x, y))
 }
 
 /// Parses a [`Val`] (UI length/size value) from a CSS token.
@@ -43,6 +59,7 @@ pub fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
 ///   - `"vmax"` → [`Val::VMax`]
 ///
 /// # Example
+///
 /// ```
 /// # use bevy_ui::Val;
 /// # use cssparser::{Parser, ParserInput};
@@ -86,15 +103,69 @@ pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
     })
 }
 
+pub(crate) fn parse_calc_val(parser: &mut Parser) -> Result<Val, CssError> {
+    parse_calc_value(parser, parse_val)
+}
+
+pub(crate) fn parse_val2(parser: &mut Parser) -> Result<Val2, CssError> {
+    if let Some(none) = try_parse_none(parser) {
+        return Ok(none);
+    }
+
+    let x = parse_calc_val(parser)?;
+    let y = parser.try_parse_with(parse_calc_val).unwrap_or(x);
+    Ok(Val2::new(x, y))
+}
+
+pub(crate) fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
+    if let Some(none) = try_parse_none(parser) {
+        return Ok(none);
+    }
+
+    let next = parser.located_next()?;
+    Ok(match &*next {
+        Token::Number { value, .. } if *value == 0.0 => Rot2::IDENTITY,
+        Token::Dimension { value, unit, .. } => {
+            match_ignore_ascii_case! { unit.as_ref(),
+                "deg" => Rot2::degrees(*value),
+                "grad" => {
+                    const RADS_PER_GRAD: f32 = consts::PI / 200.0;
+                    Rot2::radians(*value * RADS_PER_GRAD)
+                },
+                "rad" => Rot2::radians(*value),
+                "turn" => Rot2::turn_fraction(*value),
+                _ => {
+                    return Err(CssError::new_located(
+                        &next,
+                        error_codes::UNEXPECTED_ANGLE_TOKEN,
+                        format!("Dimension '{unit}' is not recognized as an angle. Valid dimensions are 'deg' | 'grad' | 'rad' | 'turn'")
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(CssError::new_located(
+                &next,
+                error_codes::UNEXPECTED_ANGLE_TOKEN,
+                "This is not a valid angle token. 90deg, 100grad or 0.25turn are valid angles",
+            ));
+        }
+    })
+}
+
+pub(crate) fn parse_calc_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
+    parse_calc_value(parser, parse_angle)
+}
+
 fn parse_overflow_clip_margin(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Ok(margin) = parser.try_parse_with(|parser| parse_calc_value(parser, parse_f32)) {
+    if let Ok(margin) = parser.try_parse_with(parse_calc_f32) {
         return Ok(ReflectValue::new(OverflowClipMargin {
             margin,
             ..OverflowClipMargin::DEFAULT
         }));
     }
     let visual_box = parse_enum_value(parser)?;
-    let margin = parse_calc_value(parser, parse_f32)?;
+    let margin = parse_calc_f32(parser)?;
     Ok(ReflectValue::new(OverflowClipMargin { visual_box, margin }))
 }
 
@@ -106,11 +177,11 @@ fn parse_aspect_ratio(parser: &mut Parser) -> Result<ReflectValue, CssError> {
         let auto_value: Option<f32> = None;
         return Ok(ReflectValue::new(auto_value));
     }
-    let dividend = parse_calc_value(parser, parse_f32)?;
+    let dividend = parse_calc_f32(parser)?;
     let divisor = parser
         .try_parse_with(|parser| {
             parser.expect_delim('/')?;
-            parse_calc_value(parser, parse_f32)
+            parse_calc_f32(parser)
         })
         .unwrap_or(1.0);
     let auto_value: Option<f32> = Some(dividend / divisor);
@@ -152,10 +223,10 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
         color = new_color;
     }
 
-    values.push(parse_calc_value(parser, parse_val)?);
-    values.push(parse_calc_value(parser, parse_val)?);
+    values.push(parse_calc_val(parser)?);
+    values.push(parse_calc_val(parser)?);
 
-    while let Ok(val) = parser.try_parse_with(|parser| parse_calc_value(parser, parse_val)) {
+    while let Ok(val) = parser.try_parse_with(parse_calc_val) {
         values.push(val);
         if values.len() >= 4 {
             break;
@@ -218,9 +289,31 @@ impl FromType<f32> for ReflectParseCss {
     }
 }
 
+impl FromType<Vec2> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| {
+            parse_property_value_with(parser, parse_vec2).map(PropertyValue::into_reflect_value)
+        })
+    }
+}
+
 impl FromType<Val> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_val))
+    }
+}
+
+impl FromType<Val2> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| {
+            parse_property_value_with(parser, parse_val2).map(PropertyValue::into_reflect_value)
+        })
+    }
+}
+
+impl FromType<Rot2> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| parse_calc_property_value_with(parser, parse_angle))
     }
 }
 
@@ -250,45 +343,96 @@ impl FromType<BoxShadow> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_css;
+    use crate::reflect::testing::{test_err_parse_reflect, test_parse_reflect};
     use bevy_color::palettes::css;
-    use bevy_ui::{BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, Val, ZIndex};
+    use bevy_math::{Rot2, Vec2};
+    use bevy_ui::{BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
+
+    #[test]
+    fn test_f32() {
+        assert_eq!(test_parse_reflect::<f32>("3"), 3.0);
+        assert_eq!(test_parse_reflect::<f32>("1.5"), 1.5);
+        assert_eq!(test_parse_reflect::<f32>("calc(6 / 2)"), 3.0);
+    }
+
+    #[test]
+    fn test_vec2() {
+        assert_eq!(test_parse_reflect::<Vec2>("none"), Vec2::ZERO);
+        assert_eq!(test_parse_reflect::<Vec2>("3.0"), Vec2::splat(3.0));
+        assert_eq!(test_parse_reflect::<Vec2>("3.0 8.0"), Vec2::new(3.0, 8.0));
+    }
+
+    #[test]
+    fn test_rot2() {
+        assert_eq!(test_parse_reflect::<Rot2>("none"), Rot2::IDENTITY);
+        assert_eq!(test_parse_reflect::<Rot2>("90deg"), Rot2::degrees(90.0));
+        assert_eq!(
+            test_parse_reflect::<Rot2>("calc(45deg * 2)"),
+            Rot2::degrees(90.0)
+        );
+        assert_eq!(test_parse_reflect::<Rot2>("3rad"), Rot2::radians(3.0));
+        assert_eq!(test_parse_reflect::<Rot2>("0.25turn"), Rot2::degrees(90.0));
+    }
 
     #[test]
     fn test_val() {
-        assert_eq!(test_parse_css::<Val>("auto"), Val::Auto);
-        assert_eq!(test_parse_css::<Val>("33.5"), Val::Px(33.5));
-        assert_eq!(test_parse_css::<Val>("15px"), Val::Px(15.0));
-        assert_eq!(test_parse_css::<Val>("55%"), Val::Percent(55.0));
-        assert_eq!(test_parse_css::<Val>("157vw"), Val::Vw(157.0));
-        assert_eq!(test_parse_css::<Val>("343.5vh"), Val::Vh(343.5));
-        assert_eq!(test_parse_css::<Val>("987vmin"), Val::VMin(987.0));
-        assert_eq!(test_parse_css::<Val>("9999vmax"), Val::VMax(9999.0));
+        assert_eq!(test_parse_reflect::<Val>("auto"), Val::Auto);
+        assert_eq!(test_parse_reflect::<Val>("33.5"), Val::Px(33.5));
+        assert_eq!(test_parse_reflect::<Val>("15px"), Val::Px(15.0));
+        assert_eq!(test_parse_reflect::<Val>("55%"), Val::Percent(55.0));
+        assert_eq!(test_parse_reflect::<Val>("157vw"), Val::Vw(157.0));
+        assert_eq!(test_parse_reflect::<Val>("343.5vh"), Val::Vh(343.5));
+        assert_eq!(test_parse_reflect::<Val>("987vmin"), Val::VMin(987.0));
+        assert_eq!(test_parse_reflect::<Val>("9999vmax"), Val::VMax(9999.0));
+
+        assert_eq!(test_err_parse_reflect::<Val>("2rem"), "[60] Warning: Unexpected token for a Val type
+   ,-[ test.css:1:1 ]
+   |
+ 1 | 2rem
+   | |^^^\x20\x20
+   | `----- Dimension 'rem' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax'
+---'
+"
+        );
+    }
+
+    #[test]
+    fn test_val2() {
+        assert_eq!(test_parse_reflect::<Val2>("none"), Val2::ZERO);
+        assert_eq!(
+            test_parse_reflect::<Val2>("auto"),
+            Val2::new(Val::Auto, Val::Auto)
+        );
+        assert_eq!(test_parse_reflect::<Val2>("3px 10px"), Val2::px(3.0, 10.0));
+        assert_eq!(
+            test_parse_reflect::<Val2>("calc(10px * 2) 10%"),
+            Val2::new(Val::Px(20.0), Val::Percent(10.0))
+        );
     }
 
     #[test]
     fn test_val_with_calc() {
-        assert_eq!(test_parse_css::<Val>("calc(15px * 2)"), Val::Px(30.0));
+        assert_eq!(test_parse_reflect::<Val>("calc(15px * 2)"), Val::Px(30.0));
     }
 
     #[test]
     fn test_overflow_clip_margin() {
         assert_eq!(
-            test_parse_css::<OverflowClipMargin>("2px"),
+            test_parse_reflect::<OverflowClipMargin>("2px"),
             OverflowClipMargin {
                 margin: 2.0,
                 ..Default::default()
             }
         );
         assert_eq!(
-            test_parse_css::<OverflowClipMargin>("content-box 5px"),
+            test_parse_reflect::<OverflowClipMargin>("content-box 5px"),
             OverflowClipMargin {
                 margin: 5.0,
                 visual_box: OverflowClipBox::ContentBox
             }
         );
         assert_eq!(
-            test_parse_css::<OverflowClipMargin>("border-box 10px"),
+            test_parse_reflect::<OverflowClipMargin>("border-box 10px"),
             OverflowClipMargin {
                 margin: 10.0,
                 visual_box: OverflowClipBox::BorderBox
@@ -298,22 +442,37 @@ mod tests {
 
     #[test]
     fn test_aspect_ratio() {
-        assert_eq!(test_parse_css::<Option<f32>>("auto"), None);
-        assert_eq!(test_parse_css::<Option<f32>>("0.5"), Some(0.5));
-        assert_eq!(test_parse_css::<Option<f32>>("16 / 9"), Some(16.0 / 9.0));
+        assert_eq!(test_parse_reflect::<Option<f32>>("auto"), None);
+        assert_eq!(test_parse_reflect::<Option<f32>>("0.5"), Some(0.5));
+        assert_eq!(
+            test_parse_reflect::<Option<f32>>("16 / 9"),
+            Some(16.0 / 9.0)
+        );
     }
 
     #[test]
     fn test_z_index() {
-        assert_eq!(test_parse_css::<ZIndex>("2"), ZIndex(2));
-        assert_eq!(test_parse_css::<ZIndex>("0"), ZIndex(0));
-        assert_eq!(test_parse_css::<ZIndex>("-999999"), ZIndex(-999999));
+        assert_eq!(test_parse_reflect::<ZIndex>("2"), ZIndex(2));
+        assert_eq!(test_parse_reflect::<ZIndex>("0"), ZIndex(0));
+        assert_eq!(test_parse_reflect::<ZIndex>("-999999"), ZIndex(-999999));
+
+        assert_eq!(
+            test_err_parse_reflect::<ZIndex>("1.2"),
+            "[01] Warning: Unexpected token
+   ,-[ test.css:1:1 ]
+   |
+ 1 | 1.2
+   | |^^\x20\x20
+   | `---- unexpected token: Number { has_sign: false, value: 1.2, int_value: None }
+---'
+"
+        );
     }
 
     #[test]
     fn test_box_shadow() {
         assert_eq!(
-            test_parse_css::<BoxShadow>("10px 5px"),
+            test_parse_reflect::<BoxShadow>("10px 5px"),
             BoxShadow::from(ShadowStyle {
                 x_offset: Val::Px(10.0),
                 y_offset: Val::Px(5.0),
@@ -322,7 +481,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BoxShadow>("60px -16px teal"),
+            test_parse_reflect::<BoxShadow>("60px -16px teal"),
             BoxShadow::from(ShadowStyle {
                 x_offset: Val::Px(60.0),
                 y_offset: Val::Px(-16.0),
@@ -332,7 +491,7 @@ mod tests {
         );
 
         assert_eq!(
-            test_parse_css::<BoxShadow>("white 12px -22px 2px 1px"),
+            test_parse_reflect::<BoxShadow>("white 12px -22px 2px 1px"),
             BoxShadow::from(ShadowStyle {
                 x_offset: Val::Px(12.0),
                 y_offset: Val::Px(-22.0),

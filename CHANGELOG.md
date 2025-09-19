@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5] - TBD
+
+### Added
+- Bevy 0.17 support.
+- Support for new gradients in bevy 0.17 by using `background` or `background-image` properties, with any of the [`<gradient>`] functions.
+- Support for `translate`, `scale` and `rotate`, thanks by the new [`UiTransform`] component.
+  - It's possible to use `transform` as a shorthand property of the above ones.
+- Support for custom time support. See https://github.com/eckz/bevy_flair/blob/main/examples/animations.rs.
+- New `InlineCssStyleSheetParser` that allows parsing stylesheets from strings directly. Fixes [#8](https://github.com/eckz/bevy_flair/issues/8) 
+
+[`<gradient>`]: https://developer.mozilla.org/en-US/docs/Web/CSS/gradient
+
+### Changed
+- [`StyleSystemSets`] has been renamed to [`StyleSystems`] according to bevy recommendations.
+- Animations and transitions now follow `Time<Real>` instead of `Time<Virtual>` by default.
+
+### Fixed
+- Some spurious panics are fixed when nodes are spawned in the wrong order: https://github.com/eckz/bevy_flair/issues/5
+
+
 ## [0.4.1] - 15-Sep-2025
 
 ### Added

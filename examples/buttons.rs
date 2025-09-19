@@ -79,7 +79,7 @@ fn force_window_theme(
 }
 
 fn dark_light_button_observer(
-    _trigger: Trigger<Pointer<Click>>,
+    _trigger: On<Pointer<Click>>,
     mut primary_window: Single<&mut Window, With<PrimaryWindow>>,
     dark_light_button: Single<&Children, With<DarkLightButton>>,
     mut text_writer: TextWriter<Text>,

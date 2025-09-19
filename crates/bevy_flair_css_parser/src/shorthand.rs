@@ -1,16 +1,23 @@
 use crate::calc::{Calculable, parse_calc_property_value_with};
 use crate::reflect::{
-    parse_color, parse_enum_as_property_value, parse_grid_track_vec, parse_repeated_grid_track_vec,
-    parse_val,
+    parse_asset_path, parse_calc_angle, parse_calc_f32, parse_calc_val, parse_color,
+    parse_enum_as_property_value, parse_gradient, parse_grid_track_vec,
+    parse_repeated_grid_track_vec, parse_val,
 };
-use crate::utils::{parse_property_global_keyword, parse_property_value_with, try_parse_none};
-use crate::{CssError, ParserExt};
+use crate::utils::{
+    CombinedParse, parse_property_global_keyword, parse_property_value_with, try_parse_none,
+};
+use crate::{CssError, ParserExt, error_codes};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
+use bevy_image::Image;
+use bevy_math::{Rot2, Vec2};
+use bevy_reflect::FromReflect;
 use bevy_ui::{
-    AlignItems, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis, RepeatedGridTrack, Val,
+    AlignItems, BackgroundGradient, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis,
+    RepeatedGridTrack, Val, Val2,
 };
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
@@ -21,7 +28,6 @@ use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
 use std::sync::Arc;
-use tracing::warn;
 
 /// Type of result expected from a shorthand parse function.
 pub type ShorthandParseResult = Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError>;
@@ -184,13 +190,32 @@ fn parse_four_calc_values<T: Calculable>(
     parser: &mut Parser,
     mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
 ) -> Result<[PropertyValue; 4], CssError> {
+    parse_four_values(parser, |parser| {
+        parse_calc_property_value_with(parser, &mut value_parser)
+    })
+}
+
+fn parse_four_property_values<T: FromReflect>(
+    parser: &mut Parser,
+    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+) -> Result<[PropertyValue; 4], CssError> {
+    parse_four_values(parser, |parser| {
+        parse_property_value_with(parser, &mut value_parser).map(|p| p.map(ReflectValue::new))
+    })
+}
+
+/// Parses up to four values and expands them into an array of four [`PropertyValue`]s.
+///
+/// This follows the CSS shorthand pattern for properties like margin and padding.
+fn parse_four_values(
+    parser: &mut Parser,
+    mut value_parser: impl FnMut(&mut Parser) -> Result<PropertyValue, CssError>,
+) -> Result<[PropertyValue; 4], CssError> {
     let mut values = SmallVec::<[PropertyValue; 4]>::new();
 
-    values.push(parse_calc_property_value_with(parser, &mut value_parser)?);
+    values.push(value_parser(parser)?);
     while values.len() < 4 {
-        if let Ok(value) = parser
-            .try_parse_with(|parser| parse_calc_property_value_with(parser, &mut value_parser))
-        {
+        if let Ok(value) = parser.try_parse_with(|parser| value_parser(parser)) {
             values.push(value);
         } else {
             break;
@@ -206,9 +231,15 @@ fn parse_four_calc_values<T: Calculable>(
     })
 }
 
+#[derive(Copy, Clone, PartialEq)]
+enum UsePrevious {
+    No,
+    Yes,
+}
+
 type SimpleShorthandProperty = (
     ComponentPropertyRef,
-    bool,
+    UsePrevious,
     fn(&mut Parser) -> Result<PropertyValue, CssError>,
 );
 
@@ -232,7 +263,7 @@ fn parse_simple_shorthand_property<const N: usize>(
                 result.push((property_ref, property_value));
             }
             Err(_) => {
-                if use_previous {
+                if use_previous == UsePrevious::Yes {
                     let last_value = result.last().unwrap().1.clone();
                     result.push((property_ref, last_value));
                 } else {
@@ -293,14 +324,28 @@ macro_rules! define_css_properties {
 }
 
 define_css_properties! {
-    const BORDER_LEFT_WIDTH = "border-left-width";
+    const BORDER_TOP_COLOR = "border-top-color";
+    const BORDER_RIGHT_COLOR = "border-right-color";
+    const BORDER_BOTTOM_COLOR = "border-bottom-color";
+    const BORDER_LEFT_COLOR = "border-left-color";
+    const BORDER_TOP_WIDTH = "border-top-width";
     const BORDER_RIGHT_WIDTH = "border-right-width";
     const BORDER_BOTTOM_WIDTH = "border-bottom-width";
-    const BORDER_TOP_WIDTH = "border-top-width";
+    const BORDER_LEFT_WIDTH = "border-left-width";
     const BORDER_TOP_LEFT_RADIUS = "border-top-left-radius";
     const BORDER_TOP_RIGHT_RADIUS = "border-top-right-radius";
     const BORDER_BOTTOM_LEFT_RADIUS = "border-bottom-left-radius";
     const BORDER_BOTTOM_RIGHT_RADIUS = "border-bottom-right-radius";
+}
+
+fn parse_border_color(parser: &mut Parser) -> ShorthandParseResult {
+    let [top, right, bottom, left] = parse_four_property_values(parser, parse_color)?;
+    Ok(vec![
+        (BORDER_TOP_COLOR, top),
+        (BORDER_RIGHT_COLOR, right),
+        (BORDER_BOTTOM_COLOR, bottom),
+        (BORDER_LEFT_COLOR, left),
+    ])
 }
 
 fn parse_border_radius(parser: &mut Parser) -> ShorthandParseResult {
@@ -325,14 +370,10 @@ fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
     parse_simple_shorthand_property(
         parser,
         [
-            (OVERFLOW_X, false, parse_overflow_axis),
-            (OVERFLOW_Y, true, parse_overflow_axis),
+            (OVERFLOW_X, UsePrevious::No, parse_overflow_axis),
+            (OVERFLOW_Y, UsePrevious::Yes, parse_overflow_axis),
         ],
     )
-}
-
-define_css_properties! {
-    const BORDER_COLOR = "border-color";
 }
 
 fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
@@ -348,7 +389,13 @@ fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
     if let Ok(color) =
         parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
     {
-        result.push((BORDER_COLOR, color.map(ReflectValue::Color)));
+        let color = color.map(ReflectValue::Color);
+        result.extend([
+            (BORDER_TOP_COLOR, color.clone()),
+            (BORDER_RIGHT_COLOR, color.clone()),
+            (BORDER_BOTTOM_COLOR, color.clone()),
+            (BORDER_LEFT_COLOR, color.clone()),
+        ]);
     }
 
     Ok(result)
@@ -480,12 +527,12 @@ fn parse_place_items(parser: &mut Parser) -> ShorthandParseResult {
         [
             (
                 ALIGN_ITEMS,
-                false,
+                UsePrevious::No,
                 parse_enum_as_property_value::<AlignItems>,
             ),
             (
                 JUSTIFY_ITEMS,
-                false,
+                UsePrevious::No,
                 parse_enum_as_property_value::<JustifyItems>,
             ),
         ],
@@ -506,10 +553,62 @@ fn parse_gap(parser: &mut Parser) -> ShorthandParseResult {
     parse_simple_shorthand_property(
         parser,
         [
-            (COLUMN_GAP, false, parse_val_as_property_value),
-            (ROW_GAP, true, parse_val_as_property_value),
+            (COLUMN_GAP, UsePrevious::No, parse_val_as_property_value),
+            (ROW_GAP, UsePrevious::Yes, parse_val_as_property_value),
         ],
     )
+}
+
+define_css_properties! {
+    const BEVY_BACKGROUND_IMAGE = "-bevy-image";
+    const BEVY_BACKGROUND_GRADIENT = "-bevy-background-gradient";
+    const BACKGROUND_COLOR = "background-color";
+}
+
+fn parse_background_image_inner(
+    parser: &mut Parser,
+    result: &mut Vec<(ComponentPropertyRef, PropertyValue)>,
+) -> Result<(), CssError> {
+    let mut gradients = Vec::new();
+    let mut image = PropertyValue::None;
+
+    let _ = parser.parse_comma_separated_with(|parser| {
+        if let Ok(parsed_image) = parser.try_parse_with(parse_asset_path::<Image>) {
+            image = PropertyValue::Value(parsed_image);
+        } else if let Ok(parsed_gradient) = parser.try_parse_with(parse_gradient) {
+            gradients.push(parsed_gradient);
+        }
+        Ok(())
+    })?;
+
+    if image != PropertyValue::None {
+        result.push((BEVY_BACKGROUND_IMAGE, image));
+    }
+    if !gradients.is_empty() {
+        result.push((
+            BEVY_BACKGROUND_GRADIENT,
+            PropertyValue::Value(ReflectValue::new(BackgroundGradient(gradients))),
+        ))
+    }
+    Ok(())
+}
+
+fn parse_background_image(parser: &mut Parser) -> ShorthandParseResult {
+    let mut result = Vec::new();
+    parse_background_image_inner(parser, &mut result)?;
+    Ok(result)
+}
+
+fn parse_background(parser: &mut Parser) -> ShorthandParseResult {
+    let mut result = Vec::new();
+    if let Ok(background_color) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
+    {
+        result.push((BACKGROUND_COLOR, background_color.map(ReflectValue::new)));
+    }
+    parse_background_image_inner(parser, &mut result)?;
+
+    Ok(result)
 }
 
 define_css_properties! {
@@ -616,6 +715,164 @@ fn parse_grid(parser: &mut Parser) -> ShorthandParseResult {
     ])
 }
 
+define_css_properties! {
+    const TRANSLATE = "translate";
+    const SCALE = "scale";
+    const ROTATE = "rotate";
+}
+
+fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, CssError> {
+    let start = parser.state();
+    let function = parser.expect_located_function()?;
+
+    match_ignore_ascii_case! { &*function,
+        "translate" => {
+            parser.parse_nested_block_with(|parser| {
+                let translate_x = parse_calc_val(parser)?;
+                let translate_y = parser
+                    .try_parse_with(|parser| {
+                        parser.expect_comma()?;
+                        parse_calc_val(parser)
+                    })
+                    .unwrap_or(Val::ZERO);
+                Ok(Some(Val2::new(translate_x, translate_y)))
+            })
+        },
+        "translatex" => {
+            parser.parse_nested_block_with(|parser| {
+                let translate_x = parse_calc_val(parser)?;
+                Ok(Some(Val2::new(translate_x, Val::ZERO)))
+            })
+        },
+        "translatey" => {
+            parser.parse_nested_block_with(|parser| {
+                let translate_y = parse_calc_val(parser)?;
+                Ok(Some(Val2::new(Val::ZERO, translate_y)))
+            })
+        },
+        "scale" | "scalex" | "scaley" | "rotate" | "rotatez" => {
+            parser.reset(&start);
+            Ok(None)
+        },
+        _ => {
+            Err(CssError::new_located(
+                &function,
+                error_codes::transform::UNEXPECTED_TRANSFORM_FUNCTION,
+                format!("Function '{function}' is not supported. Valid functions are 'translate' | 'translatex' | 'translatey' | 'scale' | 'scalex' | 'scaley' | 'rotate' | 'rotatez'"),
+            ))
+        },
+    }
+}
+
+const INVALID_ORDER_OF_FUNCTIONS: &str =
+    "Invalid order of functions. The only correct order is translate(..) scale(..) rotate(..)";
+
+fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssError> {
+    let start = parser.state();
+    let Ok(function) = parser.try_parse_with(|parser| parser.expect_located_function()) else {
+        return Ok(None);
+    };
+
+    match_ignore_ascii_case! { &function,
+        "scale" => {
+            parser.parse_nested_block_with(|parser| {
+                let scale_x = parse_calc_f32(parser)?;
+                let scale_y = parser
+                    .try_parse_with(|parser| {
+                        parser.expect_comma()?;
+                        parse_calc_f32(parser)
+                    })
+                    .unwrap_or(scale_x);
+
+                Ok(Some(Vec2::new(scale_x, scale_y)))
+            })
+        },
+        "scalex" => {
+            parser.parse_nested_block_with(|parser| {
+                let scale_x = parse_calc_f32(parser)?;
+                Ok(Some(Vec2::new(scale_x, 1.0)))
+            })
+        },
+        "scaley" => {
+            parser.parse_nested_block_with(|parser| {
+                let scale_y = parse_calc_f32(parser)?;
+                Ok(Some(Vec2::new(1.0, scale_y)))
+            })
+        },
+        "translate" | "translatey" | "translatex" => {
+            Err(CssError::new_located(
+                &function,
+                error_codes::transform::INVALID_TRANSFORM_FUNCTION_ORDER,
+                INVALID_ORDER_OF_FUNCTIONS
+            ))
+        },
+        _ => {
+            parser.reset(&start);
+            Ok(None)
+        },
+    }
+}
+
+fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssError> {
+    let start = parser.state();
+    let Ok(function) = parser.try_parse_with(|parser| parser.expect_located_function()) else {
+        return Ok(None);
+    };
+
+    match_ignore_ascii_case! { &function,
+        "rotate" | "rotatez" => {
+            parser.parse_nested_block_with(|parser| {
+                Ok(Some(parse_calc_angle(parser)?))
+            })
+        },
+        "scale" | "scalex" | "scaley" | "translate" | "translatey" | "translatex" => {
+            Err(CssError::new_located(
+                &function,
+                error_codes::transform::INVALID_TRANSFORM_FUNCTION_ORDER,
+                INVALID_ORDER_OF_FUNCTIONS
+            ))
+        },
+        _ => {
+            parser.reset(&start);
+            Ok(None)
+        },
+    }
+}
+
+fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
+    if try_parse_none::<()>(parser).is_some() {
+        todo!("parser");
+        // return Ok(vec![]);
+    }
+
+    let Some((translation, scale, rotation)) = (
+        parse_ui_transform_translation,
+        parse_ui_transform_scale,
+        parse_ui_transform_rotation,
+    )
+        .combined_parse(parser)?
+    else {
+        let next = parser.next().cloned()?;
+        return Err(CssError::from(
+            parser.new_unexpected_token_error::<()>(next),
+        ));
+    };
+
+    let mut result = Vec::new();
+
+    if let Some(translation) = translation {
+        result.push((TRANSLATE, ReflectValue::new(translation).into()));
+    }
+    if let Some(scale) = scale {
+        result.push((SCALE, ReflectValue::new(scale).into()));
+    }
+    if let Some(rotation) = rotation {
+        result.push((ROTATE, ReflectValue::new(rotation).into()));
+    }
+
+    Ok(result)
+}
+
 pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandPropertyRegistry) {
     registry.register_new("overflow", [OVERFLOW_X, OVERFLOW_Y], parse_overflow);
     registry.register_new("outline", [OUTLINE_WIDTH, OUTLINE_COLOR], parse_outline);
@@ -626,9 +883,22 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
             BORDER_RIGHT_WIDTH,
             BORDER_TOP_WIDTH,
             BORDER_BOTTOM_WIDTH,
-            BORDER_COLOR,
+            BORDER_TOP_COLOR,
+            BORDER_RIGHT_COLOR,
+            BORDER_BOTTOM_COLOR,
+            BORDER_LEFT_COLOR,
         ],
         parse_border,
+    );
+    registry.register_new(
+        "border-color",
+        [
+            BORDER_TOP_COLOR,
+            BORDER_RIGHT_COLOR,
+            BORDER_BOTTOM_COLOR,
+            BORDER_LEFT_COLOR,
+        ],
+        parse_border_color,
     );
     registry.register_new(
         "border-radius",
@@ -662,6 +932,20 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         [ALIGN_ITEMS, JUSTIFY_ITEMS],
         parse_place_items,
     );
+    registry.register_new(
+        "background-image",
+        [BEVY_BACKGROUND_IMAGE, BEVY_BACKGROUND_GRADIENT],
+        parse_background_image,
+    );
+    registry.register_new(
+        "background",
+        [
+            BACKGROUND_COLOR,
+            BEVY_BACKGROUND_IMAGE,
+            BEVY_BACKGROUND_GRADIENT,
+        ],
+        parse_background,
+    );
     registry.register_new("gap", [COLUMN_GAP, ROW_GAP], parse_gap);
     registry.register_new(
         "grid-template",
@@ -679,6 +963,7 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         ],
         parse_grid,
     );
+    registry.register_new("transform", [TRANSLATE, SCALE, ROTATE], parse_transform);
 }
 
 /// A plugin that registers common CSS shorthand properties.
@@ -699,7 +984,7 @@ impl Plugin for ShorthandPropertiesPlugin {
         register_default_shorthand_properties(registry);
     }
 
-    /// Warns about conflicts between the [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
+    /// Panics (in debug mode) or Warns (in release mode) about conflicts between the [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
     fn finish(&self, app: &mut App) {
         let property_registry = app.world().resource::<PropertyRegistry>();
         let shorthand_registry = app.world().resource::<ShorthandPropertyRegistry>();
@@ -709,9 +994,13 @@ impl Plugin for ShorthandPropertiesPlugin {
                 .get_property_id_by_css_name(css_name)
                 .is_some()
             {
-                warn!(
+                let msg = format!(
                     "Shorthand property '{css_name}' is registered both in PropertyRegistry and ShorthandPropertyRegistry"
                 );
+                #[cfg(debug_assertions)]
+                panic!("{msg}");
+                #[cfg(not(debug_assertions))]
+                tracing::warn!("{msg}");
             }
         }
     }
@@ -720,11 +1009,14 @@ impl Plugin for ShorthandPropertiesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::parse_property_content_with;
-    use bevy_color::Color;
     use bevy_color::palettes::css;
+    use bevy_color::{Color, Srgba};
 
-    use bevy_ui::{GridTrack, RepeatedGridTrack};
+    use bevy_flair_style::AssetPathPlaceHolder;
+    use bevy_ui::{
+        ColorStop, Gradient, GridTrack, LinearGradient, RadialGradient, RadialGradientShape,
+        RepeatedGridTrack, UiPosition,
+    };
     use std::sync::LazyLock;
 
     static REGISTRY: LazyLock<ShorthandPropertyRegistry> = LazyLock::new(|| {
@@ -735,6 +1027,12 @@ mod tests {
 
     trait IntoReflectValue {
         fn into_reflect_value(self) -> ReflectValue;
+    }
+
+    impl IntoReflectValue for Srgba {
+        fn into_reflect_value(self) -> ReflectValue {
+            ReflectValue::Color(self.into())
+        }
     }
 
     macro_rules! impl_into_reflect_value {
@@ -751,13 +1049,18 @@ mod tests {
 
     impl_into_reflect_value!(
         f32,
+        Vec2,
         Color,
         Val,
+        Val2,
+        Rot2,
         AlignItems,
         JustifyItems,
         GridAutoFlow,
-        Vec::<RepeatedGridTrack>,
-        Vec::<GridTrack>
+        Vec<RepeatedGridTrack>,
+        Vec<GridTrack>,
+        BackgroundGradient,
+        AssetPathPlaceHolder<Image>
     );
 
     trait IntoPropertyValue {
@@ -792,13 +1095,26 @@ mod tests {
                 .get_property($property_name)
                 .expect(&format!("Property '{}' not found", $property_name));
 
-            let mut result = parse_property_content_with($contents, |parser| property.parse(parser));
+            let mut result = crate::testing::parse_property_content_with($contents, |parser| property.parse(parser));
 
             result.sort_by(|(a, _), (b, _)| a.cmp(&b));
 
             assert_eq!(result, expected);
         }};
+    }
 
+    macro_rules! test_err_shorthand_property {
+        ($property_name:literal, $contents:literal, $err:literal) => {{
+            let property = REGISTRY
+                .get_property($property_name)
+                .expect(&format!("Property '{}' not found", $property_name));
+
+            let err = crate::testing::parse_err_property_content_with($contents, |parser| {
+                property.parse(parser)
+            });
+
+            assert_eq!(err, $err);
+        }};
     }
 
     #[test]
@@ -831,7 +1147,10 @@ mod tests {
             "border-right-width" => Val::Px(3.0),
             "border-bottom-width" => Val::Px(3.0),
             "border-top-width" => Val::Px(3.0),
-            "border-color" => Color::from(css::BLACK),
+            "border-top-color" => Color::from(css::BLACK),
+            "border-right-color" => Color::from(css::BLACK),
+            "border-bottom-color" => Color::from(css::BLACK),
+            "border-left-color" => Color::from(css::BLACK),
         });
 
         test_shorthand_property!("border-width", "3px 5%", {
@@ -945,6 +1264,63 @@ mod tests {
     }
 
     #[test]
+    fn test_background_image() {
+        test_shorthand_property!("background-image", "url('image.png')", {
+            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+        });
+
+        test_shorthand_property!("background-image", "linear-gradient(to top, blue, red)", {
+            "-bevy-background-gradient" => BackgroundGradient::from(LinearGradient::new(
+                0.0,
+                vec![
+                    ColorStop::auto(css::BLUE),
+                    ColorStop::auto(css::RED),
+                ],
+            )),
+        });
+
+        test_shorthand_property!("background-image", "url('image.png'), linear-gradient(to top, blue, red), radial-gradient(green, white)", {
+            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+            "-bevy-background-gradient" => BackgroundGradient(vec![
+                Gradient::Linear(LinearGradient::new(
+                    0.0,
+                    vec![ColorStop::auto(css::BLUE), ColorStop::auto(css::RED),]
+                )),
+                Gradient::Radial(RadialGradient::new(
+                    UiPosition::CENTER,
+                    RadialGradientShape::FarthestCorner,
+                    vec![ColorStop::auto(css::GREEN), ColorStop::auto(css::WHITE),]
+                )),
+
+            ]),
+        });
+    }
+
+    #[test]
+    fn test_background() {
+        test_shorthand_property!("background", "black", {
+            "background-color" => css::BLACK,
+        });
+
+        test_shorthand_property!("background", "red url('image.png'), linear-gradient(to top, blue, red), radial-gradient(green, white)", {
+            "background-color" => css::RED,
+            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+            "-bevy-background-gradient" => BackgroundGradient(vec![
+                Gradient::Linear(LinearGradient::new(
+                    0.0,
+                    vec![ColorStop::auto(css::BLUE), ColorStop::auto(css::RED),]
+                )),
+                Gradient::Radial(RadialGradient::new(
+                    UiPosition::CENTER,
+                    RadialGradientShape::FarthestCorner,
+                    vec![ColorStop::auto(css::GREEN), ColorStop::auto(css::WHITE),]
+                )),
+
+            ]),
+        });
+    }
+
+    #[test]
     fn test_gap() {
         test_shorthand_property!("gap", "20px", {
             "column-gap" => Val::Px(20.0),
@@ -1028,5 +1404,69 @@ mod tests {
             "grid-auto-rows" => grid_auto_rows,
             "grid-auto-columns" => grid_auto_columns,
         });
+    }
+
+    #[test]
+    fn test_transform() {
+        test_shorthand_property!("transform", "translate(2px)", {
+            "translate" => Val2::px(2.0, 0.0),
+        });
+
+        test_shorthand_property!("transform", "translate(calc(2% * 3))", {
+            "translate" => Val2::percent(6.0, 0.0),
+        });
+
+        test_shorthand_property!("transform", "translate(10%, 15px)", {
+            "translate" => Val2::new(Val::Percent(10.0), Val::Px(15.0)),
+        });
+
+        test_shorthand_property!("transform", "rotate(120deg)", {
+            "rotate" => Rot2::degrees(120.0),
+        });
+
+        test_shorthand_property!("transform", "rotate(calc(130deg - 30deg))", {
+            "rotate" => Rot2::degrees(100.0),
+        });
+
+        test_shorthand_property!("transform", "rotate(-20deg)", {
+            "rotate" => Rot2::degrees(-20.0),
+        });
+
+        test_shorthand_property!("transform", "scale(1.5, 2.0)", {
+            "scale" => Vec2::new(1.5, 2.0),
+        });
+
+        test_shorthand_property!("transform", "translate(10px, 0) scale(2.5) rotate(120deg)", {
+            "translate" => Val2::new(Val::Px(10.0), Val::ZERO),
+            "scale" => Vec2::splat(2.5),
+            "rotate" => Rot2::degrees(120.0),
+        });
+
+        test_shorthand_property!("transform", "translate(20px) rotate(120deg)", {
+            "translate" => Val2::new(Val::Px(20.0), Val::ZERO),
+            "rotate" => Rot2::degrees(120.0),
+        });
+
+        test_err_shorthand_property!("transform", "translatez(20px)", 
+            "[71] Warning: Transform function not supported
+   ,-[ test.css:1:1 ]
+   |
+ 1 | translatez(20px)
+   | |^^^^^^^^^^\x20\x20
+   | `------------ Function 'translatez' is not supported. Valid functions are 'translate' | 'translatex' | 'translatey' | 'scale' | 'scalex' | 'scaley' | 'rotate' | 'rotatez'
+---'
+"
+        );
+
+        test_err_shorthand_property!("transform", "scale(2.0, 3.0) translate(2px)",
+            "[70] Warning: Transform function not in order
+   ,-[ test.css:1:17 ]
+   |
+ 1 | scale(2.0, 3.0) translate(2px)
+   |                 |^^^^^^^^^\x20\x20
+   |                 `----------- Invalid order of functions. The only correct order is translate(..) scale(..) rotate(..)
+---'
+"
+        );
     }
 }

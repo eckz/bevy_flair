@@ -336,7 +336,7 @@ impl Transition {
         }
         self.timer.tick(delta);
 
-        if self.timer.finished() {
+        if self.timer.is_finished() {
             self.state = AnimationState::Finished;
         } else if self.state == AnimationState::Pending
             && (self.timer.elapsed_secs() - self.initial_delay) >= 0.0

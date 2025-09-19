@@ -5,7 +5,9 @@
 
 use bevy_app::prelude::*;
 use bevy_asset::prelude::*;
+use bevy_ecs::intern::Interned;
 use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::ScheduleLabel;
 use bevy_flair_core::*;
 use bevy_reflect::prelude::*;
 use bevy_text::TextSpan;
@@ -13,6 +15,7 @@ use bevy_ui::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Write;
+use std::marker::PhantomData;
 
 mod builder;
 pub mod components;
@@ -46,6 +49,8 @@ pub(crate) type AttributeKey = smol_str::SmolStr;
 pub(crate) type AttributeValue = smol_str::SmolStr;
 pub(crate) type VarName = std::sync::Arc<str>;
 
+// TODO: Add support to CoreWidgets added in bevy 0.17
+
 /// Represents the current pseudo state of an entity.
 /// By default, it supports only the basic pseudo classes like `:hover`, `:active`, and `:focus`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect, Serialize, Deserialize)]
@@ -58,6 +63,10 @@ pub struct NodePseudoState {
     pub focused: bool,
     /// If the entity is focused and the focus visibility is active
     pub focused_and_visible: bool,
+    /// If the entity is disabled (`:disabled`)
+    pub disabled: bool,
+    /// If the entity is checked (`:checked`)
+    pub checked: bool,
 }
 
 impl NodePseudoState {
@@ -67,6 +76,8 @@ impl NodePseudoState {
         hovered: false,
         focused: false,
         focused_and_visible: false,
+        disabled: false,
+        checked: false,
     };
     /// Returns true if state represents a pressed state.
     pub fn is_pressed(&self) -> bool {
@@ -80,6 +91,8 @@ impl NodePseudoState {
             NodePseudoStateSelector::Hovered => self.hovered,
             NodePseudoStateSelector::Focused => self.focused,
             NodePseudoStateSelector::FocusedAndVisible => self.focused_and_visible,
+            NodePseudoStateSelector::Disabled => self.disabled,
+            NodePseudoStateSelector::Checked => self.checked,
         }
     }
 }
@@ -87,14 +100,18 @@ impl NodePseudoState {
 /// Helper class that can be used to match against a node state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NodePseudoStateSelector {
-    /// If the entity is pressed
+    /// If the entity is pressed (`:active`)
     Pressed,
-    /// If the entity is hovered
+    /// If the entity is hovered (`:hover`)
     Hovered,
-    /// If the entity is focused
+    /// If the entity is focused (`:focus`)
     Focused,
-    /// If the entity is focused and the focus indicator is visible
+    /// If the entity is focused and the focus indicator is visible  (`:focus-visible`)
     FocusedAndVisible,
+    /// If the entity is disabled (`:disabled`)
+    Disabled,
+    /// If the entity is checked (`:checked`)
+    Checked,
 }
 
 impl ToCss for NodePseudoStateSelector {
@@ -104,6 +121,8 @@ impl ToCss for NodePseudoStateSelector {
             NodePseudoStateSelector::Hovered => dest.write_str(":hover"),
             NodePseudoStateSelector::Focused => dest.write_str(":focus"),
             NodePseudoStateSelector::FocusedAndVisible => dest.write_str(":focus-visible"),
+            NodePseudoStateSelector::Disabled => dest.write_str(":disabled"),
+            NodePseudoStateSelector::Checked => dest.write_str(":checked"),
         }
     }
 }
@@ -143,7 +162,7 @@ impl GlobalChangeDetection {
 
 /// System sets for the [`FlairStylePlugin`] plugin.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, SystemSet)]
-pub enum StyleSystemSets {
+pub enum StyleSystems {
     /// Any pre-requisite before start calculating any style.
     Prepare,
 
@@ -163,7 +182,7 @@ pub enum StyleSystemSets {
     CalculateStyles,
 
     /// Sets new properties, transitions and animations for nodes that are marked for recalculation.
-    SetStyleProperties,
+    SetPropertyValues,
 
     /// Converts properties set in `CalculateStyle` into computed properties. Also calculates inherited properties.
     ComputeProperties,
@@ -172,7 +191,7 @@ pub enum StyleSystemSets {
     EmitAnimationEvents,
 
     /// Effectively applies changes from animations and style changes into the Components.
-    ApplyProperties,
+    ApplyComputedProperties,
 
     /// Emits a [`bevy_window::RequestRedraw`] if any animation is active.
     EmitRedrawEvent,
@@ -193,8 +212,10 @@ pub enum TransitionEventType {
 
 /// An event representing a change (or attempted change) in a component property,
 /// triggered during a transition process.
-#[derive(Clone, PartialEq, Debug, Event)]
+#[derive(Clone, PartialEq, Debug, EntityEvent)]
 pub struct TransitionEvent {
+    /// Entity that caused the event to happen.
+    pub entity: Entity,
     /// The type of transition event (e.g., Started, Replaced, Finished).
     pub event_type: TransitionEventType,
     /// The property involved in the transition.
@@ -215,6 +236,7 @@ impl TransitionEvent {
         let from = transition.from.clone();
         let to = transition.to.clone();
         Self {
+            entity: Entity::PLACEHOLDER,
             event_type,
             property_id,
             from,
@@ -223,24 +245,72 @@ impl TransitionEvent {
     }
 }
 
+#[derive(Resource)]
+struct StyleAnimationsMarker(&'static str);
+
+/// Enables bevy_flair to work on a custom time and schedule.
+pub struct FlairStyleAnimationsPlugin<T: Default + Send + Sync + 'static> {
+    _ph: PhantomData<fn() -> T>,
+    schedule: Interned<dyn ScheduleLabel>,
+}
+
+impl<T: Default + Send + Sync + 'static> FlairStyleAnimationsPlugin<T> {
+    /// Creates a new [`FlairStyleAnimationsPlugin`] by specifying in which [`ScheduleLabel`]
+    /// the animations should run. By default, [`PostUpdate`] is used.
+    pub fn new(schedule: impl ScheduleLabel) -> Self {
+        Self {
+            _ph: PhantomData,
+            schedule: schedule.intern(),
+        }
+    }
+}
+
+impl<T: Default + Send + Sync + 'static> Default for FlairStyleAnimationsPlugin<T> {
+    fn default() -> Self {
+        Self::new(PostUpdate)
+    }
+}
+
+impl<T: Default + Send + Sync + 'static> Plugin for FlairStyleAnimationsPlugin<T> {
+    fn build(&self, app: &mut App) {
+        if let Some(StyleAnimationsMarker(other_plugin)) =
+            app.world().get_resource::<StyleAnimationsMarker>()
+        {
+            panic!(
+                "FlairStyleAnimationsPlugin has been instantiated already. Tried to add '{this_plugin}' when '{other_plugin}' has been inserted already",
+                this_plugin = std::any::type_name::<Self>()
+            )
+        }
+
+        app.insert_resource(StyleAnimationsMarker(std::any::type_name::<Self>()));
+
+        app.add_systems(
+            self.schedule,
+            systems::tick_animations::<T>.in_set(StyleSystems::TickAnimations),
+        );
+    }
+}
+
+/// Enables animations by using `Time<Real>` in the [`PostUpdate`] schedule label,
+/// which is the default behaviour.
+#[derive(Default)]
+pub struct FlairDefaultStyleAnimationsPlugin;
+
+impl Plugin for FlairDefaultStyleAnimationsPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(FlairStyleAnimationsPlugin::<bevy_time::Real>::default());
+    }
+}
+
 /// Plugin that adds the styling systems to Bevy.
+
+#[derive(Default)]
 pub struct FlairStylePlugin;
 
 impl Plugin for FlairStylePlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<StyleSheet>()
             .init_resource::<GlobalChangeDetection>()
-            .register_type::<WindowMediaFeatures>()
-            .register_type::<NodeStyleSheet>()
-            .register_type::<NodeStyleData>()
-            .register_type::<NodeStyleActiveRules>()
-            .register_type::<NodeStyleMarker>()
-            .register_type::<TypeName>()
-            .register_type::<PseudoElement>()
-            .register_type::<ClassList>()
-            .register_type::<AttributeList>()
-            .register_type::<Siblings>()
-            .register_type::<NodeVars>()
             .register_required_components::<Node, NodeStyleSheet>()
             .register_required_components::<TextSpan, NodeStyleSheet>()
             .register_required_components_with::<Button, TypeName>(|| {
@@ -260,18 +330,18 @@ impl Plugin for FlairStylePlugin {
                 PostUpdate,
                 (
                     (
-                        StyleSystemSets::Prepare,
-                        StyleSystemSets::SetStyleData,
-                        StyleSystemSets::MarkNodesForRecalculation,
-                        StyleSystemSets::CalculateStyles,
-                        StyleSystemSets::SetStyleProperties,
-                        StyleSystemSets::ComputeProperties,
-                        StyleSystemSets::ApplyProperties.before(bevy_ui::UiSystem::Layout),
-                        StyleSystemSets::EmitRedrawEvent,
+                        StyleSystems::Prepare,
+                        StyleSystems::SetStyleData,
+                        StyleSystems::MarkNodesForRecalculation,
+                        StyleSystems::CalculateStyles,
+                        StyleSystems::SetPropertyValues,
+                        StyleSystems::ComputeProperties,
+                        StyleSystems::ApplyComputedProperties.before(bevy_ui::UiSystems::Content),
+                        StyleSystems::EmitRedrawEvent,
                     )
                         .chain(),
-                    StyleSystemSets::TickAnimations.before(StyleSystemSets::SetStyleProperties),
-                    StyleSystemSets::EmitAnimationEvents.after(StyleSystemSets::ComputeProperties),
+                    StyleSystems::TickAnimations.before(StyleSystems::SetPropertyValues),
+                    StyleSystems::EmitAnimationEvents.after(StyleSystems::ComputeProperties),
                 ),
             )
             .add_systems(PreStartup, |mut commands: Commands| {
@@ -297,39 +367,43 @@ impl Plugin for FlairStylePlugin {
                         (systems::sort_pseudo_elements, systems::sync_siblings_system).chain(),
                         systems::reset_properties_on_added,
                     )
-                        .in_set(StyleSystemSets::Prepare),
+                        .in_set(StyleSystems::Prepare),
                     (
                         systems::calculate_is_root,
                         systems::apply_classes,
                         systems::apply_attributes,
-                        systems::interaction_system,
+                        systems::sync_marker_component_system::<bevy_ui::Pressed>(|state, value| { state.pressed = value; }),
+                        systems::sync_marker_component_system::<bevy_ui::InteractionDisabled>(|state, value| { state.disabled = value; }),
+                        systems::sync_marker_component_system::<bevy_ui::Checked>(|state, value| { state.checked = value; }),
+                        systems::sync_hovered_system,
+                        systems::sync_interaction_system,
                         systems::track_name_changes,
                         systems::sync_input_focus,
                     )
-                        .in_set(StyleSystemSets::SetStyleData),
+                        .in_set(StyleSystems::SetStyleData),
                     (
                         systems::mark_related_nodes_for_recalculation,
                         systems::mark_changed_nodes_for_recalculation,
-                        systems::mark_nodes_for_recalculation_on_computed_node_target_change
-                            .after(bevy_ui::UiSystem::Prepare),
-                        systems::mark_nodes_for_recalculation_on_window_media_features_change,
+                        (
+                            systems::mark_nodes_for_recalculation_on_render_target_info_change,
+                            systems::mark_nodes_for_recalculation_on_window_media_features_change
+                        ).after(bevy_ui::UiSystems::Propagate),
                     )
                         .chain()
-                        .in_set(StyleSystemSets::MarkNodesForRecalculation),
-                    systems::tick_animations.in_set(StyleSystemSets::TickAnimations),
-                    systems::calculate_style_and_set_vars.in_set(StyleSystemSets::CalculateStyles),
-                    systems::set_style_properties.in_set(StyleSystemSets::SetStyleProperties),
+                        .in_set(StyleSystems::MarkNodesForRecalculation),
+                    systems::calculate_style_and_set_vars.in_set(StyleSystems::CalculateStyles),
+                    systems::set_property_values.in_set(StyleSystems::SetPropertyValues),
                     (
                         systems::compute_property_values
                             .run_if(systems::compute_property_values_condition),
                         systems::compute_property_values_just_transitions_and_animations
                             .run_if(systems::compute_property_values_just_transitions_and_animations_condition)
-                    ).in_set(StyleSystemSets::ComputeProperties),
-                    systems::emit_animation_events.in_set(StyleSystemSets::EmitAnimationEvents),
-                    systems::emit_redraw_event.in_set(StyleSystemSets::EmitRedrawEvent),
-                    systems::apply_properties
-                        .run_if(systems::apply_properties_condition)
-                        .in_set(StyleSystemSets::ApplyProperties),
+                    ).in_set(StyleSystems::ComputeProperties),
+                    systems::emit_animation_events.in_set(StyleSystems::EmitAnimationEvents),
+                    systems::emit_redraw_event.in_set(StyleSystems::EmitRedrawEvent),
+                    systems::apply_computed_properties
+                        .run_if(systems::apply_computed_properties_condition)
+                        .in_set(StyleSystems::ApplyComputedProperties),
                 ),
             );
     }
@@ -339,12 +413,12 @@ impl Plugin for FlairStylePlugin {
 mod tests {
     use super::*;
     use bevy_app::App;
-    use bevy_asset::weak_handle;
+    use bevy_asset::uuid_handle;
     use bevy_ecs::system::RunSystemOnce;
     use bevy_ui::Node;
 
     const TEST_STYLE_SHEET: NodeStyleSheet =
-        NodeStyleSheet::new(weak_handle!("fe981062-17ce-46e4-999a-5a61ea8fe722"));
+        NodeStyleSheet::new(uuid_handle!("fe981062-17ce-46e4-999a-5a61ea8fe722"));
 
     const ROOT: (TestNode, NodeStyleSheet) = (TestNode, TEST_STYLE_SHEET);
 
@@ -423,8 +497,6 @@ mod tests {
     fn app() -> App {
         let mut app = App::new();
 
-        app.init_resource::<PropertyRegistry>();
-
         app.add_plugins((
             bevy_time::TimePlugin,
             bevy_window::WindowPlugin {
@@ -432,12 +504,20 @@ mod tests {
                 ..Default::default()
             },
             AssetPlugin::default(),
+            PropertyRegistryPlugin,
             BevyUiPropertiesPlugin,
             FlairStylePlugin,
         ));
 
-        // Fixed in https://github.com/bevyengine/bevy/pull/19680
-        app.register_type_data::<&'static str, ReflectSerialize>();
+        // Not registered, but needed for testing.
+        app.register_type::<NodeStyleSheet>()
+            .register_type::<NodeStyleData>()
+            .register_type::<Siblings>();
+
+        // Bevy uses auto register for these, but auto register is not enable in testing.
+        app.register_type::<ChildOf>()
+            .register_type::<Children>()
+            .register_type::<Name>();
 
         app.register_type::<Child>()
             .register_type::<GrandChild>()
@@ -467,6 +547,132 @@ mod tests {
         });
         app.update();
         assert_world_snapshot!(app, (CustomButton, NodeStyleData));
+    }
+
+    macro_rules! node_pseudo_state {
+        ($app:ident, $entity:ident) => {
+            &$app
+                .world()
+                .get::<NodeStyleData>($entity)
+                .unwrap()
+                .pseudo_state
+        };
+    }
+
+    #[test]
+    fn state_marker_components() {
+        use bevy_ui::{Checked, InteractionDisabled, Pressed};
+        let mut app = app();
+
+        let entity = app.world_mut().spawn(ROOT).id();
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(!pseudo_state.disabled);
+        assert!(!pseudo_state.checked);
+        assert!(!pseudo_state.pressed);
+
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((Pressed, Checked));
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(!pseudo_state.disabled);
+        assert!(pseudo_state.checked);
+        assert!(pseudo_state.pressed);
+
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<(Pressed, Checked)>()
+            .insert(InteractionDisabled);
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(pseudo_state.disabled);
+        assert!(!pseudo_state.checked);
+        assert!(!pseudo_state.pressed);
+
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<(InteractionDisabled,)>()
+            .insert(Checked);
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<(Checked,)>()
+            .insert((InteractionDisabled, Pressed));
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(pseudo_state.disabled);
+        assert!(!pseudo_state.checked);
+        assert!(pseudo_state.pressed);
+    }
+
+    #[test]
+    fn focus_state() {
+        use bevy_input_focus::{InputFocus, InputFocusVisible};
+        let mut app = app();
+
+        let entity = app.world_mut().spawn(ROOT).id();
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(!pseudo_state.focused);
+        assert!(!pseudo_state.focused_and_visible);
+
+        app.world_mut().insert_resource(InputFocus(Some(entity)));
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(pseudo_state.focused);
+        assert!(!pseudo_state.focused_and_visible);
+
+        app.world_mut().insert_resource(InputFocusVisible(true));
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(pseudo_state.focused);
+        assert!(pseudo_state.focused_and_visible);
+
+        app.world_mut().resource_mut::<InputFocus>().0 = None;
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(!pseudo_state.focused);
+        assert!(!pseudo_state.focused_and_visible);
+
+        app.world_mut().resource_mut::<InputFocus>().0 = Some(entity);
+        app.world_mut().resource_mut::<InputFocusVisible>().0 = false;
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(pseudo_state.focused);
+        assert!(!pseudo_state.focused_and_visible);
+    }
+
+    #[test]
+    fn hovered_state() {
+        use bevy_picking::hover::Hovered;
+        let mut app = app();
+
+        let entity = app.world_mut().spawn(ROOT).id();
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(!pseudo_state.hovered);
+
+        app.world_mut().entity_mut(entity).insert(Hovered(true));
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(pseudo_state.hovered);
+
+        app.world_mut().entity_mut(entity).insert(Hovered(false));
+        app.update();
+
+        let pseudo_state = node_pseudo_state!(app, entity);
+        assert!(!pseudo_state.hovered);
     }
 
     #[test]

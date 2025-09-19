@@ -64,14 +64,15 @@ impl PropertyFns {
     }
 }
 
-type GetComponentFromEntity = for<'a> fn(FilteredEntityRef<'a>) -> Option<&'a dyn PartialReflect>;
+type GetComponentFromEntity =
+    for<'w, 's> fn(FilteredEntityRef<'w, 's>) -> Option<&'w dyn PartialReflect>;
 type GetComponentFromEntityMut = for<'w> fn(EntityMut<'w>) -> Option<&'w mut dyn PartialReflect>;
 
 type AddComponentToWorldFn = for<'a> fn(&mut EntityWorldMut, Box<dyn Reflect>);
 
-fn get_component_from_entity<T: Component + Reflect>(
-    entity: FilteredEntityRef<'_>,
-) -> Option<&dyn PartialReflect> {
+fn get_component_from_entity<'w, 's, T: Component + Reflect>(
+    entity: FilteredEntityRef<'w, 's>,
+) -> Option<&'w dyn PartialReflect> {
     let component = entity.get::<T>()?;
     Some(component.as_partial_reflect())
 }
@@ -418,10 +419,10 @@ impl ComponentProperty {
     /// Returns the value of this property from the given entity.
     ///
     /// If the entity does not contain the component, None is returned.
-    pub fn get_value_from_entity<'a>(
+    pub fn get_value_from_entity<'w, 's>(
         &self,
-        entity: impl Into<FilteredEntityRef<'a>>,
-    ) -> Option<&'a dyn PartialReflect> {
+        entity: impl Into<FilteredEntityRef<'w, 's>>,
+    ) -> Option<&'w dyn PartialReflect> {
         let component = (self.component_fns.get_component_from_entity)(entity.into())?;
         Some(self.get_value(component))
     }

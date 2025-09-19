@@ -10,7 +10,7 @@ use bevy_reflect::{FromType, TypePath};
 use bevy_text::Font;
 use cssparser::Parser;
 
-fn parse_asset_path<A: TypePath>(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+pub(crate) fn parse_asset_path<A: TypePath>(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     let path = parser.expect_url_or_string()?;
     Ok(ReflectValue::new(AssetPathPlaceHolder::<A>::new(
         path.as_ref(),
@@ -38,7 +38,7 @@ impl FromType<Handle<Font>> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_css_2;
+    use crate::reflect::testing::test_parse_reflect_from_to;
     use bevy_asset::Handle;
     use bevy_flair_style::{AssetPathPlaceHolder, FontTypePlaceholder};
     use bevy_image::Image;
@@ -47,11 +47,11 @@ mod tests {
     #[test]
     fn test_font() {
         assert_eq!(
-            test_parse_css_2::<Handle<Font>, FontTypePlaceholder>("\"some-font\""),
+            test_parse_reflect_from_to::<Handle<Font>, FontTypePlaceholder>("\"some-font\""),
             FontTypePlaceholder("some-font".into())
         );
         assert_eq!(
-            test_parse_css_2::<Handle<Font>, FontTypePlaceholder>("some-font"),
+            test_parse_reflect_from_to::<Handle<Font>, FontTypePlaceholder>("some-font"),
             FontTypePlaceholder("some-font".into())
         );
     }
@@ -59,11 +59,15 @@ mod tests {
     #[test]
     fn test_asset_path() {
         assert_eq!(
-            test_parse_css_2::<Handle<Image>, AssetPathPlaceHolder<Image>>("url(\"some-path\")"),
+            test_parse_reflect_from_to::<Handle<Image>, AssetPathPlaceHolder<Image>>(
+                "url(\"some-path\")"
+            ),
             AssetPathPlaceHolder::new("some-path")
         );
         assert_eq!(
-            test_parse_css_2::<Handle<Image>, AssetPathPlaceHolder<Image>>("\"some-path\""),
+            test_parse_reflect_from_to::<Handle<Image>, AssetPathPlaceHolder<Image>>(
+                "\"some-path\""
+            ),
             AssetPathPlaceHolder::new("some-path")
         );
     }

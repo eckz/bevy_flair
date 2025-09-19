@@ -4,6 +4,7 @@
     box-sizing: content-box;
     position: absolute;
     overflow: clip;
+    -bevy-scrollbar-width: 3.0;
     overflow-clip-margin: padding-box 5px;
     left: 10px;
     right: 20%;
@@ -43,8 +44,13 @@
     outline-offset: -1px;
     z-index: 2;
     box-shadow: -2px -3px 10px 20px green;
+    transform: translate(10%, 20%) scale(0.75) rotate(45deg);
+
     -bevy-image-color: yellow;
     -bevy-image-mode: stretch;
+
+    background-image: linear-gradient(90deg, red, blue);
+    border-image: radial-gradient(at center, red, blue);
 }
 
 .with-important {
@@ -52,6 +58,7 @@
     box-sizing: content-box !important;
     position: absolute !important;
     overflow: clip !important;
+    -bevy-scrollbar-width: 3.0 !important;
     overflow-clip-margin: padding-box 5px !important;
     left: 10px !important;
     right: 20% !important;
@@ -91,8 +98,13 @@
     outline-offset: -1px !important;
     z-index: 2 !important;
     box-shadow: -2px -3px 10px 20px green !important;
+    transform: translate(10%, 20%) scale(0.75) rotate(45deg) !important;
+
     -bevy-image-color: yellow !important;
     -bevy-image-mode: stretch !important;
+
+    background-image: linear-gradient(90deg, red, blue) !important;
+    border-image: radial-gradient(at center, red, blue) !important;
 }
 
 .with-inherited-values {
@@ -100,6 +112,7 @@
     box-sizing: inherit;
     position: inherit;
     overflow: inherit;
+    -bevy-scrollbar-width: inherit;
     overflow-clip-margin: inherit;
     left: inherit;
     right: inherit;
@@ -139,8 +152,11 @@
     outline-offset: inherit;
     z-index: inherit;
     box-shadow: inherit;
+    transform: inherit;
     -bevy-image-color: inherit;
     -bevy-image-mode: inherit;
+    background-image: inherit;
+    border-image: inherit;
 }
 
 .with-initial-values {
@@ -148,6 +164,7 @@
     box-sizing: initial;
     position: initial;
     overflow: initial;
+    -bevy-scrollbar-width: initial;
     overflow-clip-margin: initial;
     left: initial;
     right: initial;
@@ -186,8 +203,11 @@
     outline-offset: initial;
     z-index: initial;
     box-shadow: initial;
+    transform: initial;
     -bevy-image-color: initial;
     -bevy-image-mode: initial;
+    background-image: initial;
+    border-image: initial;
 }
 
 text {

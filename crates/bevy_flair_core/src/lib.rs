@@ -73,6 +73,8 @@ default_properties! {
     "box-sizing" { Node[".box_sizing"] },
     "position" { Node[".position_type"] },
     sub_properties "overflow" { Node[".overflow"] },
+    // css scrollbar-width supports different values (https://developer.mozilla.org/en-US/docs/Web/CSS/scrollbar-width)
+    "-bevy-scrollbar-width" { Node[".scrollbar_width"] },
     "overflow-clip-margin" { Node[".overflow_clip_margin"] },
     "left" { Node[".left"] },
     "right" { Node[".right"] },
@@ -116,8 +118,14 @@ default_properties! {
     "grid-column" { Node[".grid_column"] },
 
     // Misc components
-    "border-color" { BorderColor[".0"] },
     "background-color" { BackgroundColor[".0"] },
+
+    // We need to manually register all border-color sub-properties
+    "border-top-color" { BorderColor[".top"] },
+    "border-right-color" { BorderColor[".right"] },
+    "border-bottom-color" { BorderColor[".bottom"] },
+    "border-left-color" { BorderColor[".left"] },
+
     // We need to manually register all border-radius sub-properties
     "border-top-left-radius" { BorderRadius[".top_left"] },
     "border-top-right-radius" { BorderRadius[".top_right"] },
@@ -126,10 +134,15 @@ default_properties! {
     sub_properties "outline" { insert_if_missing: Outline[""] },
     "box-shadow" { insert_if_missing: BoxShadow[""] },
     "z-index" { ZIndex[""] },
+    "translate" { UiTransform["translation"] },
+    "scale" { UiTransform["scale"] },
+    "rotate" { UiTransform["rotation"] },
+    "-bevy-background-gradient" { insert_if_missing: BackgroundGradient[""] },
+    "border-image" { insert_if_missing: BorderGradient[""] },
 
     // UiImage properties.
     // Note: The `-bevy-` css properties are not standard.
-    "background-image" { insert_if_missing: ImageNode[".image"] },
+    "-bevy-image" { insert_if_missing: ImageNode[".image"] },
     "-bevy-image-color" { insert_if_missing: ImageNode[".color"] },
     "-bevy-image-mode" { insert_if_missing: ImageNode[".image_mode"] },
 
@@ -150,7 +163,18 @@ default_properties! {
     "text-shadow" { insert_if_missing: TextShadow[""] },
 }
 
+/// Initializes [`PropertyRegistry`] in the world.
+#[derive(Default)]
+pub struct PropertyRegistryPlugin;
+
+impl Plugin for PropertyRegistryPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<PropertyRegistry>();
+    }
+}
+
 /// Register all Bevy UI properties
+#[derive(Default)]
 pub struct BevyUiPropertiesPlugin;
 
 macro_rules! register_sub_properties {
@@ -174,6 +198,9 @@ impl Plugin for BevyUiPropertiesPlugin {
             .register_type::<BorderRadius>()
             .register_type::<BoxShadow>()
             .register_type::<ZIndex>()
+            .register_type::<UiTransform>()
+            .register_type::<BackgroundGradient>()
+            .register_type::<BorderGradient>()
             .register_type::<ImageNode>()
             .register_type::<TextLayout>()
             .register_type::<TextFont>()
@@ -208,12 +235,7 @@ mod tests {
     fn registers_sub_properties() {
         let mut app = App::new();
 
-        app.add_plugins((
-            UiPlugin {
-                enable_rendering: false,
-            },
-            BevyUiPropertiesPlugin,
-        ));
+        app.add_plugins((UiPlugin, BevyUiPropertiesPlugin));
 
         app.finish();
 

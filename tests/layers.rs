@@ -1,9 +1,11 @@
 use bevy::prelude::*;
 use bevy_flair::prelude::*;
 
-mod common;
+mod test_app;
+mod unique_name;
 
-use common::*;
+use test_app::*;
+use unique_name::*;
 
 macro_rules! assert_left_eq {
     ($app:ident, $name:literal, $expected_left:expr) => {{

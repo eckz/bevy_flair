@@ -18,9 +18,6 @@ jobs:
           - name: Linux x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - name: Wasm
-            os: ubuntu-latest
-            target: wasm32-unknown-unknown
           - name: MacOS aarch64
             os: macos-14
             target: aarch64-apple-darwin
@@ -29,7 +26,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Cache
         uses: actions/cache@v3
         with:
@@ -54,6 +51,33 @@ jobs:
       - name: cargo check --release
         run: cargo check --release --workspace --target ${{ matrix.target }}
 
+  check-wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: check
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v3
+        with:
+          key: ${{ runner.os }}-wasm32-unknown-unknown-cargo-check-${{ hashFiles('**/Cargo.toml') }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: wasm32-unknown-unknown
+      - name: cargo check
+        run: cargo check --workspace --target wasm32-unknown-unknown
+        env:
+          RUSTFLAGS: --cfg getrandom_backend="wasm_js"
+      - name: cargo check --release
+        run: cargo check --release --workspace --target wasm32-unknown-unknown
+        env:
+          RUSTFLAGS: --cfg getrandom_backend="wasm_js"
+
   # Run cargo clippy --workspace  --all-targets  -- -D warnings
   clippy:
     name: Clippy
@@ -61,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Cache
         uses: actions/cache@v3
         with:
@@ -91,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -105,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install ubuntu deps
@@ -123,7 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Cache
         uses: actions/cache@v3
         with:
@@ -147,7 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/cache@v4
         with:
           path: |

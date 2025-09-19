@@ -5,12 +5,12 @@ expression: scene_serializer
 Scene(
   resources: {},
   entities: {
-    4294967296: Entity(
+    4294967295: Entity(
       components: {
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
-          effective_style_sheet: Weak(Uuid(
+          effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
-          )),
+          ),
           is_root: true,
           name: None,
           classes: [],
@@ -21,12 +21,12 @@ Scene(
             hovered: false,
             focused: false,
             focused_and_visible: false,
+            disabled: false,
+            checked: false,
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": StyleSheet(Weak(Uuid(
-          uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
-        ))),
+        "bevy_flair_style::components::NodeStyleSheet": StyleSheet(Uuid("fe981062-17ce-46e4-999a-5a61ea8fe722")),
         "bevy_flair_style::tests::CustomButton": CustomButton(),
       },
     ),
