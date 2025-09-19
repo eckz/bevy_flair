@@ -584,6 +584,7 @@ dependencies = [
  "bevy_flair_style",
  "criterion",
  "cssparser",
+ "getrandom",
 ]
 
 [[package]]

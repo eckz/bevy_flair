@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [`StyleSystemSets`] has been renamed to [`StyleSystems`] according to bevy recommendations.
 - Animations and transitions now follow `Time<Real>` instead of `Time<Virtual>` by default.
 
+### Fixed
+- Some spurious panics are fixed when nodes are spawned in the wrong order: https://github.com/eckz/bevy_flair/issues/5
+
+
 ## [0.4.1] - 15-Sep-2025
 
 ### Added
