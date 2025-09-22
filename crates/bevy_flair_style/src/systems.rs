@@ -201,16 +201,16 @@ pub(crate) fn set_window_theme_on_change_event(
     mut window_messages: MessageReader<WindowEvent>,
 ) {
     for event in window_messages.read() {
-        if let WindowEvent::WindowThemeChanged(theme_changed) = event {
-            if let Ok(mut window) = windows_query.get_mut(theme_changed.window) {
-                debug!(
-                    "New window theme for {}: {:?}",
-                    theme_changed.window, theme_changed.theme
-                );
+        if let WindowEvent::WindowThemeChanged(theme_changed) = event
+            && let Ok(mut window) = windows_query.get_mut(theme_changed.window)
+        {
+            debug!(
+                "New window theme for {}: {:?}",
+                theme_changed.window, theme_changed.theme
+            );
 
-                if window.window_theme != Some(theme_changed.theme) {
-                    window.window_theme = Some(theme_changed.theme);
-                }
+            if window.window_theme != Some(theme_changed.theme) {
+                window.window_theme = Some(theme_changed.theme);
             }
         }
     }
@@ -308,11 +308,10 @@ pub(crate) fn sync_input_focus(
         .is_some_and(|visible| visible.0);
 
     if !input_focus.is_changed() || input_focus.0 == previous_focus.0 {
-        if input_focus_visible.is_some_and(|v| v.is_changed()) {
-            if let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok())
-            {
-                style_data.get_pseudo_state_mut().focused_and_visible = focus_visible;
-            }
+        if input_focus_visible.is_some_and(|v| v.is_changed())
+            && let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok())
+        {
+            style_data.get_pseudo_state_mut().focused_and_visible = focus_visible;
         }
         return;
     }
@@ -516,10 +515,10 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 
         let flags = selector_flags.recalculate_on_change_flags.load();
 
-        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS) {
-            if let Some(&ChildOf(parent)) = child_of {
-                to_be_marked.extend(children_query.get(parent)?.iter());
-            }
+        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS)
+            && let Some(&ChildOf(parent)) = child_of
+        {
+            to_be_marked.extend(children_query.get(parent)?.iter());
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
             to_be_marked.extend(children_query.iter_descendants(entity));

@@ -176,10 +176,9 @@ mod input_text_plugin {
             .text
             .as_ref()
             .map(|a| a.as_ref())
+            && new_text.chars().all(is_printable_char)
         {
-            if new_text.chars().all(is_printable_char) {
-                string.push_str(new_text);
-            }
+            string.push_str(new_text);
         }
 
         Ok(())

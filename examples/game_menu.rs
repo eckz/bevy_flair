@@ -145,10 +145,10 @@ fn navigate(action_state: Res<ActionState>, mut directional_navigation: Directio
         _ => None,
     };
 
-    if let Some(direction) = maybe_direction {
-        if let Err(e) = directional_navigation.navigate(direction) {
-            error!("Navigation failed: {e}");
-        }
+    if let Some(direction) = maybe_direction
+        && let Err(e) = directional_navigation.navigate(direction)
+    {
+        error!("Navigation failed: {e}");
     }
 }
 
@@ -165,10 +165,9 @@ fn interact_with_focused_button(
     if action_state
         .pressed_actions
         .contains(&DirectionalNavigationAction::Select)
+        && let Some(entity) = input_focus.0
     {
-        if let Some(entity) = input_focus.0 {
-            commands.trigger(ButtonActivate { entity });
-        }
+        commands.trigger(ButtonActivate { entity });
     }
 }
 

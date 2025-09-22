@@ -408,11 +408,11 @@ fn parse_linear_gradient(parser: &mut Parser) -> Result<LinearGradient, CssError
             }
         }
 
-        if !stops.is_empty() {
-            if let Ok(hint) = parser.try_parse(Parser::expect_percentage) {
-                stops.last_mut().unwrap().hint = hint;
-                return Ok(());
-            }
+        if !stops.is_empty()
+            && let Ok(hint) = parser.try_parse(Parser::expect_percentage)
+        {
+            stops.last_mut().unwrap().hint = hint;
+            return Ok(());
         }
 
         stops.extend(parse_linear_color_stop(parser)?);
@@ -462,11 +462,11 @@ fn parse_radial_gradient(parser: &mut Parser) -> Result<RadialGradient, CssError
             }
         }
 
-        if !stops.is_empty() {
-            if let Ok(hint) = parser.try_parse(Parser::expect_percentage) {
-                stops.last_mut().unwrap().hint = hint;
-                return Ok(());
-            }
+        if !stops.is_empty()
+            && let Ok(hint) = parser.try_parse(Parser::expect_percentage)
+        {
+            stops.last_mut().unwrap().hint = hint;
+            return Ok(());
         }
 
         stops.extend(parse_linear_color_stop(parser)?);
@@ -515,11 +515,11 @@ fn parse_conic_gradient(parser: &mut Parser) -> Result<ConicGradient, CssError> 
             }
         }
 
-        if !stops.is_empty() {
-            if let Ok(hint) = parser.try_parse(|parser| parser.expect_percentage()) {
-                stops.last_mut().unwrap().hint = hint;
-                return Ok(());
-            }
+        if !stops.is_empty()
+            && let Ok(hint) = parser.try_parse(|parser| parser.expect_percentage())
+        {
+            stops.last_mut().unwrap().hint = hint;
+            return Ok(());
         }
 
         stops.extend(parse_angular_color_stop(parser)?);
