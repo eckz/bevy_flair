@@ -46,9 +46,9 @@ It enables you to style UI components, taking advantage of the power of CSS.
 - Inline CSS properties.
 - Pseudo-elements `::before` and `::after` (enabled with [`PseudoElementsSupport`]).
 - Different stylesheets per subtree. With the use of a different [`NodeStyleSheet`] per subtree. It's even possible to not apply any style for a given subtree.
-- Use of custom times for transitions and animations (See https://github.com/eckz/bevy_flair/blob/main/examples/animations.rs).
+- Use of custom times for transitions and animations (See <https://github.com/eckz/bevy_flair/blob/main/examples/animations.rs>).
 - Supports for custom properties. (Example TBA).
-- Supports for custom parsing. (See https://github.com/eckz/bevy_flair/blob/main/examples/custom_parsing.rs)
+- Supports for custom parsing. (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_parsing.rs>)
 
 [`Node`]: https://docs.rs/bevy/0.17.0-rc.1/bevy/ui/struct.Node.html
 [`ImageNode`]: https://docs.rs/bevy/0.17.0-rc.1/bevy/ui/widget/struct.ImageNode.html
@@ -96,8 +96,10 @@ It enables you to style UI components, taking advantage of the power of CSS.
 
 ## Showcase
 
-Example styled entirely with CSS:  
-https://github.com/user-attachments/assets/792b9cfa-42fb-4e50-a85f-8d21aafeb1e5  
+Example styled entirely with CSS:
+
+https://github.com/user-attachments/assets/792b9cfa-42fb-4e50-a85f-8d21aafeb1e5
+
 ([View source CSS](https://github.com/eckz/bevy_flair/blob/main/assets/game_menu.css))
 
 
