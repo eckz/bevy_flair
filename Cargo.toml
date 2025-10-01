@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flair"
-version = "0.5.0-rc.1"
+version = "0.5.0"
 edition = "2024"
 description = "Bevy UI styling using CSS"
 license = "MIT OR Apache-2.0"
@@ -17,26 +17,26 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bevy_app = { version = "0.17.0-rc.1" }
-bevy_asset = { version = "0.17.0-rc.1" }
-bevy_camera = { version = "0.17.0-rc.1" }
-bevy_color = { version = "0.17.0-rc.1" }
-bevy_ecs = { version = "0.17.0-rc.1" }
-bevy_image = {  version = "0.17.0-rc.1" }
-bevy_input_focus = {  version = "0.17.0-rc.1" }
-bevy_math = { version = "0.17.0-rc.1" }
-bevy_picking = { version = "0.17.0-rc.1" }
-bevy_reflect = { version = "0.17.0-rc.1" }
-bevy_scene = { version = "0.17.0-rc.1" }
-bevy_text = { version = "0.17.0-rc.1" }
-bevy_time = { version = "0.17.0-rc.1" }
-bevy_ui = { version = "0.17.0-rc.1", features = ["bevy_ui_picking_backend"] }
-bevy_utils = { version = "0.17.0-rc.1" }
-bevy_window = { version = "0.17.0-rc.1" }
+bevy_app = { version = "0.17" }
+bevy_asset = { version = "0.17" }
+bevy_camera = { version = "0.17" }
+bevy_color = { version = "0.17" }
+bevy_ecs = { version = "0.17" }
+bevy_image = {  version = "0.17" }
+bevy_input_focus = {  version = "0.17" }
+bevy_math = { version = "0.17" }
+bevy_picking = { version = "0.17" }
+bevy_reflect = { version = "0.17" }
+bevy_scene = { version = "0.17" }
+bevy_text = { version = "0.17" }
+bevy_time = { version = "0.17" }
+bevy_ui = { version = "0.17", features = ["bevy_ui_picking_backend"] }
+bevy_utils = { version = "0.17" }
+bevy_window = { version = "0.17" }
 
-bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.5.0-rc.1" }
-bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.5.0-rc.1" }
-bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.5.0-rc.1" }
+bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.5.0" }
+bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.5.0" }
+bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.5.0" }
 
 cssparser = { version = "0.35" }
 cssparser-color = { version = "0.3" }
@@ -52,7 +52,7 @@ bevy_flair_css_parser = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
-bevy = {version = "0.17.0-rc.1", default-features = false, features = [
+bevy = {version = "0.17", default-features = false, features = [
     "std",
     "bevy_state",
     "bevy_ui",

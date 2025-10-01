@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flair_core"
-version = "0.5.0-rc.1"
+version = "0.5.0"
 edition = "2024"
 description = "Bevy UI styling using CSS"
 license = "MIT OR Apache-2.0"
