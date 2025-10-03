@@ -24,6 +24,9 @@ pub(crate) struct InternalStylesheetLoader<'a> {
     pub(crate) imports: &'a FxHashMap<String, StyleSheet>,
 }
 
+// This is temporal until https://github.com/tokio-rs/tracing/issues/3378 is fixed
+const NO_COLOR_REPORT_CONFIG: ariadne::Config = ariadne::Config::new().with_color(false);
+
 impl InternalStylesheetLoader<'_> {
     pub(crate) fn load_stylesheet(
         &self,
@@ -31,7 +34,8 @@ impl InternalStylesheetLoader<'_> {
         contents: &str,
     ) -> Result<StyleSheetBuilder, CssStyleLoaderError> {
         let mut builder = StyleSheetBuilder::new();
-        let mut report_generator = ErrorReportGenerator::new(path_name, contents);
+        let mut report_generator =
+            ErrorReportGenerator::new_with_config(path_name, contents, NO_COLOR_REPORT_CONFIG);
 
         fn report_important_level(
             report_generator: &mut ErrorReportGenerator,
