@@ -461,6 +461,8 @@ impl CssSelector {
         CssSelector {
             layer: if parent_layer.is_empty() {
                 self.layer
+            } else if self.layer.is_empty() {
+                parent_layer.clone()
             } else {
                 format!("{parent_layer}.{}", self.layer)
             },

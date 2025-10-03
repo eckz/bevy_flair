@@ -317,13 +317,15 @@ pub(crate) fn sync_input_focus(
     }
 
     if let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok()) {
-        style_data.get_pseudo_state_mut().focused = false;
-        style_data.get_pseudo_state_mut().focused_and_visible = false;
+        let pseudo_state = style_data.get_pseudo_state_mut();
+        pseudo_state.focused = false;
+        pseudo_state.focused_and_visible = false;
     }
 
     if let Some(mut style_data) = input_focus.0.and_then(|e| data_query.get_mut(e).ok()) {
-        style_data.get_pseudo_state_mut().focused = true;
-        style_data.get_pseudo_state_mut().focused_and_visible = focus_visible;
+        let pseudo_state = style_data.get_pseudo_state_mut();
+        pseudo_state.focused = true;
+        pseudo_state.focused_and_visible = focus_visible;
     }
 
     *previous_focus = (*input_focus).clone()

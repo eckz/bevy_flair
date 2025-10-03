@@ -40,7 +40,7 @@ bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.5.
 
 cssparser = { version = "0.35" }
 cssparser-color = { version = "0.3" }
-selectors = { version = "0.30" }
+selectors = { version = "0.31" }
 
 [dependencies]
 bevy_app = { workspace = true }
@@ -54,6 +54,8 @@ bevy_flair_css_parser = { workspace = true }
 criterion = { version = "0.5", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
 bevy = {version = "0.17", default-features = false, features = [
     "std",
+    "debug",
+    "track_location",
     "bevy_state",
     "bevy_ui",
     "bevy_ui_render",

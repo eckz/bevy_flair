@@ -1,134 +1,143 @@
 @import "tailwind-colors.css";
 
+@layer base, focus-visible;
+
 @font-face {
     font-family: "Poppins-Regular";
     src: url("fonts/Poppins-Regular.ttf");
 }
 
-:root {
-    --background-color: var(--color-gray-100);
-    --text-color: var(--color-gray-900);
-    --font-size: 27px;
-}
-
-:root {
-    display: flex;
-    width: 100%;
-    height: 100%;
-
-    padding-top: 20vh;
-
-    align-items: center;
-    justify-content: start;
-    flex-direction: column;
-
-    font-family: "Poppins-Regular";
-    font-size: var(--font-size);
-    color: var(--text-color);
-    background-color: var(--background-color);
-
-    & > :first-child {
-        font-size: calc(var(--font-size) * 0.5);
-    }
-}
-
-input {
-    display: flex;
-    align-items: center;
-    justify-content: start;
-
-    width: 400px;
-    height: 60px;
-    padding: 0 20px;
-    border: 2px var(--color-gray-950);
-    border-radius: 20px;
-
-    font-size: calc(var(--font-size) * 0.8);
-
-    transition: border-color 0.3s;
-
-    &:focus-visible {
+/* This has priority over everything else */
+@layer focus-visible {
+    :focus-visible {
         border-color: var(--color-red-600);
     }
 }
 
-.items-container {
-    display: flex;
-
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-
-    margin-top: 5px;
-
-    width: 350px;
-    height: auto;
-    padding: 5px 20px;
-
-    border: 2px transparent;
-}
-
-.no-items-text {
-    display: none;
-}
-
-.items-container:empty ~ .no-items-text {
-    display: flex;
-}
-
-.item {
-    display: flex;
-    align-items: start;
-
-    width: 100%;
-
-    &:nth-child(odd) .item-text {
-        background-color: var(--color-gray-100);
-    }
-    &:nth-child(even) .item-text {
-        background-color: var(--color-gray-300);
+@layer base {
+    :root {
+        --background-color: var(--color-gray-100);
+        --text-color: var(--color-gray-900);
+        --font-size: 27px;
     }
 
-    &:first-child .item-text {
-        border-top-width: 2px;
-        border-top-left-radius: 10px;
-        border-top-right-radius: 10px;
+    :root {
+        display: flex;
+        width: 100%;
+        height: 100%;
+
+        padding-top: 20vh;
+
+        align-items: center;
+        justify-content: start;
+        flex-direction: column;
+
+        font-family: "Poppins-Regular";
+        font-size: var(--font-size);
+        color: var(--text-color);
+        background-color: var(--background-color);
+
+        & > :first-child {
+            font-size: calc(var(--font-size) * 0.5);
+        }
     }
 
-    &:last-child .item-text {
-        border-bottom-width: 2px;
-        border-bottom-left-radius: 10px;
-        border-bottom-right-radius: 10px;
-    }
-
-    .item-text {
-        flex: 1;
-        border-width: 0 2px;
-        border-color: var(--color-gray-900);
-        margin-right: 15px;
-        border-radius: 0;
-
-        padding: 4px 15px;
-    }
-
-    .remove-button {
+    input {
         display: flex;
         align-items: center;
-        justify-content: center;
-        align-self: center;
+        justify-content: start;
 
-        height: 26px;
-        width: 26px;
+        width: 400px;
+        height: 60px;
+        padding: 0 20px;
+        border: 2px var(--color-gray-950);
+        border-radius: 20px;
+
+        font-size: calc(var(--font-size) * 0.8);
 
         transition: border-color 0.3s;
 
-        color: var(--color-gray-700);
-        border: 1px var(--color-gray-700);
-        border-radius: 100%;
-        font-size: calc(var(--font-size) * 0.7);
+        &:focus {
+            border-color: var(--color-blue-500);
+        }
+    }
 
-        &:focus-visible {
-            border-color: var(--color-red-600);
+    .items-container {
+        display: flex;
+
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+
+        margin-top: 5px;
+
+        width: 350px;
+        height: auto;
+        padding: 5px 20px;
+
+        border: 2px transparent;
+    }
+
+    .no-items-text {
+        display: none;
+    }
+
+    .items-container:empty ~ .no-items-text {
+        display: flex;
+    }
+
+    .item {
+        display: flex;
+        align-items: start;
+
+        width: 100%;
+
+        &:nth-child(odd) .item-text {
+            background-color: var(--color-gray-100);
+        }
+        &:nth-child(even) .item-text {
+            background-color: var(--color-gray-300);
+        }
+
+        &:first-child .item-text {
+            border-top-width: 2px;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+
+        &:last-child .item-text {
+            border-bottom-width: 2px;
+            border-bottom-left-radius: 10px;
+            border-bottom-right-radius: 10px;
+        }
+
+        .item-text {
+            flex: 1;
+            border-width: 0 2px;
+            border-color: var(--color-gray-900);
+            margin-right: 15px;
+            border-radius: 0;
+
+            padding: 4px 15px;
+        }
+
+        .remove-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            align-self: center;
+
+            height: 26px;
+            width: 26px;
+
+            transition: border-color 0.3s;
+
+            color: var(--color-gray-700);
+            border: 1px var(--color-gray-700);
+            border-radius: 100%;
+            font-size: calc(var(--font-size) * 0.7);
+
+
         }
     }
 }
