@@ -5,9 +5,9 @@ use crate::animations::{
 };
 
 use crate::{
-    AttributeKey, AttributeValue, ClassName, ColorScheme, DynamicParseVarTokens, IdName,
-    NodePseudoState, NodePseudoStateSelector, ResolvedAnimation, StyleSheet, TransitionEvent,
-    TransitionEventType, VarTokens,
+    AnimationEvent, AnimationEventType, AttributeKey, AttributeValue, ClassName, ColorScheme,
+    DynamicParseVarTokens, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation,
+    StyleSheet, TransitionEvent, TransitionEventType, VarTokens,
 };
 
 use bevy_ecs::prelude::*;
@@ -400,8 +400,9 @@ pub struct NodeProperties {
 
     transitions: PropertiesHashMap<Transition>,
     pending_transition_events: Vec<TransitionEvent>,
-    // TODO: SmallVec here?
+
     animations: PropertiesHashMap<Vec<Animation>>,
+    pending_animation_events: Vec<AnimationEvent>,
 }
 
 fn get_reflect_animatable<'a>(
@@ -770,6 +771,13 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
                 if !animation.state.is_finished() && &animation.name == name {
                     trace!("Pausing animation: {animation:?}");
                     animation.state = AnimationState::Paused;
+
+                    self.pending_animation_events.push(AnimationEvent {
+                        entity: Entity::PLACEHOLDER,
+                        property_id: *property_id,
+                        name: animation.name.clone(),
+                        event_type: AnimationEventType::Paused,
+                    });
                 }
             }
         }
@@ -798,6 +806,13 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
                     } else {
                         trace!("Pausing animation: {animation:?}");
                         animation.state = AnimationState::Paused;
+
+                        self.pending_animation_events.push(AnimationEvent {
+                            entity: Entity::PLACEHOLDER,
+                            property_id,
+                            name: animation.name.clone(),
+                            event_type: AnimationEventType::Paused,
+                        });
                     }
                 }
             }
@@ -863,11 +878,30 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
             }
         }
 
-        for animation in self.animations.values_mut().flatten() {
-            animation.tick(delta);
+        for (&property_id, animations) in self.animations.iter_mut() {
+            for animation in animations.iter_mut() {
+                let was_pending = animation.state == AnimationState::Pending;
 
-            if animation.state == AnimationState::Finished {
-                trace!("Animation finished: {animation:?}");
+                animation.tick(delta);
+
+                if was_pending && animation.state != AnimationState::Pending {
+                    self.pending_animation_events.push(AnimationEvent {
+                        entity: Entity::PLACEHOLDER,
+                        property_id,
+                        event_type: AnimationEventType::Started,
+                        name: animation.name.clone(),
+                    });
+                }
+
+                if animation.state == AnimationState::Finished {
+                    trace!("Animation finished: {animation:?}");
+                    self.pending_animation_events.push(AnimationEvent {
+                        entity: Entity::PLACEHOLDER,
+                        property_id,
+                        event_type: AnimationEventType::Finished,
+                        name: animation.name.clone(),
+                    });
+                }
             }
         }
     }
@@ -882,7 +916,7 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
     }
 
     pub(crate) fn has_pending_events(&self) -> bool {
-        !self.pending_transition_events.is_empty()
+        !self.pending_transition_events.is_empty() || !self.pending_animation_events.is_empty()
     }
     pub(crate) fn emit_pending_events(&mut self, entity: Entity, commands: &mut Commands) {
         for mut event in self.pending_transition_events.drain(..) {
@@ -891,7 +925,17 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
                 "TransitionEvent: {event_type:?}({property_id:?}) on {entity:?}",
                 event_type = event.event_type,
                 property_id = event.property_id,
-                entity = event.entity
+            );
+            commands.trigger(event);
+        }
+
+        for mut event in self.pending_animation_events.drain(..) {
+            event.entity = entity;
+            trace!(
+                "AnimationEvent: {event_type:?}({name}/{property_id:?}) on {entity:?}",
+                event_type = event.event_type,
+                name = event.name,
+                property_id = event.property_id,
             );
             commands.trigger(event);
         }

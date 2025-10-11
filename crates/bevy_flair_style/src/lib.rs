@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Write;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 mod builder;
 pub mod components;
@@ -243,6 +244,32 @@ impl TransitionEvent {
             to,
         }
     }
+}
+
+/// Represents the type of event that occurred during an animation change.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum AnimationEventType {
+    /// Indicates that an animation has started.
+    Started,
+    /// Indicates that an animation has been paused.
+    Paused,
+    /// Indicates that an animation has been canceled.
+    Canceled,
+    /// Indicates that an animation has completed.
+    Finished,
+}
+
+/// An event representing a change in an animation.
+#[derive(Clone, PartialEq, Debug, EntityEvent)]
+pub struct AnimationEvent {
+    /// Entity that caused the event to happen.
+    pub entity: Entity,
+    /// The type of animation event (e.g., Started, Finished).
+    pub event_type: AnimationEventType,
+    /// Name of the animation.
+    pub name: Arc<str>,
+    /// The property involved in the animation.
+    pub property_id: ComponentPropertyId,
 }
 
 #[derive(Resource)]
