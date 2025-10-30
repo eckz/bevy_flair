@@ -156,7 +156,26 @@ pub enum CssStyleSheetItem {
     Error(CssError),
 }
 
-fn parse_duration(parser: &mut Parser) -> Result<Duration, CssError> {
+/// Parses a [`Duration`] from a CSS token.
+///
+/// This function recognizes two types of values:
+///
+/// - `<number>s` → [`Duration::from_secs_f32`]
+/// - `<number>ms` → [`Duration::from_millis`]
+///
+/// # Example
+///
+/// ```
+/// # use std::time::Duration;
+/// # use cssparser::{Parser, ParserInput};
+/// # use bevy_flair_css_parser::parse_duration;
+///
+/// let mut input = ParserInput::new("3.0s");
+/// let mut parser = Parser::new(&mut input);
+/// let duration = parse_duration(&mut parser).unwrap();
+/// assert_eq!(duration, Duration::from_secs_f32(3.0));
+/// ```
+pub fn parse_duration(parser: &mut Parser) -> Result<Duration, CssError> {
     let next = parser.located_next()?;
 
     Ok(match &*next {

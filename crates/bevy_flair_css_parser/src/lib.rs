@@ -19,6 +19,7 @@ pub use reflect::*;
 pub use shorthand::*;
 
 pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc_property_value_with, parse_calc_value};
+pub use parser::parse_duration;
 pub use utils::parse_property_value_with;
 
 mod error;
