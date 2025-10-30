@@ -1,7 +1,7 @@
 use bevy_color::Color;
 use bevy_reflect::prelude::*;
 use bevy_reflect::serde::{ReflectSerializeWithRegistry, ReflectSerializer, SerializeWithRegistry};
-use bevy_reflect::{TypeInfo, TypeRegistry, Typed};
+use bevy_reflect::{ReflectCloneError, TypeInfo, TypeRegistry, Typed};
 use bevy_ui::Val;
 use serde::{Serialize, Serializer};
 use std::{
@@ -127,6 +127,17 @@ impl ReflectValue {
     /// otherwise.
     pub fn value_is<T: ?Sized + 'static>(&self) -> bool {
         TypeId::of::<T>() == self.value_type_info().type_id()
+    }
+
+    /// Clones the underlying value, returning it as a `Box<dyn Reflect>`.
+    pub fn reflect_clone(&self) -> Result<Box<dyn Reflect>, ReflectCloneError> {
+        match self {
+            ReflectValue::Float(value) => Ok(Box::new(*value)),
+            ReflectValue::Usize(value) => Ok(Box::new(*value)),
+            ReflectValue::Color(value) => Ok(Box::new(*value)),
+            ReflectValue::Val(value) => Ok(Box::new(*value)),
+            ReflectValue::ReflectArc(reflect_arc) => (**reflect_arc).reflect_clone(),
+        }
     }
 
     /// Gets the [`TypeInfo`] of the wrapped value.

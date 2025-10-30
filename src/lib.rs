@@ -47,7 +47,7 @@ bevy_app::plugin_group! {
     #[derive(Clone, Debug)]
     pub struct FlairPlugin {
         bevy_flair_core:::PropertyRegistryPlugin,
-        bevy_flair_core:::BevyUiPropertiesPlugin,
+        bevy_flair_core:::ImplComponentPropertiesPlugin,
         bevy_flair_style:::FlairStylePlugin,
         bevy_flair_style:::FlairDefaultStyleAnimationsPlugin,
         bevy_flair_css_parser:::FlairCssParserPlugin,

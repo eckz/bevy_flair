@@ -89,9 +89,10 @@ impl From<ReflectValue> for PropertyValue {
 }
 
 /// Represents a value that have been computed.
-#[derive(Debug, Clone, PartialEq, Reflect)]
+#[derive(Debug, Clone, PartialEq, Default, Reflect)]
 pub enum ComputedValue {
     /// Unset value
+    #[default]
     None,
     /// Specific Value
     Value(ReflectValue),

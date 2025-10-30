@@ -27,10 +27,65 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
+use std::ops::Deref;
 use std::sync::Arc;
 
+/// Reference to a CSS property name.
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+pub struct CssRef(SmolStr);
+
+impl CssRef {
+    /// Creates a new `CssRef` from the given CSS name.
+    pub fn new(css_name: impl Into<SmolStr>) -> Self {
+        CssRef(css_name.into())
+    }
+
+    /// Returns the CSS name as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Deref for CssRef {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PartialEq<&str> for CssRef {
+    fn eq(&self, other: &&str) -> bool {
+        &self.0 == other
+    }
+}
+
+impl From<&str> for CssRef {
+    fn from(value: &str) -> Self {
+        CssRef(SmolStr::new(value))
+    }
+}
+
+impl From<String> for CssRef {
+    fn from(value: String) -> Self {
+        CssRef(value.into())
+    }
+}
+
+impl CssRef {
+    /// Converts this reference into a static lifetime.
+    pub fn resolve(&self, property_registry: &PropertyRegistry) -> ComponentPropertyRef<'static> {
+        let id = property_registry
+            .get_property_id_by_css_name(&self.0)
+            .unwrap_or_else(|| {
+                panic!("No property registered with css name '{}'", self.0);
+            });
+        id.into()
+    }
+}
+
 /// Type of result expected from a shorthand parse function.
-pub type ShorthandParseResult = Result<Vec<(ComponentPropertyRef, PropertyValue)>, CssError>;
+pub type ShorthandParseResult = Result<Vec<(CssRef, PropertyValue)>, CssError>;
 
 /// Function signature used to parse a CSS shorthand property into multiple component properties.
 pub type ShorthandParseFn = fn(&mut Parser) -> ShorthandParseResult;
@@ -42,7 +97,7 @@ pub type ShorthandParseFn = fn(&mut Parser) -> ShorthandParseResult;
 #[derive(Debug)]
 pub struct ShorthandProperty {
     pub(crate) css_name: Cow<'static, str>,
-    pub(crate) sub_properties: Vec<ComponentPropertyRef>,
+    pub(crate) sub_properties: Vec<CssRef>,
     parse_fn: ShorthandParseFn,
 }
 
@@ -65,7 +120,7 @@ impl ShorthandProperty {
     ) -> Self
     where
         P: IntoIterator<Item = R>,
-        R: Into<ComponentPropertyRef>,
+        R: Into<CssRef>,
     {
         let css_name = css_name.into();
         Self {
@@ -83,13 +138,17 @@ impl ShorthandProperty {
     /// Converts the shorthand property into a [`DynamicParseVarTokens`] function.
     ///
     /// This enables parsing runtime CSS variable tokens into the shorthand property.
-    pub(crate) fn as_dynamic_parse_var_tokens(&self) -> DynamicParseVarTokens {
+    pub(crate) fn as_dynamic_parse_var_tokens(
+        &self,
+        property_registry: &PropertyRegistry,
+    ) -> DynamicParseVarTokens {
         use crate::error::ErrorReportGenerator;
         use bevy_flair_style::ToCss;
         use cssparser::{Parser, ParserInput};
         use std::sync::Arc;
 
         let parse_fn = self.parse_fn;
+        let property_registry = property_registry.clone();
 
         Arc::new(move |tokens| {
             let tokens_as_css = tokens.to_css_string();
@@ -100,12 +159,21 @@ impl ShorthandProperty {
             let result = parser
                 .parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
 
-            result.map_err(|err| {
-                // TODO: Add context to the error so we know the name of the property
-                let mut report_generator = ErrorReportGenerator::new("tokens", &tokens_as_css);
-                report_generator.add_error(Into::into(err));
-                report_generator.into_message().into()
-            })
+            result
+                .map(|v| {
+                    v.into_iter()
+                        .map(|(css_ref, property_value)| {
+                            let property_ref = css_ref.resolve(&property_registry);
+                            (property_ref, property_value)
+                        })
+                        .collect()
+                })
+                .map_err(|err| {
+                    // TODO: Add context to the error so we know the name of the property
+                    let mut report_generator = ErrorReportGenerator::new("tokens", &tokens_as_css);
+                    report_generator.add_error(Into::into(err));
+                    report_generator.into_message().into()
+                })
         })
     }
 
@@ -165,7 +233,7 @@ impl ShorthandPropertyRegistry {
         parse: ShorthandParseFn,
     ) where
         P: IntoIterator<Item = R>,
-        R: Into<ComponentPropertyRef>,
+        R: Into<CssRef>,
     {
         let property = ShorthandProperty::new(css_name, properties, parse);
         let inner = self.inner_mut();
@@ -238,7 +306,7 @@ enum UsePrevious {
 }
 
 type SimpleShorthandProperty = (
-    ComponentPropertyRef,
+    CssRef,
     UsePrevious,
     fn(&mut Parser) -> Result<PropertyValue, CssError>,
 );
@@ -279,22 +347,10 @@ fn parse_simple_shorthand_property<const N: usize>(
 fn parse_ui_rect(css_name: &'static str, parser: &mut Parser) -> ShorthandParseResult {
     let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
     Ok(vec![
-        (
-            ComponentPropertyRef::CssName(format_smolstr!("{css_name}-left")),
-            left,
-        ),
-        (
-            ComponentPropertyRef::CssName(format_smolstr!("{css_name}-right")),
-            right,
-        ),
-        (
-            ComponentPropertyRef::CssName(format_smolstr!("{css_name}-top")),
-            top,
-        ),
-        (
-            ComponentPropertyRef::CssName(format_smolstr!("{css_name}-bottom")),
-            bottom,
-        ),
+        (CssRef(format_smolstr!("{css_name}-left")), left),
+        (CssRef(format_smolstr!("{css_name}-right")), right),
+        (CssRef(format_smolstr!("{css_name}-top")), top),
+        (CssRef(format_smolstr!("{css_name}-bottom")), bottom),
     ])
 }
 
@@ -305,20 +361,19 @@ fn parse_ui_rect(css_name: &'static str, parser: &mut Parser) -> ShorthandParseR
 /// - margin-right
 /// - margin-top
 /// - margin-bottom
-fn ui_rect_sub_properties(css_name: &'static str) -> Vec<ComponentPropertyRef> {
+fn ui_rect_sub_properties(css_name: &'static str) -> Vec<CssRef> {
     vec![
-        ComponentPropertyRef::CssName(format_smolstr!("{css_name}-left")),
-        ComponentPropertyRef::CssName(format_smolstr!("{css_name}-right")),
-        ComponentPropertyRef::CssName(format_smolstr!("{css_name}-top")),
-        ComponentPropertyRef::CssName(format_smolstr!("{css_name}-bottom")),
+        CssRef(format_smolstr!("{css_name}-left")),
+        CssRef(format_smolstr!("{css_name}-right")),
+        CssRef(format_smolstr!("{css_name}-top")),
+        CssRef(format_smolstr!("{css_name}-bottom")),
     ]
 }
 
 macro_rules! define_css_properties {
     ($(const $name:ident = $css_name:literal;)*) => {
         $(
-            const $name: ComponentPropertyRef =
-                 ComponentPropertyRef::CssName(SmolStr::new_static($css_name));
+            const $name: CssRef = CssRef(SmolStr::new_static($css_name));
         )*
     };
 }
@@ -567,7 +622,7 @@ define_css_properties! {
 
 fn parse_background_image_inner(
     parser: &mut Parser,
-    result: &mut Vec<(ComponentPropertyRef, PropertyValue)>,
+    result: &mut Vec<(CssRef, PropertyValue)>,
 ) -> Result<(), CssError> {
     let mut gradients = Vec::new();
     let mut image = PropertyValue::None;
@@ -1084,12 +1139,12 @@ mod tests {
             let mut expected = vec![
                 $(
                     (
-                        ComponentPropertyRef::CssName($k.into()),
+                        CssRef($k.into()),
                         $v.into_property_value(),
                     ),
                 )*
             ];
-            expected.sort_by(|(a, _), (b, _)| a.cmp(&b));
+            expected.sort_by(|(a, _), (b, _)| a.partial_cmp(&b).unwrap());
 
             let property = REGISTRY
                 .get_property($property_name)
@@ -1097,7 +1152,7 @@ mod tests {
 
             let mut result = crate::testing::parse_property_content_with($contents, |parser| property.parse(parser));
 
-            result.sort_by(|(a, _), (b, _)| a.cmp(&b));
+            result.sort_by(|(a, _), (b, _)| a.partial_cmp(&b).unwrap());
 
             assert_eq!(result, expected);
         }};

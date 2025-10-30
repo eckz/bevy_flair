@@ -171,7 +171,7 @@ pub enum StyleBuilderProperty {
     /// A statically typed style property.
     Specific {
         /// Reference to a specific component property.
-        property_ref: ComponentPropertyRef,
+        property_ref: ComponentPropertyRef<'static>,
         /// Value for the property.
         value: PropertyValue,
     },
@@ -206,19 +206,19 @@ impl From<RulesetProperty> for StyleBuilderProperty {
     }
 }
 
-impl From<(ComponentPropertyRef, ReflectValue)> for StyleBuilderProperty {
-    fn from((property_ref, value): (ComponentPropertyRef, ReflectValue)) -> Self {
+impl<'a> From<(ComponentPropertyRef<'a>, ReflectValue)> for StyleBuilderProperty {
+    fn from((property_ref, value): (ComponentPropertyRef<'a>, ReflectValue)) -> Self {
         Self::Specific {
-            property_ref,
+            property_ref: property_ref.into_static(),
             value: value.into(),
         }
     }
 }
 
-impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
-    fn from((property_ref, value): (ComponentPropertyRef, PropertyValue)) -> Self {
+impl<'a> From<(ComponentPropertyRef<'a>, PropertyValue)> for StyleBuilderProperty {
+    fn from((property_ref, value): (ComponentPropertyRef<'a>, PropertyValue)) -> Self {
         Self::Specific {
-            property_ref,
+            property_ref: property_ref.into_static(),
             value,
         }
     }
@@ -319,7 +319,7 @@ impl RulesetBuilder<'_> {
     }
 
     /// Add properties transitions options for the current ruleset.
-    pub fn add_property_transitions<P: Into<ComponentPropertyRef>>(
+    pub fn add_property_transitions<'a, P: Into<ComponentPropertyRef<'a>>>(
         &mut self,
         properties: impl IntoIterator<Item = P>,
         options: TransitionOptions,
@@ -327,21 +327,21 @@ impl RulesetBuilder<'_> {
         self.ruleset.property_transitions.extend(
             properties
                 .into_iter()
-                .map(|property| (property.into(), options.clone())),
+                .map(|property| (property.into().into_static(), options.clone())),
         );
     }
 
     /// Add a single transition options for the current ruleset.
-    pub fn add_property_transition(
+    pub fn add_property_transition<'a>(
         &mut self,
-        property: impl Into<ComponentPropertyRef>,
+        property: impl Into<ComponentPropertyRef<'a>>,
         options: TransitionOptions,
     ) {
         self.add_property_transitions([property], options);
     }
 
     /// Add properties transitions options for the current ruleset.
-    pub fn with_property_transitions<P: Into<ComponentPropertyRef>>(
+    pub fn with_property_transitions<'a, P: Into<ComponentPropertyRef<'a>>>(
         mut self,
         properties: impl IntoIterator<Item = P>,
         options: TransitionOptions,
@@ -369,7 +369,7 @@ impl RulesetBuilder<'_> {
 struct BuilderRuleset {
     pub(super) vars: FxHashMap<VarName, VarTokens>,
     pub(super) properties: Vec<StyleBuilderProperty>,
-    pub(super) property_transitions: FxHashMap<ComponentPropertyRef, TransitionOptions>,
+    pub(super) property_transitions: FxHashMap<ComponentPropertyRef<'static>, TransitionOptions>,
     pub(super) animations: Vec<(Arc<str>, AnimationOptions)>,
 }
 
@@ -442,7 +442,8 @@ pub struct StyleSheetBuilder {
     layers_hierarchy: LayersHierarchy,
     font_faces: Vec<StyleFontFace>,
     rulesets: Vec<BuilderRuleset>,
-    animation_keyframes: FxHashMap<Arc<str>, Vec<(ComponentPropertyRef, AnimationKeyframes)>>,
+    animation_keyframes:
+        FxHashMap<Arc<str>, Vec<(ComponentPropertyRef<'static>, AnimationKeyframes)>>,
     css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
 }
 
@@ -519,13 +520,13 @@ impl StyleSheetBuilder {
             property_id: ComponentPropertyId,
             value: &ReflectValue,
         ) -> Result<(), InvalidPropertyError> {
-            let property = property_registry.get_property(property_id);
+            let property = &property_registry[property_id];
             let expected_value_type_path = property.value_type_info().type_path();
             let found_value_type_path = value.value_type_info().type_path();
 
             if expected_value_type_path != found_value_type_path {
                 Err(InvalidPropertyError {
-                    property: property.canonical_name(),
+                    property: property.to_string(),
                     expected_value_type_path,
                     found_value_type_path,
                 })
@@ -617,9 +618,9 @@ impl StyleSheetBuilder {
     }
 
     /// Add configuration for a specific animation by providing the animation keyframes
-    pub fn add_animation_keyframes<I, P>(&mut self, name: impl Into<Arc<str>>, properties: I)
+    pub fn add_animation_keyframes<'a, I, P>(&mut self, name: impl Into<Arc<str>>, properties: I)
     where
-        P: Into<ComponentPropertyRef>,
+        P: Into<ComponentPropertyRef<'a>>,
         I: IntoIterator<Item = (P, AnimationKeyframes)>,
     {
         self.animation_keyframes
@@ -628,7 +629,7 @@ impl StyleSheetBuilder {
             .extend(
                 properties
                     .into_iter()
-                    .map(|(p, keyframes)| (p.into(), keyframes)),
+                    .map(|(p, keyframes)| (p.into().into_static(), keyframes)),
             );
     }
 
@@ -835,13 +836,13 @@ where
     }
 }
 
-impl<T> From<(&'static str, T)> for StyleBuilderProperty
+impl<T> From<(PropertyCanonicalName, T)> for StyleBuilderProperty
 where
     T: FromReflect,
 {
-    fn from((css_name, value): (&'static str, T)) -> Self {
+    fn from((canonical_name, value): (PropertyCanonicalName, T)) -> Self {
         Self::Specific {
-            property_ref: ComponentPropertyRef::CssName(css_name.into()),
+            property_ref: canonical_name.into(),
             value: ReflectValue::new(value).into(),
         }
     }

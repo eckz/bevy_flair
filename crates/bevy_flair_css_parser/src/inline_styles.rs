@@ -182,7 +182,9 @@ mod tests {
     use crate::reflect::ReflectParsePlugin;
     use crate::shorthand::ShorthandPropertiesPlugin;
     use bevy_app::{App, PostUpdate};
-    use bevy_flair_core::{BevyUiPropertiesPlugin, PropertyValue, ReflectValue};
+    use bevy_flair_core::{
+        ImplComponentPropertiesPlugin, PropertyRegistryPlugin, PropertyValue, ReflectValue,
+    };
     use bevy_flair_style::{VarResolver, VarTokens};
     use bevy_ui::Val;
 
@@ -190,7 +192,8 @@ mod tests {
         let mut app = App::new();
 
         app.add_plugins((
-            BevyUiPropertiesPlugin,
+            PropertyRegistryPlugin,
+            ImplComponentPropertiesPlugin,
             ReflectParsePlugin,
             ShorthandPropertiesPlugin,
         ));
@@ -229,9 +232,15 @@ mod tests {
 
         let property_registry = app.world().resource::<PropertyRegistry>().clone();
 
-        let width_property_id = property_registry.resolve(&("width".into())).unwrap();
-        let height_property_id = property_registry.resolve(&("height".into())).unwrap();
-        let padding_left_property_id = property_registry.resolve(&("padding-left".into())).unwrap();
+        let width_property_id = property_registry
+            .get_property_id_by_css_name("width")
+            .unwrap();
+        let height_property_id = property_registry
+            .get_property_id_by_css_name("height")
+            .unwrap();
+        let padding_left_property_id = property_registry
+            .get_property_id_by_css_name("padding-left")
+            .unwrap();
 
         let entity = app
             .world_mut()
@@ -241,7 +250,7 @@ mod tests {
         app.update();
 
         {
-            let mut output = property_registry.get_unset_values_map();
+            let mut output = property_registry.create_unset_values_map();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
             raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
 
@@ -265,7 +274,7 @@ mod tests {
         app.update();
 
         {
-            let mut output = property_registry.get_unset_values_map();
+            let mut output = property_registry.create_unset_values_map();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
             raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
 
@@ -293,7 +302,7 @@ mod tests {
         app.update();
 
         {
-            let mut output = property_registry.get_unset_values_map();
+            let mut output = property_registry.create_unset_values_map();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
             raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
 
@@ -322,7 +331,7 @@ mod tests {
         app.update();
 
         {
-            let mut output = property_registry.get_unset_values_map();
+            let mut output = property_registry.create_unset_values_map();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
             raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
 

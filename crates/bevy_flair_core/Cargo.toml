@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flair_core"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 description = "Bevy UI styling using CSS"
 license = "MIT OR Apache-2.0"
@@ -24,16 +24,17 @@ serde = "1.0"
 tracing = "0.1"
 rustc-hash = "2.1"
 
-# Same version as bevy so it implements reflect
-smol_str = "0.2"
-
 bevy_app = { workspace = true }
 bevy_color = { workspace = true }
 bevy_ecs = { workspace = true }
 bevy_reflect = { workspace = true }
+
+# These are required to define bevy_ui properties
+bevy_asset = { workspace = true }
+bevy_image = { workspace = true }
+bevy_math = { workspace = true }
 bevy_text = { workspace = true }
 bevy_ui = { workspace = true }
-bevy_utils = { workspace = true }
 
 [dev-dependencies]
 bevy_math = { workspace = true }

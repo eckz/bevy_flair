@@ -1,34 +1,46 @@
-use crate::component_property::ComponentProperty;
-use crate::sub_properties::ReflectCreateSubProperties;
-use crate::{PropertyMap, PropertyValue, ReflectValue};
+use crate::{
+    ComponentProperties, ComponentPropertiesRegistration, ComponentProperty, PropertyCanonicalName,
+    PropertyMap, PropertyValue, ReflectValue,
+};
 use bevy_ecs::prelude::*;
+use bevy_reflect::Typed;
 use bevy_reflect::prelude::*;
-use bevy_reflect::{TypeRegistry, Typed};
-use bevy_utils::TypeIdMap;
+
 use rustc_hash::FxHashMap;
-use smol_str::SmolStr;
+use std::any::TypeId;
 use std::borrow::Cow;
+use std::collections::hash_map::Entry;
+use std::ops::{Index, Range};
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, trace};
 
 /// Extension trait for getting property references from a struct.
-pub trait ReflectPropertyRefExt {
+pub trait ReflectStructPropertyRefExt {
     /// Get a property reference from a field name.
-    fn property_ref(field_name: &str) -> ComponentPropertyRef;
+    fn property_ref(field_name: &str) -> ComponentPropertyRef<'static>;
 
     /// Get all property references from a struct.
-    fn all_property_refs() -> impl IntoIterator<Item = ComponentPropertyRef>;
+    fn all_property_refs() -> impl IntoIterator<Item = ComponentPropertyRef<'static>>;
 }
 
-impl<T> ReflectPropertyRefExt for T
+/// Extension trait for getting property references from a tuple struct.
+pub trait ReflectTupleStructPropertyRefExt {
+    /// Get a property reference from a field name.
+    fn property_ref(index: usize) -> ComponentPropertyRef<'static>;
+
+    /// Get all property references from a struct.
+    fn all_property_refs() -> impl IntoIterator<Item = ComponentPropertyRef<'static>>;
+}
+
+impl<T> ReflectStructPropertyRefExt for T
 where
     T: Reflect + Struct + Typed + Component,
 {
-    fn property_ref(field_name: &str) -> ComponentPropertyRef {
+    fn property_ref(field_name: &str) -> ComponentPropertyRef<'static> {
         let struct_info = T::type_info()
             .as_struct()
-            .expect("Type is not of type struct");
+            .expect("Type is not of type Struct");
 
         let field = struct_info.field(field_name).unwrap_or_else(|| {
             panic!("Not field with name {field_name} exists");
@@ -36,18 +48,47 @@ where
 
         let type_path = T::type_path();
         let field_name = field.name();
-        ComponentPropertyRef::CanonicalName(format!("{type_path}.{field_name}"))
+        PropertyCanonicalName::new(type_path, format!(".{field_name}")).into()
     }
 
-    fn all_property_refs() -> impl IntoIterator<Item = ComponentPropertyRef> {
+    fn all_property_refs() -> impl IntoIterator<Item = ComponentPropertyRef<'static>> {
         let struct_info = T::type_info()
             .as_struct()
-            .expect("Type is not of type struct");
+            .expect("Type is not of type Struct");
         let type_path = T::type_path();
         struct_info.iter().map(move |field| {
             let field_name = field.name();
 
-            ComponentPropertyRef::CanonicalName(format!("{type_path}.{field_name}"))
+            PropertyCanonicalName::new(type_path, format!(".{field_name}")).into()
+        })
+    }
+}
+
+impl<T> ReflectTupleStructPropertyRefExt for T
+where
+    T: Reflect + TupleStruct + Typed + Component,
+{
+    fn property_ref(index: usize) -> ComponentPropertyRef<'static> {
+        let tuple_struct_info = T::type_info()
+            .as_tuple_struct()
+            .expect("Type is not of type TupleStruct");
+
+        let field = tuple_struct_info.field_at(index).unwrap_or_else(|| {
+            panic!("Not field with index {index} exists");
+        });
+        let field_index = field.index();
+        let type_path = T::type_path();
+        PropertyCanonicalName::new(type_path, format!(".{field_index}")).into()
+    }
+
+    fn all_property_refs() -> impl IntoIterator<Item = ComponentPropertyRef<'static>> {
+        let tuple_struct_info = T::type_info()
+            .as_tuple_struct()
+            .expect("Type is not of type TupleStruct");
+        let type_path = T::type_path();
+        tuple_struct_info.iter().map(move |field| {
+            let field_index = field.index();
+            PropertyCanonicalName::new(type_path, format!(".{field_index}")).into()
         })
     }
 }
@@ -55,35 +96,64 @@ where
 /// Reference to a component property.
 /// It's main use is to reference a property when there is no access to the [`PropertyRegistry`].
 /// It can be resolved by using [`PropertyRegistry::resolve`].
-#[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
-pub enum ComponentPropertyRef {
+#[derive(Clone, Eq, PartialEq, PartialOrd, Hash, Debug)]
+pub enum ComponentPropertyRef<'a> {
     /// Reference by id.
     Id(ComponentPropertyId),
-    /// Reference by css name.
-    CssName(SmolStr),
     /// Reference by canonical name.
-    CanonicalName(String),
+    CanonicalName(Cow<'a, PropertyCanonicalName>),
 }
 
-impl From<&'static str> for ComponentPropertyRef {
-    fn from(value: &'static str) -> Self {
-        ComponentPropertyRef::CssName(value.into())
+impl ComponentPropertyRef<'_> {
+    /// Get a borrowed version of this property reference.
+    pub fn as_ref(&self) -> ComponentPropertyRef<'_> {
+        match self {
+            ComponentPropertyRef::Id(id) => ComponentPropertyRef::Id(*id),
+            ComponentPropertyRef::CanonicalName(name) => {
+                ComponentPropertyRef::CanonicalName(Cow::Borrowed(name.as_ref()))
+            }
+        }
+    }
+
+    /// Convert this property reference into a static version.
+    pub fn into_static(self) -> ComponentPropertyRef<'static> {
+        match self {
+            ComponentPropertyRef::Id(id) => ComponentPropertyRef::Id(id),
+            ComponentPropertyRef::CanonicalName(name) => {
+                ComponentPropertyRef::CanonicalName(Cow::Owned(name.into_owned()))
+            }
+        }
     }
 }
 
-impl From<SmolStr> for ComponentPropertyRef {
-    fn from(value: SmolStr) -> Self {
-        ComponentPropertyRef::CssName(value)
+impl<'a> From<&'a ComponentPropertyRef<'_>> for ComponentPropertyRef<'a> {
+    fn from(value: &'a ComponentPropertyRef<'_>) -> Self {
+        value.as_ref()
     }
 }
 
-impl From<ComponentPropertyId> for ComponentPropertyRef {
+impl From<PropertyCanonicalName> for ComponentPropertyRef<'_> {
+    fn from(value: PropertyCanonicalName) -> Self {
+        ComponentPropertyRef::CanonicalName(Cow::Owned(value))
+    }
+}
+
+impl<'a> From<&'a PropertyCanonicalName> for ComponentPropertyRef<'a> {
+    fn from(value: &'a PropertyCanonicalName) -> Self {
+        ComponentPropertyRef::CanonicalName(Cow::Borrowed(value))
+    }
+}
+
+impl From<ComponentPropertyId> for ComponentPropertyRef<'_> {
     fn from(value: ComponentPropertyId) -> Self {
         ComponentPropertyRef::Id(value)
     }
 }
 
 /// Opaque identifier for a component property.
+///
+/// The `ComponentPropertyId` is the compact index used throughout the registry and
+/// property maps. It can be converted into `usize` for indexing operations.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Reflect)]
 #[reflect(opaque)]
 pub struct ComponentPropertyId(pub(crate) u32);
@@ -99,8 +169,11 @@ struct PropertyRegistryInner {
     properties: Vec<ComponentProperty>,
     // Unset values are set to either PropertyValue::None, PropertyValue::Inherited or PropertyValue::Initial
     unset_values: Vec<PropertyValue>,
+    canonical_names: FxHashMap<PropertyCanonicalName, ComponentPropertyId>,
+    //registrations: FxHashMap<TypeId, ComponentPropertiesRegistration>,
+    registrations: Vec<ComponentPropertiesRegistration>,
+
     css_names: FxHashMap<Cow<'static, str>, ComponentPropertyId>,
-    canonical_names: FxHashMap<String, ComponentPropertyId>,
 }
 
 /// Error when trying to resolve a property that is not registered.
@@ -111,18 +184,15 @@ pub struct ResolvePropertyError(String);
 /// Registry for component properties.
 ///
 /// It stores all registered properties and allows to resolve them by their css name or canonical name.
-/// It can be cheaply cloned since internally it uses an [`Arc`], but once has been cloned, it cannot be mutated anymore.
-///
-/// # Example
 /// ```
 /// # use bevy_ui::Node;
 /// # use bevy_flair_core::*;
 /// let mut property_registry = PropertyRegistry::default();
-/// property_registry.register(ComponentProperty::new::<Node>(".width"), PropertyValue::None);
-/// let property_id = property_registry.resolve(&Node::property_ref("width")).unwrap();
-/// let property = property_registry.get_property(property_id);
+/// property_registry.register::<Node>();
+/// let property_id = property_registry.resolve(Node::property_ref("width")).unwrap();
+/// let property = &property_registry[property_id];
 ///
-/// assert_eq!(property.canonical_name(), "bevy_ui::ui_node::Node.width");
+/// assert_eq!(property.canonical_name().to_string(), "bevy_ui::ui_node::Node.width");
 /// ```
 #[derive(Default, Resource, Clone, Debug)]
 pub struct PropertyRegistry {
@@ -131,31 +201,20 @@ pub struct PropertyRegistry {
 
 impl PropertyRegistry {
     /// Resolve a property reference to a property id.
-    pub fn resolve(
+    pub fn resolve<'a>(
         &self,
-        property: &ComponentPropertyRef,
+        property_ref: impl Into<ComponentPropertyRef<'a>>,
     ) -> Result<ComponentPropertyId, ResolvePropertyError> {
-        match property {
-            ComponentPropertyRef::Id(property_id) => Ok(*property_id),
-            ComponentPropertyRef::CssName(name) => self
-                .inner
-                .css_names
-                .get(name.as_ref())
-                .copied()
-                .ok_or_else(|| ResolvePropertyError(name.to_string())),
+        let property_ref = property_ref.into();
+        match property_ref {
+            ComponentPropertyRef::Id(property_id) => Ok(property_id),
             ComponentPropertyRef::CanonicalName(name) => self
                 .inner
                 .canonical_names
-                .get(name)
+                .get(name.as_ref())
                 .copied()
-                .ok_or_else(|| ResolvePropertyError(name.clone())),
+                .ok_or_else(|| ResolvePropertyError(name.to_string())),
         }
-    }
-
-    /// Get a property by its id.
-    #[inline]
-    pub fn get_property(&self, property_id: ComponentPropertyId) -> &ComponentProperty {
-        &self.inner.properties[property_id.0 as usize]
     }
 
     /// Get a property by its css name.
@@ -187,7 +246,7 @@ impl PropertyRegistry {
     }
 
     /// Get the unset values map.
-    pub fn get_unset_values_map(&self) -> PropertyMap<PropertyValue> {
+    pub fn create_unset_values_map(&self) -> PropertyMap<PropertyValue> {
         PropertyMap(FromIterator::from_iter(
             self.inner.unset_values.iter().cloned(),
         ))
@@ -198,199 +257,191 @@ impl PropertyRegistry {
             .expect("PropertyRegistry has been cloned, and it cannot be muted anymore")
     }
 
-    /// Registers a property without registering a css name for it.
-    ///  - Panics if a property with the same canonical name is already registered.
-    ///  - Panics if the registry has been previously cloned.
-    pub fn register(
-        &mut self,
-        property: ComponentProperty,
-        unset_value: PropertyValue,
-    ) -> ComponentPropertyId {
-        let inner = self.inner_mut();
-        let canonical_name = property.canonical_name();
-        let id = ComponentPropertyId(inner.properties.len() as u32);
-
-        debug_assert!(matches!(
-            unset_value,
-            PropertyValue::Inherit | PropertyValue::Initial | PropertyValue::None
-        ));
-        debug_assert_eq!(inner.properties.len(), inner.unset_values.len());
-
-        assert!(
-            matches!(
-                unset_value,
-                PropertyValue::None | PropertyValue::Inherit | PropertyValue::Value(_)
-            ),
-            "Invalid default value for '{canonical_name}'"
-        );
-
-        if let Some(other_id) = inner.canonical_names.get(&canonical_name) {
-            let other_property = &inner.properties[other_id.0 as usize];
-            panic!(
-                "Cannot add property, because another property ('{other_property}') was already registered with the same canonical name."
-            );
-        }
-
-        inner.canonical_names.insert(canonical_name, id);
-
-        debug!("Registered property: {property}");
-
-        inner.properties.push(property);
-        inner.unset_values.push(unset_value);
-
-        id
+    /// Get the component properties registration by its type id.
+    pub fn get_component(&self, type_id: TypeId) -> Option<&ComponentPropertiesRegistration> {
+        self.inner
+            .registrations
+            .iter()
+            .find(|r| r.component_type_info.type_id() == type_id)
     }
 
-    /// Registers a property specifying the css name for it.
-    ///  - Panics if a property with the same canonical name is already registered.
-    ///  - Panics if a property with the same css name is already registered.
-    ///  - Panics if the registry has been previously cloned.
-    pub fn register_with_css(
+    /// Get all registered component properties registrations.
+    #[inline]
+    pub fn get_component_registrations(&self) -> &[ComponentPropertiesRegistration] {
+        &self.inner.registrations
+    }
+
+    /// Registers one or more properties in the registry.
+    /// Panics if a property with the same canonical name is already registered.
+    pub fn register_properties(
+        &mut self,
+        property: impl IntoIterator<Item = ComponentProperty>,
+    ) -> Range<ComponentPropertyId> {
+        let inner = self.inner_mut();
+
+        let start_id = ComponentPropertyId(inner.properties.len() as u32);
+        for property in property.into_iter() {
+            let canonical_name = property.canonical_name();
+            let Entry::Vacant(vacant) = inner.canonical_names.entry(canonical_name.to_owned())
+            else {
+                panic!("Property with canonical name '{canonical_name}' already registered");
+            };
+            let property_id = ComponentPropertyId(inner.properties.len() as u32);
+            debug!("Registering property '{property}' with id {property_id:?}");
+
+            inner.properties.push(property);
+            inner.unset_values.push(PropertyValue::None);
+            debug_assert_eq!(inner.properties.len(), inner.unset_values.len());
+            vacant.insert(property_id);
+        }
+        let end_id = ComponentPropertyId(inner.properties.len() as u32);
+        start_id..end_id
+    }
+
+    /// Sets the unset value for a given property.
+    /// Panics if the property reference is invalid or if the unset value is not one of
+    /// By default, all unset values are set to [`PropertyValue::None`].
+    pub fn set_unset_value<'a>(
+        &mut self,
+        property: impl Into<ComponentPropertyRef<'a>>,
+        unset_value: PropertyValue,
+    ) {
+        let property_ref = property.into();
+        let property_id = self
+            .resolve(property_ref)
+            .expect("Invalid property reference provided");
+
+        let inner = self.inner_mut();
+        inner.unset_values[property_id.0 as usize] = unset_value;
+    }
+
+    pub(crate) fn add_registration(&mut self, registration: ComponentPropertiesRegistration) {
+        let component_type_info = registration.component_type_info;
+        let inner = self.inner_mut();
+        if inner
+            .registrations
+            .iter()
+            .any(|r| r.component_type_info.type_id() == component_type_info.type_id())
+        {
+            panic!(
+                "Component properties for '{}' were already added to the registry",
+                component_type_info.type_path()
+            )
+        }
+        inner.registrations.push(registration);
+    }
+
+    /// Registers the component properties of type `T` in the registry.
+    /// It's required that `T` implements [`ComponentProperties`].
+    /// It's preferable to use this method instead of calling [`ComponentProperties::register_component_properties`]
+    /// directly, as this method makes sure the registry is added to the registry.
+    pub fn register<T: ComponentProperties>(&mut self) {
+        debug!(
+            "Registering properties of component '{}'",
+            std::any::type_name::<T>()
+        );
+        let registration = T::register_component_properties(self);
+        trace!("Component registration: {registration:?}");
+        self.add_registration(registration);
+    }
+
+    /// Registers a css property name for a given property reference.
+    /// Panics if the css name is already registered for another property.
+    pub fn register_css_property<'a>(
         &mut self,
         css_name: impl Into<Cow<'static, str>>,
-        property: ComponentProperty,
-        unset_value: PropertyValue,
+        property_ref: impl Into<ComponentPropertyRef<'a>>,
     ) -> ComponentPropertyId {
         let css_name = css_name.into();
+        let property_ref = property_ref.into();
 
         if let Some(other_id) = self.inner.css_names.get(&css_name) {
             let other_property = &self.inner.properties[other_id.0 as usize];
             panic!(
-                "Cannot add property, because another property ('{other_property}') was already registered the css name '{css_name}'."
+                "Cannot register css property '{css_name}' because another property ('{other_property}') was already registered the css name '{css_name}'."
             );
         }
 
-        let id = self.register(property, unset_value);
+        let id = self
+            .resolve(property_ref)
+            .expect("Invalid property reference provided");
         let inner = self.inner_mut();
         inner.css_names.insert(css_name, id);
 
         id
     }
 
-    // Registers a sub-property, but if the value implements ReflectCreateSubProperties,
-    // recursively registers all sub-properties
-    fn register_sub_property(
-        &mut self,
-        css_name: String,
-        property: ComponentProperty,
-        unset_value: PropertyValue,
-        type_registry: &TypeRegistry,
-    ) {
-        if type_registry
-            .get(property.value_type_info().type_id())
-            .is_some_and(|r| r.contains::<ReflectCreateSubProperties>())
-        {
-            self.register_sub_properties(css_name, property, unset_value, type_registry);
-        } else {
-            self.register_with_css(css_name, property, unset_value);
-        };
+    /// Creates a [`PropertyMap`] that contains all the initial values taken from the [`Default`] values
+    /// of the components.
+    pub fn create_initial_values_map(&self) -> PropertyMap<ReflectValue> {
+        self.assert_all_properties_have_component_registered();
+
+        let mut initial_values_map = self.create_property_map(None);
+
+        for component in &self.inner.registrations {
+            let default_component = (component.component_fns.default)();
+
+            for property_id in component.iter_properties() {
+                let property = &self[property_id];
+                let value = property
+                    .get_value(&*default_component)
+                    .reflect_clone()
+                    .unwrap();
+                initial_values_map[property_id] = Some(ReflectValue::new_from_box(value));
+            }
+        }
+        initial_values_map.map(|v| v.take().expect("Initial values map could not be generated"))
     }
 
-    /// Registers the sub-properties of a given property recursively, without registering the property itself.
-    ///  - Panics if any sub-property is already registered.
-    ///  - Panics property type does not implement [`ReflectCreateSubProperties`].
-    ///
-    /// It will use the [`ReflectCreateSubProperties`] trait to create the sub-properties.
-    ///
-    /// # Example
-    /// ```
-    /// # use bevy_ui::prelude::*;
-    /// # use bevy_flair_core::*;
-    /// # let mut type_registry = bevy_reflect::TypeRegistry::new();
-    /// # type_registry.register::<Node>();
-    /// # type_registry.register::<UiRect>();
-    /// # type_registry.register_type_data::<UiRect, ReflectCreateSubProperties>();
-    /// let mut property_registry = PropertyRegistry::default();
-    /// property_registry.register_sub_properties(
-    ///         "margin",
-    ///         ComponentProperty::new::<Node>(".margin"),
-    ///         PropertyValue::None,
-    ///         &type_registry,
-    /// );
-    /// let property_id = property_registry.resolve(&ComponentPropertyRef::CssName("margin-left".into())).unwrap();
-    /// let property = property_registry.get_property(property_id);
-    ///
-    /// assert_eq!(property.canonical_name(), "bevy_ui::ui_node::Node.margin.left");
-    /// # assert!(property_registry.resolve(&ComponentPropertyRef::CssName("margin".into())).is_err());
-    /// ```
-    pub fn register_sub_properties(
-        &mut self,
-        css_name: impl Into<Cow<'static, str>>,
-        parent_property: ComponentProperty,
-        unset_value: PropertyValue,
-        type_registry: &TypeRegistry,
-    ) {
-        let css_name = css_name.into();
-
-        let Some(reflect_create_sub_properties) = type_registry
-            .get(parent_property.value_type_info().type_id())
-            .and_then(|r| r.data::<ReflectCreateSubProperties>())
-        else {
-            panic!(
-                "Type '{}' is not registered or it doesn't implement ReflectCreateSubProperties",
-                parent_property.value_type_info().type_path()
-            );
-        };
-        let sub_properties = reflect_create_sub_properties
-            .create_sub_properties_with_css(&css_name, &parent_property);
-
-        for (sub_property_css_name, sub_property) in sub_properties {
-            self.register_sub_property(
-                sub_property_css_name,
-                sub_property,
-                unset_value.clone(),
-                type_registry,
-            );
+    fn assert_all_properties_have_component_registered(&self) {
+        for (id, property) in self.iter() {
+            if !self
+                .inner
+                .registrations
+                .iter()
+                .any(|component| component.properties_range().contains(&id))
+            {
+                let registered_components = self
+                    .inner
+                    .registrations
+                    .iter()
+                    .map(|component| component.component_type_info.type_path())
+                    .collect::<Vec<_>>()
+                    .join("\n - ");
+                panic!(
+                    "Property '{property}' has not an associated component. Current registered components:\n - {registered_components}"
+                );
+            }
         }
     }
+}
 
-    /// Creates a [`PropertyMap`] that contains all the initial values taken from the [`Default`] values
-    /// of the properties components.
-    pub fn create_initial_values_map(
-        &self,
-        type_registry: &TypeRegistry,
-    ) -> PropertyMap<ReflectValue> {
-        let mut component_defaults = TypeIdMap::default();
+impl Index<ComponentPropertyId> for PropertyRegistry {
+    type Output = ComponentProperty;
 
-        PropertyMap(FromIterator::from_iter(self.inner.properties.iter().map(
-            |property| {
-                let component_type_id = property.component_type_info.type_id();
-                let value_type_id = property.value_type_info.type_id();
+    fn index(&self, index: ComponentPropertyId) -> &Self::Output {
+        &self.inner.properties[index.0 as usize]
+    }
+}
 
-                let component_default_value = component_defaults.entry(component_type_id).or_insert_with(|| {
-                    type_registry
-                        .get(component_type_id)
-                        .and_then(|r| r.data::<ReflectDefault>())
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Component '{type_path}' is not registered or does not register Default",
-                                type_path = property.component_type_info.type_path()
-                            );
-                        })
-                        .default()
-                });
+impl Index<Range<ComponentPropertyId>> for PropertyRegistry {
+    type Output = [ComponentProperty];
 
-                let reflect_from_reflect = type_registry
-                    .get(value_type_id)
-                    .and_then(|r| r.data::<ReflectFromReflect>())
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Type '{type_path}' is not registered or does not register FromReflect",
-                            type_path = property.value_type_info.type_path()
-                        );
-                    });
+    fn index(&self, index: Range<ComponentPropertyId>) -> &Self::Output {
+        let start = index.start.0 as usize;
+        let end = index.end.0 as usize;
+        &self.inner.properties[start..end]
+    }
+}
 
-                let initial_value = property.get_value(component_default_value.as_partial_reflect());
-                let initial_value_reflect = reflect_from_reflect.from_reflect(initial_value).unwrap_or_else(|| {
-                    panic!(
-                        "Type '{type_path}' could not be built using FromReflect",
-                        type_path = property.value_type_info.type_path()
-                    );
-                });
+impl<'a> Index<ComponentPropertyRef<'a>> for PropertyRegistry {
+    type Output = ComponentProperty;
 
-                ReflectValue::new_from_box(initial_value_reflect)
-            },
-        )))
+    fn index(&self, index: ComponentPropertyRef<'a>) -> &Self::Output {
+        let id = self
+            .resolve(index)
+            .expect("Could not resolve property reference");
+        &self[id]
     }
 }
 
@@ -444,36 +495,87 @@ impl ExactSizeIterator for Iter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy_ui::UiRect;
+    use crate::impl_component_properties;
 
-    #[derive(Reflect, Component)]
-    struct TestComponent {
-        pub property: UiRect,
+    #[derive(Component, Reflect)]
+    pub struct TestComponent {
+        pub x: f32,
+        pub y: f32,
     }
 
-    fn type_registry() -> TypeRegistry {
-        let mut registry = TypeRegistry::new();
-        registry.register::<TestComponent>();
+    impl Default for TestComponent {
+        fn default() -> Self {
+            Self { x: 1.0, y: 2.0 }
+        }
+    }
 
-        registry.register::<UiRect>();
-        registry.register_type_data::<UiRect, ReflectCreateSubProperties>();
-        registry
+    impl_component_properties! {
+        pub struct TestComponent {
+            pub x: f32,
+            pub y: f32,
+        }
+    }
+
+    fn registry() -> PropertyRegistry {
+        let mut property_registry = PropertyRegistry::default();
+        property_registry.register::<TestComponent>();
+        property_registry
     }
 
     #[test]
-    fn sub_properties() {
-        let type_registry = type_registry();
-        let mut property_registry = PropertyRegistry::default();
+    fn registry_create_property_map() {
+        let property_registry = registry();
+        let map = property_registry.create_property_map(());
+        assert_eq!(map.iter().len(), 2)
+    }
 
-        property_registry.register_sub_properties(
-            "property",
-            ComponentProperty::new::<TestComponent>(".property"),
-            PropertyValue::None,
-            &type_registry,
+    #[test]
+    fn registry_create_initial_values_map() {
+        let property_registry = registry();
+        let initial_values_map = property_registry.create_initial_values_map();
+        assert_eq!(initial_values_map.iter().len(), 2);
+
+        let x_id = property_registry
+            .resolve(TestComponent::property_ref("x"))
+            .unwrap();
+        let y_id = property_registry
+            .resolve(TestComponent::property_ref("y"))
+            .unwrap();
+
+        assert_eq!(
+            initial_values_map[x_id]
+                .clone()
+                .downcast_value::<f32>()
+                .unwrap(),
+            1.0
         );
+        assert_eq!(
+            initial_values_map[y_id]
+                .clone()
+                .downcast_value::<f32>()
+                .unwrap(),
+            2.0
+        );
+    }
 
-        let _ = property_registry
-            .get_property_id_by_css_name("property-left")
-            .expect("property-left not found");
+    #[test]
+    fn registry_set_unset_value() {
+        let mut property_registry = registry();
+
+        let x_id = property_registry
+            .resolve(TestComponent::property_ref("x"))
+            .unwrap();
+
+        let y_id = property_registry
+            .resolve(TestComponent::property_ref("y"))
+            .unwrap();
+
+        property_registry.set_unset_value(x_id, PropertyValue::Inherit);
+
+        let unset_values_map = property_registry.create_unset_values_map();
+
+        assert_eq!(unset_values_map.iter().len(), 2);
+        assert_eq!(unset_values_map[x_id], PropertyValue::Inherit);
+        assert_eq!(unset_values_map[y_id], PropertyValue::None);
     }
 }

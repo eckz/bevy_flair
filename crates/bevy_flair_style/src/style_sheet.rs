@@ -442,31 +442,49 @@ mod tests {
     use crate::media_selector::{MediaRangeSelector, MediaSelector};
     use crate::testing::{css_selector, entity};
     use bevy_ecs::component::Component;
-    use bevy_flair_core::ComponentProperty;
+    use bevy_reflect::{ParsedPath, Typed};
     use std::sync::LazyLock;
     use std::time::Duration;
 
-    #[derive(Component, Reflect)]
+    #[derive(Component, Reflect, Default)]
     struct TestComponent {
         value: f32,
     }
 
-    const TEST_PROPERTY: &str = "test-property";
+    impl ComponentProperties for TestComponent {
+        fn register_component_properties(
+            property_registry: &mut PropertyRegistry,
+        ) -> ComponentPropertiesRegistration {
+            let component_type_info = Self::type_info();
+            let path = ParsedPath::parse_static("value").unwrap();
+            let registered_properties =
+                property_registry.register_properties([ComponentProperty::new(
+                    component_type_info,
+                    path,
+                    f32::type_info(),
+                )]);
+
+            ComponentPropertiesRegistration::new(
+                component_type_info,
+                ComponentFns::new::<Self>(),
+                registered_properties,
+            )
+        }
+    }
+
+    const TEST_PROPERTY: PropertyCanonicalName =
+        PropertyCanonicalName::from_component::<TestComponent>(".value");
 
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
         let mut registry = PropertyRegistry::default();
-        registry.register_with_css(
-            TEST_PROPERTY,
-            ComponentProperty::new::<TestComponent>("value"),
-            PropertyValue::None,
-        );
+        registry.register::<TestComponent>();
         registry
     });
 
     macro_rules! resolve {
         ($p:expr) => {{
             PROPERTY_REGISTRY
-                .resolve(&ComponentPropertyRef::CssName($p.into()))
+                .resolve($p)
                 .unwrap_or_else(|e| panic!("{e}"))
         }};
     }
@@ -482,10 +500,10 @@ mod tests {
 
     macro_rules! property_map {
         () => {
-            PROPERTY_REGISTRY.get_unset_values_map()
+            PROPERTY_REGISTRY.create_unset_values_map()
         };
         ($($k:expr => $v:expr),* $(,)?) => {{
-            let mut property_map = PROPERTY_REGISTRY.get_unset_values_map();
+            let mut property_map = PROPERTY_REGISTRY.create_unset_values_map();
             property_map.extend([$((
                 resolve!($k),
                 $v
@@ -508,7 +526,7 @@ mod tests {
 
     macro_rules! get_properties {
         ($style_sheet:expr, $rules:expr) => {{
-            let mut property_map = PROPERTY_REGISTRY.get_unset_values_map();
+            let mut property_map = PROPERTY_REGISTRY.create_unset_values_map();
             $style_sheet.get_property_values(
                 $rules,
                 &PROPERTY_REGISTRY,

@@ -8,7 +8,7 @@ use crate::{
     ColorScheme, GlobalChangeDetection, NodePseudoState, StyleSheet, VarResolver, VarTokens,
     css_selector,
 };
-use bevy_ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
+use bevy_ecs::entity::hash_set::EntityHashSet;
 use std::cmp::Ordering;
 use std::iter;
 
@@ -19,10 +19,10 @@ use crate::media_selector::MediaFeaturesProvider;
 use bevy_camera::{Camera, NormalizedRenderTarget};
 use bevy_ecs::relationship::RelationshipSourceCollection;
 use bevy_ecs::system::SystemParam;
+use bevy_ecs::world::{CommandQueue, EntityRefExcept};
 use bevy_flair_core::*;
 use bevy_input_focus::{InputFocus, InputFocusVisible};
 use bevy_picking::hover::Hovered;
-use bevy_text::{TextColor, TextFont, TextLayout, TextSpan};
 use bevy_time::Time;
 use bevy_ui::prelude::*;
 use bevy_utils::once;
@@ -173,7 +173,7 @@ pub(crate) fn calculate_effective_style_sheet(
         }
         trace!("Effective stylesheet for {name_or_entity} is {effective_style_sheet:?}");
 
-        marker.mark_for_recalculation();
+        marker.set_needs_style_recalculation();
         let effective_change = data.set_effective_style_sheet_asset_id(effective_style_sheet);
         if effective_change {
             flags.reset();
@@ -380,7 +380,7 @@ pub(crate) fn clear_global_change_detection(
     *global_change_detection = GlobalChangeDetection::default();
 }
 
-pub(crate) fn mark_nodes_for_recalculation_on_window_media_features_change(
+pub(crate) fn set_nodes_for_style_recalculation_on_window_media_features_change(
     primary_window: Option<Single<Entity, With<PrimaryWindow>>>,
     cameras_query: Query<(Entity, &Camera)>,
     window_media_features_changed: Query<Entity, Changed<WindowMediaFeatures>>,
@@ -414,13 +414,13 @@ pub(crate) fn mark_nodes_for_recalculation_on_window_media_features_change(
                 .depends_on_media_flags
                 .contains(DependsOnMediaFeaturesFlags::DEPENDS_ON_WINDOW)
             {
-                marker.mark_for_recalculation();
+                marker.set_needs_style_recalculation();
             }
         }
     }
 }
 
-pub(crate) fn mark_nodes_for_recalculation_on_render_target_info_change(
+pub(crate) fn set_nodes_for_style_recalculation_on_render_target_info_change(
     mut compute_node_target_changed_query: Query<
         (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
         Changed<ComputedUiRenderTargetInfo>,
@@ -431,12 +431,12 @@ pub(crate) fn mark_nodes_for_recalculation_on_render_target_info_change(
             .depends_on_media_flags
             .contains(DependsOnMediaFeaturesFlags::DEPENDS_ON_COMPUTE_TARGET_INFO)
         {
-            marker.mark_for_recalculation();
+            marker.set_needs_style_recalculation();
         }
     }
 }
 
-pub(crate) fn mark_related_nodes_for_recalculation(
+pub(crate) fn set_related_nodes_for_style_recalculation(
     children_changed_query: Query<Entity, Changed<Children>>,
     selector_flags_query: Query<&NodeStyleSelectorFlags>,
     mut markers_query: Query<&mut NodeStyleMarker>,
@@ -472,7 +472,7 @@ pub(crate) fn mark_related_nodes_for_recalculation(
 
     for entity in to_be_marked.drain() {
         if let Ok(mut marker) = markers_query.get_mut(entity) {
-            marker.mark_for_recalculation();
+            marker.set_needs_style_recalculation();
         }
     }
 
@@ -507,7 +507,8 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
     for (entity, style_data, inline_style, selector_flags, marker, child_of) in &nodes_changed_query
     {
         let inline_style_changed = inline_style.is_some_and(|s| s.is_changed());
-        if !style_data.is_changed() && !marker.needs_recalculation() && !inline_style_changed {
+        if !style_data.is_changed() && !marker.needs_style_recalculation() && !inline_style_changed
+        {
             continue;
         }
 
@@ -533,20 +534,25 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
     let mut markers_query = queries.p1();
     for entity in to_be_marked.drain() {
         if let Ok(mut marker) = markers_query.get_mut(entity) {
-            marker.mark_for_recalculation();
+            marker.set_needs_style_recalculation();
         }
     }
     Ok(())
 }
 
 pub(crate) fn mark_as_changed_on_style_sheet_change(
-    mut commands: Commands,
+    mut command_queue: Deferred<CommandQueue>,
+    property_registry: Res<PropertyRegistry>,
     mut asset_msg_reader: MessageReader<AssetEvent<StyleSheet>>,
     empty_computed_properties: Res<EmptyComputedProperties>,
     mut style_query: Query<(
         Entity,
-        Has<Text>,
-        Has<TextSpan>,
+        EntityRefExcept<(
+            NodeStyleSelectorFlags,
+            NodeStyleMarker,
+            NodeProperties,
+            NodeVars,
+        )>,
         &NodeStyleData,
         &mut NodeStyleSelectorFlags,
         &mut NodeStyleMarker,
@@ -567,62 +573,42 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         return;
     }
 
-    for (
-        entity,
-        has_text,
-        has_text_span,
-        style_data,
-        mut flags,
-        mut marker,
-        mut properties,
-        mut vars,
-    ) in &mut style_query
+    let initial_values_map = property_registry.create_initial_values_map();
+
+    for (entity, entity_ref, style_data, mut flags, mut marker, mut properties, mut vars) in
+        &mut style_query
     {
-        if modified_stylesheets.contains(&style_data.effective_style_sheet_asset_id) {
-            flags.reset();
+        if !modified_stylesheets.contains(&style_data.effective_style_sheet_asset_id) {
+            continue;
+        }
 
-            properties.reset(&empty_computed_properties);
-            vars.clear();
-            marker.mark_for_recalculation();
+        // This map will contain `None` for properties that were originally `None`,
+        // and the initial value for any property that previously had a set value.
+        // In other words, it resets only the properties that were explicitly set back to their initial values.
 
-            // We insert the Node and its required component default values, so the UI is reset
-            // This might cause issues if some properties are handled manually, but this makes sure
-            // that all properties are unapplied, for example during development it's common to add a
-            // property like `outline` and remove it, in those cases, the Outline would keep the last value
-            // causing confusion.
-            // TODO: Emit an event when this happens
-
-            if has_text_span {
-                // TextSpan does not depend on Node
-                commands
-                    .entity(entity)
-                    .try_insert((TextColor::default(), TextFont::default()))
-                    .try_remove::<(TextLayout, TextShadow)>();
-            } else {
-                commands
-                    .entity(entity)
-                    .try_insert((
-                        Node::default(),
-                        BackgroundColor::default(),
-                        BorderColor::default(),
-                        BorderRadius::default(),
-                        ZIndex::default(),
-                        UiTransform::default(),
-                    ))
-                    .try_remove::<(Outline, BoxShadow, BackgroundGradient, BorderGradient)>();
-
-                if has_text {
-                    commands
-                        .entity(entity)
-                        .try_insert((
-                            TextColor::default(),
-                            TextFont::default(),
-                            TextLayout::default(),
-                        ))
-                        .try_remove::<(TextShadow,)>();
-                }
+        let mut reset_property_values = property_registry.create_property_map(ComputedValue::None);
+        for (id, value) in properties.computed_values.iter() {
+            if value.is_value() {
+                reset_property_values[id] = initial_values_map[id].clone().into();
             }
         }
+
+        let mut entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
+        for component in property_registry.get_component_registrations() {
+            component
+                .apply_values_ref(
+                    &entity_ref,
+                    &property_registry,
+                    &mut reset_property_values,
+                    entity_command_queue.reborrow(),
+                )
+                .expect("Failed to reset components.");
+        }
+
+        flags.reset();
+        properties.reset(&empty_computed_properties);
+        vars.clear();
+        marker.set_needs_style_recalculation();
     }
 }
 
@@ -801,7 +787,7 @@ pub(crate) fn calculate_style_and_set_vars(
             maybe_computed_ui_render_target_info,
             mut vars,
         )| {
-            if !marker.needs_recalculation() {
+            if !marker.needs_style_recalculation() {
                 return;
             }
 
@@ -843,7 +829,7 @@ pub(crate) fn calculate_style_and_set_vars(
             .flat_map(|entity| children_query.iter_descendants(entity))
         {
             if let Ok(mut marker) = marker_query.get_mut(entity) {
-                marker.mark_for_recalculation();
+                marker.set_needs_style_recalculation();
             }
         }
     }
@@ -871,7 +857,7 @@ pub(crate) fn set_property_values(
         || any_property_change_parallel.borrow_local_mut(),
         |any_property_change,
          (name_or_entity, data, inline_style, active_rules, mut marker, mut properties)| {
-            if !marker.needs_recalculation() {
+            if !marker.needs_style_recalculation() {
                 return;
             }
             let stylesheet_id = data.effective_style_sheet_asset_id;
@@ -886,7 +872,7 @@ pub(crate) fn set_property_values(
 
             properties.set_transition_options(style_sheet.get_transition_options(new_rules));
 
-            let mut property_values = property_registry.get_unset_values_map();
+            let mut property_values = property_registry.create_unset_values_map();
             style_sheet.get_property_values(
                 new_rules,
                 &property_registry,
@@ -915,7 +901,7 @@ pub(crate) fn set_property_values(
                 &property_registry,
             );
 
-            marker.clear_marker();
+            marker.clear_style_recalculation();
         },
     );
 
@@ -989,12 +975,32 @@ pub(crate) fn compute_property_values_condition(
     global_change_detection.any_property_value_changed
 }
 
+pub(crate) fn auto_remove_components_condition(
+    global_change_detection: Res<GlobalChangeDetection>,
+) -> bool {
+    global_change_detection.any_property_value_changed
+}
+
+#[inline]
+fn set_needs_property_application(properties: &NodeProperties, marker: &mut NodeStyleMarker) {
+    if !properties
+        .pending_computed_values
+        .ptr_eq(&properties.computed_values)
+        || !properties
+            .pending_animation_values
+            .ptr_eq(&properties.computed_values)
+    {
+        marker.set_needs_property_application();
+    }
+}
+
 pub(crate) fn compute_property_values_just_transitions_and_animations(
     empty_computed_properties: Res<EmptyComputedProperties>,
-    mut node_properties_query: Query<&mut NodeProperties>,
+    mut node_properties_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
 ) {
-    for mut properties in &mut node_properties_query {
+    for (mut properties, mut marker) in &mut node_properties_query {
         properties.just_compute_transitions_and_animations(&empty_computed_properties);
+        set_needs_property_application(&properties, &mut marker);
     }
 }
 
@@ -1003,7 +1009,7 @@ pub(crate) fn compute_property_values(
     root_entities: Query<Entity, (Without<ChildOf>, With<NodeProperties>)>,
     children_query: Query<&Children, With<NodeProperties>>,
     #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
-    mut node_properties_query: Query<&mut NodeProperties>,
+    mut node_properties_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
     empty_computed_properties: Res<EmptyComputedProperties>,
     initial_values: Res<InitialPropertyValues>,
     app_type_registry: Res<AppTypeRegistry>,
@@ -1014,8 +1020,6 @@ pub(crate) fn compute_property_values(
     #[cfg(debug_assertions)]
     let trace_new_properties = |entity: Entity, properties: &NodeProperties| {
         use tracing::{Level, enabled};
-
-        // Debugging
         if enabled!(Level::TRACE)
             && !properties
                 .pending_computed_values
@@ -1035,20 +1039,20 @@ pub(crate) fn compute_property_values(
     let trace_new_properties = |_: Entity, _: &NodeProperties| {};
 
     for root in &root_entities {
-        let mut root_properties = node_properties_query.get_mut(root)?;
+        let (mut root_properties, mut root_marker) = node_properties_query.get_mut(root)?;
         root_properties.compute_pending_property_values_for_root(
             &type_registry,
             &property_registry,
             &empty_computed_properties,
             &initial_values.0,
         );
-
+        set_needs_property_application(&root_properties, &mut root_marker);
         trace_new_properties(root, &root_properties);
 
         for (parent, entity) in
             custom_descendants_iter::DescendantDepthFirstIter::new(&children_query, root)
         {
-            let Ok([parent_properties, mut properties]) =
+            let Ok([(parent_properties, _), (mut properties, mut marker)]) =
                 node_properties_query.get_many_mut([parent, entity])
             else {
                 continue;
@@ -1061,7 +1065,7 @@ pub(crate) fn compute_property_values(
                 &empty_computed_properties,
                 &initial_values.0,
             );
-
+            set_needs_property_application(&properties, &mut marker);
             trace_new_properties(entity, &properties);
         }
     }
@@ -1113,12 +1117,12 @@ pub(crate) fn apply_computed_properties_condition(
 
 pub(crate) fn apply_computed_properties(
     world: &mut World,
-    properties_query_state: &mut QueryState<(Entity, &mut NodeProperties)>,
+    properties_query_state: &mut QueryState<(Entity, &mut NodeProperties, &mut NodeStyleMarker)>,
     mut empty_computed_properties_local: Local<Option<EmptyComputedProperties>>,
     mut property_registry_local: Local<Option<PropertyRegistry>>,
     mut modified_entities: Local<EntityHashSet>,
-    mut pending_changes: Local<Vec<(Entity, ComponentPropertyId, ReflectValue)>>,
-    mut component_queues: Local<EntityHashMap<NewComponentsQueue>>,
+    mut pending_changes: Local<Vec<(Entity, PropertyMap<ComputedValue>)>>,
+    mut command_queue: Local<CommandQueue>,
 ) -> Result {
     let property_registry =
         property_registry_local.get_or_insert_with(|| world.resource::<PropertyRegistry>().clone());
@@ -1128,51 +1132,79 @@ pub(crate) fn apply_computed_properties(
 
     modified_entities.clear();
     debug_assert!(pending_changes.is_empty());
-    debug_assert!(component_queues.is_empty());
 
     let mut properties_query = properties_query_state.query_mut(world);
-    for (entity, mut properties) in &mut properties_query {
+    for (entity, mut properties, mut marker) in &mut properties_query {
+        if !marker.needs_property_application() {
+            properties.clear_pending_computed_properties();
+            continue;
+        }
+        marker.clear_needs_property_application();
         let mut entity_modified = false;
-
+        let mut entity_pending_changes = empty_computed_properties.0.clone();
         properties.apply_computed_properties(empty_computed_properties, |property_id, value| {
             entity_modified = true;
-            pending_changes.push((entity, property_id, value));
+            entity_pending_changes[property_id] = value.into();
         });
 
         if entity_modified {
+            pending_changes.push((entity, entity_pending_changes));
             modified_entities.insert(entity);
         }
     }
 
+    if modified_entities.is_empty() {
+        return Ok(());
+    }
+
+    debug_assert!(command_queue.is_empty());
+
+    // Scope added to avoid borrow checker errors
     {
         let mut entities_map = world.get_entity_mut(&*modified_entities)?;
 
-        for (entity, property_id, value) in pending_changes.drain(..) {
+        for (entity, mut changes) in pending_changes.drain(..) {
             let entity_mut = entities_map.get_mut(&entity).unwrap();
-            let components_queue = component_queues
-                .entry(entity)
-                .or_insert_with(|| NewComponentsQueue::with_entity(entity));
+            let mut entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
 
-            let property = property_registry.get_property(property_id);
-
-            if let Err(err) = property.apply_value_to_entity_with_queue(
-                entity_mut.reborrow(),
-                value.value_as_partial_reflect(),
-                components_queue,
-            ) {
-                warn!("Error applying property '{property}': {err}");
+            for component in property_registry.get_component_registrations() {
+                if let Err(err) = component.apply_values_mut(
+                    entity_mut.reborrow(),
+                    property_registry,
+                    &mut changes,
+                    entity_command_queue.reborrow(),
+                ) {
+                    warn!(
+                        "Error applying properties of '{component_type_path}': {err}",
+                        component_type_path = component.component_type_path()
+                    );
+                }
             }
         }
     }
 
-    let mut commands = world.commands();
-    for (_, component_queue) in component_queues.drain() {
-        if !component_queue.is_empty() {
-            commands.queue(component_queue);
-        }
-    }
+    command_queue.apply(world);
 
     Ok(())
+}
+
+pub(crate) fn auto_remove_components(
+    property_registry: Res<PropertyRegistry>,
+    mut command_queue: Deferred<CommandQueue>,
+    query: Query<(EntityRef, &NodeProperties)>,
+) {
+    for (entity_ref, properties) in &query {
+        let entity = entity_ref.entity();
+        let mut entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
+
+        for component in property_registry.get_component_registrations() {
+            component.auto_remove_deferred(
+                entity_ref,
+                &properties.computed_values,
+                entity_command_queue.reborrow(),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1180,13 +1212,15 @@ mod tests {
     use super::*;
     use crate::components::PseudoElementsSupport;
     use bevy_app::prelude::*;
+    use bevy_asset::uuid_handle;
+    use bevy_reflect::Reflect;
     use std::sync::{Arc, Mutex, PoisonError};
 
     #[test]
     fn test_apply_classes() {
         let mut app = App::new();
 
-        app.add_systems(PostUpdate, apply_classes);
+        app.add_systems(Update, apply_classes);
 
         let entity = app
             .world_mut()
@@ -1261,7 +1295,7 @@ mod tests {
     fn test_apply_attributes() {
         let mut app = App::new();
 
-        app.add_systems(PostUpdate, apply_attributes);
+        app.add_systems(Update, apply_attributes);
 
         let entity = app
             .world_mut()
@@ -1334,7 +1368,7 @@ mod tests {
     fn test_track_name_changes() {
         let mut app = App::new();
 
-        app.add_systems(PostUpdate, track_name_changes);
+        app.add_systems(Update, track_name_changes);
 
         let entity = app
             .world_mut()
@@ -1379,7 +1413,7 @@ mod tests {
         let mut app = App::new();
 
         app.register_required_components::<Node, NodeStyleData>();
-        app.add_systems(PostUpdate, sort_pseudo_elements);
+        app.add_systems(Update, sort_pseudo_elements);
 
         let mut query_state = app.world_mut().query();
 
@@ -1446,5 +1480,189 @@ mod tests {
                 (Some(PseudoElement::After), _),
             ]
         ));
+    }
+
+    #[derive(Component, Reflect, Default)]
+    pub struct TestComponent {
+        pub left: f32,
+        pub right: f32,
+    }
+
+    impl_component_properties! {
+        #[component(auto_insert_remove)]
+        pub struct TestComponent {
+            pub left: f32,
+            pub right: f32,
+        }
+    }
+
+    #[test]
+    fn test_auto_remove_components() {
+        let mut app = App::new();
+
+        let mut property_registry = PropertyRegistry::default();
+        property_registry.register::<TestComponent>();
+
+        app.insert_resource(property_registry);
+        app.init_resource::<EmptyComputedProperties>();
+        app.add_systems(
+            Update,
+            (reset_properties_on_added, auto_remove_components).chain(),
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((TestComponent::default(), NodeProperties::default()))
+            .id();
+
+        app.update();
+
+        assert!(!app.world().entity(entity).contains::<TestComponent>());
+    }
+
+    const TEST_STYLE_SHEET_HANDLE: Handle<StyleSheet> =
+        uuid_handle!("50e71aad-8ac5-4afb-a1e4-5524525d61be");
+
+    #[test]
+    fn test_mark_as_changed_on_style_sheet_change() {
+        let mut app = App::new();
+
+        app.add_plugins(AssetPlugin::default());
+        app.init_asset::<StyleSheet>();
+        let mut property_registry = PropertyRegistry::default();
+        property_registry.register::<TestComponent>();
+
+        app.insert_resource(property_registry.clone());
+        app.init_resource::<EmptyComputedProperties>();
+        app.add_systems(
+            Update,
+            (
+                reset_properties_on_added,
+                calculate_effective_style_sheet,
+                mark_as_changed_on_style_sheet_change,
+            )
+                .chain(),
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                NodeStyleSheet::new(TEST_STYLE_SHEET_HANDLE),
+                TestComponent {
+                    left: 20.0,
+                    right: 30.0,
+                },
+            ))
+            .id();
+
+        app.update();
+        // Simulate a property that was already applied
+        {
+            let computed_values = &mut app
+                .world_mut()
+                .entity_mut(entity)
+                .into_mut::<NodeProperties>()
+                .unwrap()
+                .computed_values;
+
+            let left_property = property_registry
+                .resolve(TestComponent::property_ref("left"))
+                .unwrap();
+
+            computed_values[left_property] = ReflectValue::Float(20.0).into();
+        }
+
+        app.world_mut().write_message(AssetEvent::Modified {
+            id: TEST_STYLE_SHEET_HANDLE.id(),
+        });
+
+        app.update();
+
+        let test_component = app.world().entity(entity).get::<TestComponent>().unwrap();
+        // Left property has been reset
+        assert_eq!(test_component.left, 0.0);
+        // Right property has been left as it was
+        assert_eq!(test_component.right, 30.0);
+    }
+
+    #[test]
+    fn test_apply_computed_properties() {
+        let mut app = App::new();
+
+        let mut property_registry = PropertyRegistry::default();
+        property_registry.register::<TestComponent>();
+
+        app.insert_resource(property_registry.clone());
+        app.init_resource::<EmptyComputedProperties>();
+
+        fn mark_all_for_property_application(mut query: Query<&mut NodeStyleMarker>) {
+            for mut maker in &mut query {
+                maker.set_needs_property_application();
+            }
+        }
+
+        app.add_systems(
+            Update,
+            (
+                reset_properties_on_added,
+                mark_all_for_property_application,
+                apply_computed_properties,
+            )
+                .chain(),
+        );
+
+        let entity_1 = app
+            .world_mut()
+            .spawn((
+                NodeStyleSheet::new(TEST_STYLE_SHEET_HANDLE),
+                TestComponent {
+                    left: 10.0,
+                    right: 20.0,
+                },
+            ))
+            .id();
+
+        let entity_2 = app
+            .world_mut()
+            .spawn((NodeStyleSheet::new(TEST_STYLE_SHEET_HANDLE),))
+            .id();
+
+        app.update();
+
+        // Simulate setting left_property to 500.0 for both entities
+        {
+            for entity in [entity_1, entity_2] {
+                let mut properties = app
+                    .world_mut()
+                    .entity_mut(entity)
+                    .into_mut::<NodeProperties>()
+                    .unwrap();
+
+                let left_property = property_registry
+                    .resolve(TestComponent::property_ref("left"))
+                    .unwrap();
+
+                assert!(!properties.computed_values.is_empty());
+                properties.pending_animation_values = properties.computed_values.clone();
+                properties.pending_computed_values = properties.computed_values.clone();
+
+                properties.pending_computed_values[left_property] =
+                    ReflectValue::Float(500.0).into();
+            }
+        }
+
+        app.update();
+
+        let test_component_1 = app.world().entity(entity_1).get::<TestComponent>().unwrap();
+        // Left property has been set
+        assert_eq!(test_component_1.left, 500.0);
+        // Right property has been left as it was
+        assert_eq!(test_component_1.right, 20.0);
+
+        let test_component_2 = app.world().entity(entity_2).get::<TestComponent>().unwrap();
+        // Left property has been set
+        assert_eq!(test_component_2.left, 500.0);
+        // Right property has taken the default value
+        assert_eq!(test_component_2.right, 0.0);
     }
 }

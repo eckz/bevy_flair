@@ -29,7 +29,7 @@ use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CssTransitionProperty {
-    pub properties: Vec<ComponentPropertyRef>,
+    pub properties: Vec<ComponentPropertyRef<'static>>,
     pub options: TransitionOptions,
 }
 
@@ -702,7 +702,17 @@ impl CssPropertyParser<'_> {
         let property_name = parser.expect_located_ident()?;
 
         let properties = if let Some(shorthand_property) = self.get_shorthand_css(&property_name) {
-            shorthand_property.sub_properties.clone()
+            shorthand_property
+                .sub_properties
+                .iter()
+                .map(|css_ref| {
+                    ComponentPropertyRef::Id(
+                        self.property_registry
+                            .get_property_id_by_css_name(css_ref)
+                            .unwrap(),
+                    )
+                })
+                .collect()
         } else if let Some(property_id) = self.get_css_property(&property_name) {
             vec![ComponentPropertyRef::Id(property_id)]
         } else {
@@ -744,8 +754,13 @@ impl CssPropertyParser<'_> {
                 Ok((properties, important_level)) => CssRulesetProperty::MultipleProperties(
                     properties
                         .into_iter()
-                        .map(|(property, value)| {
-                            (self.property_registry.resolve(&property).unwrap(), value)
+                        .map(|(css_ref, value)| {
+                            (
+                                self.property_registry
+                                    .get_property_id_by_css_name(&css_ref)
+                                    .unwrap(),
+                                value,
+                            )
                         })
                         .collect(),
                     important_level,
@@ -763,7 +778,7 @@ impl CssPropertyParser<'_> {
                     match result {
                         Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
                             shorthand_property.css_name.as_ref().into(),
-                            shorthand_property.as_dynamic_parse_var_tokens(),
+                            shorthand_property.as_dynamic_parse_var_tokens(self.property_registry),
                             var_tokens,
                             important_level,
                         ),
@@ -781,7 +796,7 @@ impl CssPropertyParser<'_> {
             ));
         };
 
-        let property = self.property_registry.get_property(property_id);
+        let property = &self.property_registry[property_id];
         let value_type_path = property.value_type_info().type_path();
 
         let Some(reflect_parse_css) = self.get_reflect_parse_css(value_type_path) else {
@@ -1514,6 +1529,7 @@ mod tests {
     use super::*;
     use crate::utils::parse_property_value_with;
 
+    use crate::CssRef;
     use bevy_ecs::component::Component;
     use bevy_flair_core::*;
     use bevy_flair_style::{ToCss, VarOrToken, VarToken};
@@ -1526,18 +1542,27 @@ mod tests {
         .with_label_attach(ariadne::LabelAttach::Start)
         .with_char_set(ariadne::CharSet::Ascii);
 
-    #[derive(Reflect)]
+    #[derive(Reflect, Default)]
     #[reflect(ParseCssEnum)]
     enum TestEnum {
+        #[default]
         Value1,
         Value2,
     }
 
-    #[derive(Reflect, Component)]
+    #[derive(Reflect, Component, Default)]
     struct TestComponent {
         pub width: i32,
         pub height: i32,
         pub property_enum: TestEnum,
+    }
+
+    impl_component_properties! {
+        struct TestComponent {
+            pub width: i32,
+            pub height: i32,
+            pub property_enum: TestEnum,
+        }
     }
 
     fn parse_i32_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
@@ -1562,20 +1587,12 @@ mod tests {
 
     fn property_registry() -> PropertyRegistry {
         let mut registry = PropertyRegistry::default();
-        registry.register_with_css(
-            "width",
-            ComponentProperty::new::<TestComponent>("width"),
-            PropertyValue::None,
-        );
-        registry.register_with_css(
-            "height",
-            ComponentProperty::new::<TestComponent>("height"),
-            PropertyValue::None,
-        );
-        registry.register_with_css(
+        registry.register::<TestComponent>();
+        registry.register_css_property("width", TestComponent::property_ref("width"));
+        registry.register_css_property("height", TestComponent::property_ref("height"));
+        registry.register_css_property(
             "property-enum",
-            ComponentProperty::new::<TestComponent>("property_enum"),
-            PropertyValue::None,
+            TestComponent::property_ref("property_enum"),
         );
         registry
     }
@@ -1586,7 +1603,10 @@ mod tests {
             let width = parse_i32_property_value(parser)?;
             parser.expect_comma()?;
             let height = parse_i32_property_value(parser)?;
-            Ok(vec![("width".into(), width), ("height".into(), height)])
+            Ok(vec![
+                (CssRef::new("width"), width),
+                (CssRef::new("height"), height),
+            ])
         });
         registry
     }

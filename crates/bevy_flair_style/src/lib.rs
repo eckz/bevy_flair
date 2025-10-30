@@ -409,11 +409,11 @@ impl Plugin for FlairStylePlugin {
                     )
                         .in_set(StyleSystems::SetStyleData),
                     (
-                        systems::mark_related_nodes_for_recalculation,
+                        systems::set_related_nodes_for_style_recalculation,
                         systems::mark_changed_nodes_for_recalculation,
                         (
-                            systems::mark_nodes_for_recalculation_on_render_target_info_change,
-                            systems::mark_nodes_for_recalculation_on_window_media_features_change
+                            systems::set_nodes_for_style_recalculation_on_render_target_info_change,
+                            systems::set_nodes_for_style_recalculation_on_window_media_features_change
                         ).after(bevy_ui::UiSystems::Propagate),
                     )
                         .chain()
@@ -428,8 +428,13 @@ impl Plugin for FlairStylePlugin {
                     ).in_set(StyleSystems::ComputeProperties),
                     systems::emit_animation_events.in_set(StyleSystems::EmitAnimationEvents),
                     systems::emit_redraw_event.in_set(StyleSystems::EmitRedrawEvent),
-                    systems::apply_computed_properties
-                        .run_if(systems::apply_computed_properties_condition)
+                    (
+                        systems::apply_computed_properties
+                            .run_if(systems::apply_computed_properties_condition),
+                        systems::auto_remove_components
+                            .run_if(systems::auto_remove_components_condition)
+                    )
+                        .chain()
                         .in_set(StyleSystems::ApplyComputedProperties),
                 ),
             );
@@ -532,7 +537,6 @@ mod tests {
             },
             AssetPlugin::default(),
             PropertyRegistryPlugin,
-            BevyUiPropertiesPlugin,
             FlairStylePlugin,
         ));
 
@@ -867,16 +871,19 @@ mod tests {
                 });
         });
 
-        fn num_nodes_for_recalculation(app: &mut App) -> usize {
+        fn num_nodes_for_style_recalculation(app: &mut App) -> usize {
             let markers = query!(app, &NodeStyleMarker);
-            markers.iter().filter(|c| c.needs_recalculation()).count()
+            markers
+                .iter()
+                .filter(|c| c.needs_style_recalculation())
+                .count()
         }
 
         fn clear_marked_for_recalculation(app: &mut App) {
             app.world_mut()
                 .run_system_once(|mut query: Query<&mut NodeStyleMarker>| {
                     for mut computed_style in &mut query {
-                        computed_style.clear_marker();
+                        computed_style.clear_style_recalculation();
                     }
                 })
                 .unwrap();
@@ -885,7 +892,7 @@ mod tests {
         // First run everything is marked for recalculation
         {
             app.update();
-            assert_eq!(num_nodes_for_recalculation(app), 10);
+            assert_eq!(num_nodes_for_style_recalculation(app), 10);
             // We need to manually clear everything
             clear_marked_for_recalculation(app);
         }
@@ -893,20 +900,20 @@ mod tests {
         // With not updates, the number of nodes for recalculation should be still zero
         {
             app.update();
-            assert_eq!(num_nodes_for_recalculation(app), 0);
+            assert_eq!(num_nodes_for_style_recalculation(app), 0);
         }
 
         {
             app.world_mut()
                 .run_system_once(|mut query: Query<&mut NodeStyleMarker, Without<ChildOf>>| {
-                    query.single_mut().unwrap().mark_for_recalculation();
+                    query.single_mut().unwrap().set_needs_style_recalculation();
                 })
                 .unwrap();
 
             app.update();
 
             // Only root should be marked for recalculation again, since the flags says no recalculation is needed
-            assert_eq!(num_nodes_for_recalculation(app), 1);
+            assert_eq!(num_nodes_for_style_recalculation(app), 1);
 
             clear_marked_for_recalculation(app);
         }
@@ -920,7 +927,7 @@ mod tests {
                         With<FirstChild>,
                     >| {
                         let (selector_flags, mut marker) = query.single_mut().unwrap();
-                        marker.mark_for_recalculation();
+                        marker.set_needs_style_recalculation();
                         selector_flags
                             .recalculate_on_change_flags
                             .insert(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS);
@@ -930,7 +937,7 @@ mod tests {
 
             app.update();
 
-            assert_eq!(num_nodes_for_recalculation(app), 3);
+            assert_eq!(num_nodes_for_style_recalculation(app), 3);
 
             clear_marked_for_recalculation(app);
         }
@@ -944,7 +951,7 @@ mod tests {
                         Without<ChildOf>,
                     >| {
                         let (selector_flags, mut marker) = query.single_mut().unwrap();
-                        marker.mark_for_recalculation();
+                        marker.set_needs_style_recalculation();
                         selector_flags
                             .recalculate_on_change_flags
                             .insert(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS);
@@ -954,7 +961,7 @@ mod tests {
 
             app.update();
 
-            assert_eq!(num_nodes_for_recalculation(app), 10);
+            assert_eq!(num_nodes_for_style_recalculation(app), 10);
 
             clear_marked_for_recalculation(app);
         }

@@ -3,7 +3,8 @@
 use crate::ComponentPropertyId;
 use bevy_reflect::Reflect;
 use std::marker::PhantomData;
-use std::ops::{Deref, Index, IndexMut};
+use std::mem;
+use std::ops::{Deref, Index, IndexMut, Range};
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -26,7 +27,7 @@ impl<T> PropertyMap<T> {
     }
 
     /// Iterates over all values
-    pub fn iter_values(&self) -> core::slice::Iter<'_, T> {
+    pub fn values(&self) -> core::slice::Iter<'_, T> {
         self.0.iter()
     }
 
@@ -42,10 +43,28 @@ impl<T> PropertyMap<T> {
     }
 
     /// Iterates mutably over all values
-    pub fn iter_values_mut(&mut self) -> IterValuesMut<'_, T> {
+    pub fn values_mut(&mut self) -> IterValuesMut<'_, T> {
         IterValuesMut {
             inner: self.iter_mut(),
         }
+    }
+
+    /// Replaces an id with the default value of T, returning the previous value.
+    pub fn take(&mut self, id: ComponentPropertyId) -> T
+    where
+        T: Clone + Default,
+    {
+        mem::take(&mut self[id])
+    }
+
+    /// Takes a closure and calls that closure on each property, creating a new PropertyMap.
+    pub fn map<B, F>(mut self, f: F) -> PropertyMap<B>
+    where
+        T: Clone,
+        F: FnMut(&mut T) -> B,
+    {
+        let inner = Arc::make_mut(&mut self.0);
+        PropertyMap(inner.iter_mut().map(f).collect())
     }
 
     /// Returns true if the two maps share the same underlying [`Arc`]
@@ -88,6 +107,13 @@ impl<T> Index<ComponentPropertyId> for PropertyMap<T> {
     fn index(&self, index: ComponentPropertyId) -> &Self::Output {
         let index: usize = index.into();
         &self.0[index]
+    }
+}
+
+impl<T> Index<Range<ComponentPropertyId>> for PropertyMap<T> {
+    type Output = [T];
+    fn index(&self, index: Range<ComponentPropertyId>) -> &Self::Output {
+        &self.0[(index.start.0 as usize)..(index.end.0 as usize)]
     }
 }
 
@@ -162,7 +188,7 @@ impl<T> ExactSizeIterator for Iter<'_, T> {
 }
 
 /// Lazy mutable proxy for an index in a [`PropertyMap`].
-/// If [`DerefMut`] or [`PropertyMut::set_if_neq`] are not called, the internal [`Arc`] would not
+/// If [`PropertyMut::set_if_neq`] is not called, the internal [`Arc`] would not
 /// necessarily be cloned.
 pub struct PropertyMut<'a, T> {
     _marker: PhantomData<&'a mut Arc<[T]>>,
@@ -175,6 +201,8 @@ impl<T: Clone + PartialEq> PropertyMut<'_, T> {
     pub fn set_if_neq(&mut self, new: T) -> bool {
         let current_value = &**self;
         if current_value != &new {
+            // SAFETY: pointer always point to a valid reference
+            // SAFETY: this method is &mut self so we have unique access to self.map, and we don't leak the &mut Arc<[T]>
             let arc_map = unsafe { self.map.as_mut() };
             let map_slice = Arc::make_mut(arc_map);
             map_slice[self.index] = new;
@@ -189,6 +217,7 @@ impl<T> Deref for PropertyMut<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: pointer always point to a valid reference
         let map = unsafe { self.map.as_ref() };
         &map[self.index]
     }
@@ -208,7 +237,7 @@ impl<'a, T: 'a> Iterator for IterMut<'a, T> {
 
     fn next(&mut self) -> Option<(ComponentPropertyId, PropertyMut<'a, T>)> {
         let index = self.index;
-        if index < self.len() {
+        if index < self.len {
             self.index += 1;
             Some((
                 ComponentPropertyId(index as u32),
@@ -223,14 +252,19 @@ impl<'a, T: 'a> Iterator for IterMut<'a, T> {
         }
     }
 
+    fn count(self) -> usize {
+        self.len()
+    }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.len, Some(self.len))
+        let len = self.len();
+        (len, Some(len))
     }
 }
 
 impl<T> ExactSizeIterator for IterMut<'_, T> {
     fn len(&self) -> usize {
-        self.len
+        self.len - self.index
     }
 }
 
@@ -288,22 +322,22 @@ mod tests {
         assert_eq!(map.iter().count(), 10);
         assert_eq!(map.iter().len(), 10);
         assert_eq!(
-            map.iter_values().copied().collect::<Vec<_>>(),
+            map.values().copied().collect::<Vec<_>>(),
             vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         );
-        assert_eq!(map.iter_values().len(), 10);
+        assert_eq!(map.values().len(), 10);
         assert_eq!(map.iter_mut().count(), 10);
         assert_eq!(map.iter_mut().len(), 10);
         assert_eq!(
-            map.iter_values_mut().map(|v| *v).collect::<Vec<_>>(),
+            map.values_mut().map(|v| *v).collect::<Vec<_>>(),
             vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         );
-        assert_eq!(map.iter_values_mut().len(), 10);
+        assert_eq!(map.values_mut().len(), 10);
 
         // Both maps should be the same pointer since no modification has been done.
         assert!(map.ptr_eq(&original_map));
 
-        map.iter_values_mut().next().unwrap().set_if_neq(0);
+        map.values_mut().next().unwrap().set_if_neq(0);
 
         // Both maps should be the same pointer since no modification has been done.
         assert!(map.ptr_eq(&original_map));
@@ -312,13 +346,16 @@ mod tests {
         let (id0, mut value0) = iter_mut.next().unwrap();
         let (id1, mut value1) = iter_mut.next().unwrap();
 
+        assert_eq!(iter_mut.len(), 8);
+        assert_eq!(iter_mut.size_hint(), (8, Some(8)));
+
         assert_eq!(id0, ComponentPropertyId(0));
         assert_eq!(id1, ComponentPropertyId(1));
 
         value0.set_if_neq(100);
         value1.set_if_neq(200);
 
-        // Now the point to different places
+        // Now both maps point to different places
         assert!(!map.ptr_eq(&original_map));
     }
 }

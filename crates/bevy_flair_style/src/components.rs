@@ -79,28 +79,43 @@ impl Siblings {
 #[derive(Debug, Clone, Component, Reflect)]
 #[reflect(Debug, Clone, Default, Component)]
 pub struct NodeStyleMarker {
-    needs_recalculation: bool,
+    needs_style_recalculation: bool,
+    needs_property_application: bool,
 }
 
 impl Default for NodeStyleMarker {
     fn default() -> Self {
         Self {
-            needs_recalculation: true,
+            needs_style_recalculation: true,
+            needs_property_application: false,
         }
     }
 }
+
 impl NodeStyleMarker {
-    pub(crate) fn needs_recalculation(&self) -> bool {
-        self.needs_recalculation
+    pub(crate) fn needs_style_recalculation(&self) -> bool {
+        self.needs_style_recalculation
     }
 
-    /// Marks this entity to be recalculated.
-    pub fn mark_for_recalculation(&mut self) {
-        self.needs_recalculation = true;
+    pub(crate) fn needs_property_application(&self) -> bool {
+        self.needs_property_application
     }
 
-    pub(crate) fn clear_marker(&mut self) {
-        self.needs_recalculation = false;
+    /// Marks this entity as needing style recalculation.
+    pub fn set_needs_style_recalculation(&mut self) {
+        self.needs_style_recalculation = true;
+    }
+
+    pub(crate) fn set_needs_property_application(&mut self) {
+        self.needs_property_application = true;
+    }
+
+    pub(crate) fn clear_style_recalculation(&mut self) {
+        self.needs_style_recalculation = false;
+    }
+
+    pub(crate) fn clear_needs_property_application(&mut self) {
+        self.needs_property_application = false;
     }
 }
 
@@ -362,7 +377,7 @@ impl NodeVars {
 }
 
 #[derive(Clone, Deref, Resource)]
-pub(crate) struct EmptyComputedProperties(PropertyMap<ComputedValue>);
+pub(crate) struct EmptyComputedProperties(pub(crate) PropertyMap<ComputedValue>);
 
 impl EmptyComputedProperties {
     fn from_property_registry(property_registry: &PropertyRegistry) -> Self {
@@ -381,9 +396,8 @@ pub(crate) struct InitialPropertyValues(pub(crate) PropertyMap<ReflectValue>);
 
 impl FromWorld for InitialPropertyValues {
     fn from_world(world: &mut World) -> Self {
-        let type_registry = world.resource::<AppTypeRegistry>().0.read();
         let property_registry = world.resource::<PropertyRegistry>();
-        Self(property_registry.create_initial_values_map(&type_registry))
+        Self(property_registry.create_initial_values_map())
     }
 }
 
@@ -391,13 +405,14 @@ impl FromWorld for InitialPropertyValues {
 /// Also contains active animations and transits
 #[derive(Clone, Debug, Default, Component)]
 pub struct NodeProperties {
-    pub(crate) transitions_options: PropertiesHashMap<TransitionOptions>,
     pub(crate) pending_property_values: PropertyMap<PropertyValue>,
     pub(crate) property_values: PropertyMap<PropertyValue>,
+
     pub(crate) pending_computed_values: PropertyMap<ComputedValue>,
     pub(crate) pending_animation_values: PropertyMap<ComputedValue>,
     pub(crate) computed_values: PropertyMap<ComputedValue>,
 
+    pub(crate) transitions_options: PropertiesHashMap<TransitionOptions>,
     transitions: PropertiesHashMap<Transition>,
     pending_transition_events: Vec<TransitionEvent>,
 
@@ -410,7 +425,7 @@ fn get_reflect_animatable<'a>(
     type_registry: &'a TypeRegistry,
     property_registry: &PropertyRegistry,
 ) -> Option<&'a ReflectAnimatable> {
-    let property = property_registry.get_property(property_id);
+    let property = &property_registry[property_id];
 
     let type_registration = type_registry
         .get(property.value_type_info().type_id())
@@ -458,9 +473,9 @@ impl NodeProperties {
             let pending_property_values = mem::take(&mut self.pending_property_values);
 
             for (property_value, mut new_computed, initial_value) in izip!(
-                pending_property_values.iter_values(),
-                pending_computed_values.iter_values_mut(),
-                initial_values.iter_values(),
+                pending_property_values.values(),
+                pending_computed_values.values_mut(),
+                initial_values.values(),
             ) {
                 new_computed.set_if_neq(property_value.compute_root_value(initial_value));
             }
@@ -513,10 +528,10 @@ impl NodeProperties {
             let pending_property_values = mem::take(&mut self.pending_property_values);
 
             for (property_value, parent, mut new_computed, initial_value) in izip!(
-                pending_property_values.iter_values(),
-                parent.pending_computed_values.iter_values(),
-                pending_computed_values.iter_values_mut(),
-                initial_values.iter_values(),
+                pending_property_values.values(),
+                parent.pending_computed_values.values(),
+                pending_computed_values.values_mut(),
+                initial_values.values(),
             ) {
                 new_computed.set_if_neq(property_value.compute_with_parent(parent, initial_value));
             }
@@ -550,8 +565,7 @@ impl NodeProperties {
                     (from_value, to_value)
                 }
                 (ComputedValue::Value(from_value), ComputedValue::None) => {
-                    let canonical_name =
-                        property_registry.get_property(property_id).canonical_name();
+                    let canonical_name = property_registry[property_id].canonical_name();
                     warn!(
                         "Cannot create a transition '{canonical_name}' from '{from_value:?}' to None. You should avoid this by setting a baseline style that set the default values."
                     );
@@ -658,6 +672,20 @@ impl NodeProperties {
         }
     }
 
+    pub(crate) fn clear_pending_computed_properties(&mut self) {
+        #[cfg(debug_assertions)]
+        if self.pending_computed_values != self.computed_values
+            || self.pending_animation_values != self.computed_values
+        {
+            panic!(
+                "clear_pending_computed_properties() has been called were there was pending values."
+            );
+        }
+
+        self.pending_computed_values = PropertyMap::default();
+        self.pending_animation_values = PropertyMap::default();
+    }
+
     // Moves from pending_computed_values to computed_values calling apply_change_fn for every change.
     pub(crate) fn apply_computed_properties(
         &mut self,
@@ -684,8 +712,8 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
 
         for ((property_id, pending_value), pending_animation_value, mut computed_value) in izip!(
             pending_computed_values.iter(),
-            pending_animation_values.iter_values(),
-            self.computed_values.iter_values_mut(),
+            pending_animation_values.values(),
+            self.computed_values.values_mut(),
         ) {
             if computed_value.set_if_neq(pending_value.clone())
                 || pending_animation_value.is_value()
@@ -825,7 +853,7 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
                         &resolved_animation.options,
                         reflect_animatable,
                     );
-                    let property = property_registry.get_property(property_id);
+                    let property = &property_registry[property_id];
                     trace!("New animation for {property}: {new_animation:?}");
                     animations.push(new_animation);
                 }
@@ -966,7 +994,7 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
             inner_iter: Box::new(
                 izip!(
                     self.pending_computed_values.iter(),
-                    self.computed_values.iter_values()
+                    self.computed_values.values()
                 )
                 .filter_map(|((property_id, pending), value)| {
                     if pending != value {
@@ -1033,7 +1061,7 @@ mod debug {
 
             let mut map = f.debug_map();
             for (property_id, value) in iter {
-                let property = self.property_registry.get_property(property_id);
+                let property = &self.property_registry[property_id];
                 map.entry(&property.canonical_name(), value);
             }
             map.finish()
@@ -1381,17 +1409,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy_flair_core::{ComponentProperty, ComponentPropertyRef, PropertyValue};
+    use bevy_flair_core::{PropertyCanonicalName, PropertyValue, impl_component_properties};
     use bevy_reflect::TypeRegistry;
     use std::sync::LazyLock;
 
     #[derive(Component, Reflect)]
-    #[reflect(Default)]
     struct TestComponent {
         property_1: f32,
         property_2: f32,
         property_3: f32,
-
         inherited_property: f32,
     }
 
@@ -1406,34 +1432,29 @@ mod tests {
         }
     }
 
-    const PROPERTY_1: &str = "property1";
-    const PROPERTY_2: &str = "property2";
-    const PROPERTY_3: &str = "property3";
+    impl_component_properties! {
+        struct TestComponent {
+            property_1: f32,
+            property_2: f32,
+            property_3: f32,
+            inherited_property: f32,
+        }
+    }
 
-    const INHERITED_PROPERTY: &str = "inherited-property";
+    const PROPERTY_1: PropertyCanonicalName =
+        PropertyCanonicalName::from_component::<TestComponent>(".property_1");
+    const PROPERTY_2: PropertyCanonicalName =
+        PropertyCanonicalName::from_component::<TestComponent>(".property_2");
+    const PROPERTY_3: PropertyCanonicalName =
+        PropertyCanonicalName::from_component::<TestComponent>(".property_3");
+
+    const INHERITED_PROPERTY: PropertyCanonicalName =
+        PropertyCanonicalName::from_component::<TestComponent>(".inherited_property");
 
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
         let mut registry = PropertyRegistry::default();
-        registry.register_with_css(
-            PROPERTY_1,
-            ComponentProperty::new::<TestComponent>("property_1"),
-            PropertyValue::None,
-        );
-        registry.register_with_css(
-            PROPERTY_2,
-            ComponentProperty::new::<TestComponent>("property_2"),
-            PropertyValue::None,
-        );
-        registry.register_with_css(
-            PROPERTY_3,
-            ComponentProperty::new::<TestComponent>("property_3"),
-            PropertyValue::None,
-        );
-        registry.register_with_css(
-            INHERITED_PROPERTY,
-            ComponentProperty::new::<TestComponent>("inherited_property"),
-            PropertyValue::Inherit,
-        );
+        registry.register::<TestComponent>();
+        registry.set_unset_value(INHERITED_PROPERTY, PropertyValue::Inherit);
         registry
     });
 
@@ -1448,12 +1469,12 @@ mod tests {
     });
 
     static INITIAL_VALUES: LazyLock<PropertyMap<ReflectValue>> =
-        LazyLock::new(|| PROPERTY_REGISTRY.create_initial_values_map(&TYPE_REGISTRY));
+        LazyLock::new(|| PROPERTY_REGISTRY.create_initial_values_map());
 
     macro_rules! property_id {
         ($property:expr) => {
             PROPERTY_REGISTRY
-                .resolve(&ComponentPropertyRef::CssName($property.into()))
+                .resolve($property)
                 .unwrap_or_else(|e| panic!("{e}"))
         };
     }
@@ -1461,7 +1482,7 @@ mod tests {
         ($($k:expr => $v:expr),* $(,)?) => {{
 
             [$((
-                PROPERTY_REGISTRY.resolve(&ComponentPropertyRef::CssName($k.into())).unwrap_or_else(|e| panic!("{e}")),
+                PROPERTY_REGISTRY.resolve($k).unwrap_or_else(|e| panic!("{e}")),
                 $v
             ),)*]
         }};
@@ -1523,7 +1544,7 @@ mod tests {
         }};
         ($properties:expr, $($k:expr => $v:expr),* $(,)?) => {{
             assert!($properties.pending_property_values.is_empty());
-            let mut pending_property_values = PROPERTY_REGISTRY.get_unset_values_map();
+            let mut pending_property_values = PROPERTY_REGISTRY.create_unset_values_map();
 
             for (id, value) in properties![$($k => $v.into_property_value(),)*] {
                 pending_property_values[id] = value;
@@ -1565,7 +1586,7 @@ mod tests {
                     v.push((property_id, value));
                 },
             );
-            v.sort_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap());
+            v.sort_by(|(a, _), (b, _)| a.cmp(b));
             v
         }};
     }
