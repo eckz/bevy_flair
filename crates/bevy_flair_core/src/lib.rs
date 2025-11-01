@@ -145,6 +145,7 @@ default_properties! {
     "-bevy-image" { insert_if_missing: ImageNode[".image"] },
     "-bevy-image-color" { insert_if_missing: ImageNode[".color"] },
     "-bevy-image-mode" { insert_if_missing: ImageNode[".image_mode"] },
+    "-bevy-image-rect" { insert_if_missing: ImageNode[".rect"] },
 
     // Text fields
     "color" inherit { TextColor[".0"] },
