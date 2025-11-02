@@ -6,7 +6,7 @@ use crate::reflect::parse_color;
 use crate::utils::{parse_property_value_with, try_parse_none};
 use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::{PropertyValue, ReflectValue};
-use bevy_math::{Rot2, Vec2};
+use bevy_math::{Rect, Rot2, Vec2};
 use bevy_reflect::FromType;
 use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
@@ -40,6 +40,18 @@ pub(crate) fn parse_vec2(parser: &mut Parser) -> Result<Vec2, CssError> {
     let x = parse_calc_f32(parser)?;
     let y = parser.try_parse_with(parse_calc_f32).unwrap_or(x);
     Ok(Vec2::new(x, y))
+}
+
+pub(crate) fn parse_rect(parser: &mut Parser) -> Result<Rect, CssError> {
+    if let Some(none) = try_parse_none(parser) {
+        return Ok(none);
+    }
+
+    let x0 = parse_calc_f32(parser)?;
+    let y0 = parse_calc_f32(parser)?;
+    let x1 = parse_calc_f32(parser)?;
+    let y1 = parse_calc_f32(parser)?;
+    Ok(Rect::new(x0, y0, x1, y1))
 }
 
 /// Parses a [`Val`] (UI length/size value) from a CSS token.
@@ -317,6 +329,14 @@ impl FromType<Rot2> for ReflectParseCss {
     }
 }
 
+impl FromType<Rect> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| {
+            parse_property_value_with(parser, parse_rect).map(PropertyValue::into_reflect_value)
+        })
+    }
+}
+
 impl FromType<OverflowClipMargin> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| parse_property_value_with(parser, parse_overflow_clip_margin))
@@ -326,6 +346,15 @@ impl FromType<OverflowClipMargin> for ReflectParseCss {
 impl FromType<Option<f32>> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| parse_property_value_with(parser, parse_aspect_ratio))
+    }
+}
+
+impl FromType<Option<Rect>> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| {
+            parse_property_value_with(parser, |parser| parse_rect(parser).map(Option::Some))
+                .map(PropertyValue::into_reflect_value)
+        })
     }
 }
 

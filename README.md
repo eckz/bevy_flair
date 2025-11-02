@@ -27,7 +27,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
   - Shorthand properties parse into individual properties, like `margin` becomes `margin-left`, `margin-right`, etc.
   - Transitions and animations are supported for shorthand properties as well.
 - Non-standard CSS extensions for [`ImageNode`] 
-  - Example: `background-image: url("panel-border-030.png")`, `-bevy-image-mode: sliced(20.0px)`.
+  - Example: `background-image: url("panel-border-030.png")`, `-bevy-image-mode: sliced(20.0px)`, `-bevy-image-rect: 0 0 64 64`.
 - Color parsing. (e.g. `red`,`#ff0000`,`rgb(255 0 0)`,`hsl(0 100% 50% / 50%)`,`oklch(40.1% 0.123 21.57)`)
 - Common CSS selectors and combinators (via [selectors] crate):
   - `:root`, `#id` (using [`Name`]), `.class` (using [`ClassList`]), type selectors (via [`TypeName`]), `:hover`, `:active`, `:focus`, `:nth-child`, `:first-child`.

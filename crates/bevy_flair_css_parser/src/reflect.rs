@@ -20,7 +20,7 @@ use crate::error::CssError;
 use bevy_app::{App, Plugin};
 use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyValue};
 use bevy_flair_style::{DynamicParseVarTokens, ToCss};
-use bevy_math::{Rot2, Vec2};
+use bevy_math::{Rect, Rot2, Vec2};
 use bevy_text::{FontSmoothing, Justify, LineBreak, LineHeight};
 use bevy_ui::widget::NodeImageMode;
 
@@ -114,9 +114,11 @@ impl Plugin for ReflectParsePlugin {
                 Val,
                 Val2,
                 Rot2,
+                Rect,
                 bevy_color::Color,
                 OverflowClipMargin,
                 Option<f32>,
+                Option<Rect>,
                 ZIndex,
                 bevy_asset::Handle<bevy_image::Image>,
                 bevy_asset::Handle<bevy_text::Font>,
