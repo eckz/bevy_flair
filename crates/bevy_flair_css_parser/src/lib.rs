@@ -7,7 +7,7 @@ use bevy_ecs::prelude::AppTypeRegistry;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_flair_core::PropertyRegistry;
 use bevy_flair_style::StyleSystems;
-use cssparser::{BasicParseError, CowRcStr, Parser, Token};
+pub use cssparser::{self, BasicParseError, CowRcStr, Parser, Token};
 use derive_more::Deref;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
@@ -19,6 +19,7 @@ pub use reflect::*;
 pub use shorthand::*;
 
 pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc_property_value_with, parse_calc_value};
+pub use parser::parse_duration;
 pub use utils::parse_property_value_with;
 
 mod error;
