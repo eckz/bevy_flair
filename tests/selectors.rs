@@ -98,7 +98,7 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 #[test]
 fn css_selectors() {
-    include_assets!("selectors.css");
+    include_test_css!("selectors.css");
 
     let mut app = test_app();
     app.add_systems(Startup, spawn_scene);

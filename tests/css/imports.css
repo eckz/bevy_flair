@@ -2,4 +2,6 @@
 
 :root {
     background-color: var(--import-1-var);
+    /* Defined in the _import_2.css */
+    font-family: "FiraSans"
 }

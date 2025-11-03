@@ -53,8 +53,8 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 #[test]
 fn layers() {
-    include_assets!("layers.css");
-    include_assets!("_imported_layers.css");
+    include_test_css!("layers.css");
+    include_test_css!("_imported_layers.css");
 
     let mut app = test_app();
 

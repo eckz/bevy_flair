@@ -74,7 +74,7 @@ pub enum StyleSheetBuilderError {
 }
 
 /// Represents a font face defined in a style sheet.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StyleFontFace {
     pub(super) font_family: String,
     pub(super) path: String,
@@ -502,6 +502,8 @@ impl StyleSheetBuilder {
                         )
                     }),
             );
+
+        self.font_faces.extend(other.font_faces)
     }
 
     fn validate_all_properties(
@@ -752,6 +754,8 @@ impl StyleSheetBuilder {
         property_registry: &PropertyRegistry,
         loader: impl AssetLoader,
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
+        let font_faces = self.font_faces.clone();
+
         self.resolve_asset_handles_with_loader(loader)?;
         self.run_all_validations()?;
 
@@ -791,6 +795,7 @@ impl StyleSheetBuilder {
         Self::validate_all_properties(property_registry, &animation_keyframes, &rulesets)?;
 
         Ok(StyleSheet {
+            font_faces,
             rulesets,
             animation_keyframes,
             css_selectors_to_rulesets,

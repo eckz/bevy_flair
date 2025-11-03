@@ -19,10 +19,19 @@ use std::sync::LazyLock;
 pub(crate) static ASSETS_DIR: LazyLock<Dir> = LazyLock::new(|| Dir::new("assets".into()));
 
 #[allow(unused_macros)]
-macro_rules! include_assets {
+macro_rules! include_test_css {
     ($($file_name:literal),* $(,)?) => {
         $(
             test_app::ASSETS_DIR.insert_asset($file_name.as_ref(), include_bytes!(concat!("./css/", $file_name)));
+        )*
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! include_assets {
+    ($($file_name:literal),* $(,)?) => {
+        $(
+            test_app::ASSETS_DIR.insert_asset($file_name.as_ref(), include_bytes!(concat!("../assets/", $file_name)));
         )*
     };
 }
@@ -89,6 +98,9 @@ pub(crate) fn test_app() -> App {
 
     app
 }
+
+#[allow(unused_imports)]
+pub(crate) use include_test_css;
 
 #[allow(unused_imports)]
 pub(crate) use include_assets;

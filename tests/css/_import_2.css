@@ -1,4 +1,9 @@
 
+@font-face {
+    font-family: "FiraSans";
+    src: url("fonts/FiraSans-Regular.ttf");
+}
+
 :root {
     --import-2-var: red;
     margin-left: 10px;

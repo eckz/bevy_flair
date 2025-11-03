@@ -25,7 +25,7 @@ Check https://github.com/eckz/bevy_flair/blob/main/crates/bevy_flair_core/src/im
   - This affects components like `BackgroundGradient`, `Outline` or `BoxShadow`.
 
 ### Fixed
- 
+  - Font-faces did not get registered when using "import" (https://github.com/eckz/bevy_flair/issues/15)
 
 ## [0.5.1] - 11-Oct-2025
 

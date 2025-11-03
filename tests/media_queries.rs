@@ -66,7 +66,7 @@ fn set_resolution(app: &mut App, physical_size: impl Into<UVec2>, scale_factor: 
 
 #[test]
 fn media_queries() {
-    include_assets!("media_queries.css");
+    include_test_css!("media_queries.css");
 
     let mut app = test_app();
     let app = &mut app;

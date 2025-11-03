@@ -1,4 +1,6 @@
-use crate::{ResolveTokensError, VarName, VarToken, VarTokens, builder::StyleSheetBuilder};
+use crate::{
+    ResolveTokensError, StyleFontFace, VarName, VarToken, VarTokens, builder::StyleSheetBuilder,
+};
 
 use bevy_flair_core::*;
 use std::borrow::Borrow;
@@ -276,6 +278,8 @@ pub trait VarResolver {
 /// storing rules for various style properties.
 #[derive(Debug, Clone, TypePath, Asset)]
 pub struct StyleSheet {
+    // This only make sense here when importing other stylesheets
+    pub(super) font_faces: Vec<StyleFontFace>,
     pub(super) rulesets: Vec<Ruleset>,
     pub(super) animation_keyframes:
         FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,

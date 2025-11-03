@@ -36,7 +36,7 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 #[test]
 fn all_properties() {
-    include_assets!("all_properties.css");
+    include_test_css!("all_properties.css");
 
     let mut app = test_app();
     app.add_systems(Startup, spawn_scene);
