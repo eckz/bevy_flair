@@ -15,6 +15,7 @@ use std::iter;
 use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
 
+use crate::custom_iterators::{CustomUiChildren, CustomUiRoots};
 use crate::media_selector::MediaFeaturesProvider;
 use bevy_camera::{Camera, NormalizedRenderTarget};
 use bevy_ecs::relationship::RelationshipSourceCollection;
@@ -81,33 +82,28 @@ pub(crate) fn sort_pseudo_elements(
 }
 
 pub(crate) fn sync_siblings_system(
-    mut siblings_param_set: ParamSet<(
-        Query<
-            (Entity, &mut Siblings, &ChildOf),
-            (Or<(Changed<ChildOf>, Added<Siblings>)>, With<Siblings>),
-        >,
-        Query<&mut Siblings>,
-    )>,
-    children_query: Query<&Children>,
-    children_changed_query: Query<(Entity, &Children), Changed<Children>>,
+    mut siblings_param_set: ParamSet<(Query<(Entity, &mut Siblings)>, Query<&mut Siblings>)>,
+    ui_children: CustomUiChildren,
+    children_changed_query: Query<Entity, Changed<Children>>,
 
     mut entities_recalculated: Local<EntityHashSet>,
 ) {
-    for (entity, mut siblings, child_of) in &mut siblings_param_set.p0() {
-        entities_recalculated.insert(entity);
+    for (entity, mut siblings) in &mut siblings_param_set.p0() {
+        let Some(parent) = ui_children.get_parent(entity) else {
+            continue;
+        };
+        if !siblings.is_added() && !ui_children.is_changed(parent) {
+            continue;
+        }
 
-        siblings.recalculate_with(
-            entity,
-            children_query
-                .get(child_of.parent())
-                .expect("Found a parent without children"),
-        );
+        entities_recalculated.insert(entity);
+        siblings.recalculate_with(entity, ui_children.iter_ui_siblings(entity));
     }
 
     let mut siblings_query = siblings_param_set.p1();
 
-    for (parent, children) in &children_changed_query {
-        for entity in children.iter() {
+    for parent in &children_changed_query {
+        for entity in ui_children.iter_ui_children(parent) {
             if entities_recalculated.contains(&parent) {
                 continue;
             }
@@ -116,7 +112,7 @@ pub(crate) fn sync_siblings_system(
                 continue;
             };
 
-            siblings.recalculate_with(entity, children);
+            siblings.recalculate_with(entity, ui_children.iter_ui_siblings(entity));
 
             entities_recalculated.insert(entity);
         }
@@ -135,8 +131,7 @@ pub(crate) fn calculate_effective_style_sheet(
         &mut NodeStyleMarker,
     )>,
     node_style_sheet_query: Query<&NodeStyleSheet>,
-    parent_query: Query<&ChildOf, With<NodeStyleSheet>>,
-    children_query: Query<&Children, With<NodeStyleSheet>>,
+    ui_children: CustomUiChildren,
 ) {
     const INVALID_STYLE_SHEET_ASSET_ID: AssetId<StyleSheet> = AssetId::invalid();
 
@@ -150,8 +145,8 @@ pub(crate) fn calculate_effective_style_sheet(
         };
 
         let effective_style_sheet = match style_sheet {
-            NodeStyleSheet::Inherited => parent_query
-                .iter_ancestors(name_or_entity.entity)
+            NodeStyleSheet::Inherited => ui_children
+                .iter_ui_ancestors(name_or_entity.entity)
                 .find_map(|e| {
                     let style_sheet = node_style_sheet_query.get(e).ok()?;
                     match style_sheet {
@@ -189,7 +184,7 @@ pub(crate) fn calculate_effective_style_sheet(
 
     // For all modified entities, we need to recursively recalculate all children
     for entity in modified_style_sheets {
-        for child in children_query.iter_descendants(entity) {
+        for child in ui_children.iter_ui_descendants(entity) {
             set_effective_style_sheet(child);
         }
     }
@@ -234,9 +229,10 @@ pub(crate) fn compute_window_media_features(
 
 pub(crate) fn calculate_is_root(
     mut param_set_queries: ParamSet<(
-        Query<(&mut NodeStyleData, Has<ChildOf>)>,
+        Query<(Entity, &mut NodeStyleData)>,
         Query<Entity, Or<(Added<NodeStyleData>, Changed<ChildOf>)>>,
     )>,
+    ui_root_nodes: CustomUiRoots,
     mut removed_parent: RemovedComponents<ChildOf>,
 ) {
     let mut entities_to_recalculate = EntityHashSet::default();
@@ -246,12 +242,14 @@ pub(crate) fn calculate_is_root(
     entities_to_recalculate.extend(&changed_style_data_query);
     entities_to_recalculate.extend(removed_parent.read());
 
+    if entities_to_recalculate.is_empty() {
+        return;
+    }
+
     let mut style_data_query = param_set_queries.p0();
 
-    for entity in entities_to_recalculate {
-        if let Ok((mut data, has_parent)) = style_data_query.get_mut(entity) {
-            data.is_root = !has_parent;
-        }
+    for (entity, mut data) in style_data_query.iter_many_unique_mut(entities_to_recalculate) {
+        data.is_root = ui_root_nodes.contains(entity);
     }
 }
 
@@ -440,12 +438,12 @@ pub(crate) fn set_related_nodes_for_style_recalculation(
     children_changed_query: Query<Entity, Changed<Children>>,
     selector_flags_query: Query<&NodeStyleSelectorFlags>,
     mut markers_query: Query<&mut NodeStyleMarker>,
-    siblings_query: Query<(Option<&ChildOf>, Option<&Children>), With<NodeStyleData>>,
-    children_query: Query<&Children, With<NodeStyleData>>,
+    ui_children: CustomUiChildren,
     mut to_be_marked: Local<EntityHashSet>,
     mut removed_children: RemovedComponents<Children>,
 ) -> Result {
     use selectors::matching::ElementSelectorFlags;
+
     for entity in children_changed_query.iter().chain(removed_children.read()) {
         let Ok(selector_flags) = selector_flags_query.get(entity) else {
             continue;
@@ -459,14 +457,12 @@ pub(crate) fn set_related_nodes_for_style_recalculation(
             to_be_marked.insert(entity);
         }
 
-        for child in children_query.relationship_sources(entity) {
-            if selector_flags.css_selector_flags.intersects(
-                ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH
-                    | ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR
-                    | ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS,
-            ) {
-                to_be_marked.extend(siblings_query.iter_siblings(child));
-            }
+        if selector_flags.css_selector_flags.intersects(
+            ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH
+                | ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR
+                | ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS,
+        ) {
+            to_be_marked.extend(ui_children.iter_ui_descendants(entity));
         }
     }
 
@@ -488,7 +484,6 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
                 Option<Ref<RawInlineStyle>>,
                 &NodeStyleSelectorFlags,
                 &NodeStyleMarker,
-                Option<&ChildOf>,
             ),
             Or<(
                 Changed<NodeStyleData>,
@@ -498,14 +493,12 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
         >,
         Query<&mut NodeStyleMarker>,
     )>,
-    children_query: Query<&Children, With<NodeStyleData>>,
-    parent_query: Query<&ChildOf, With<NodeStyleData>>,
+    ui_children: CustomUiChildren,
     mut to_be_marked: Local<EntityHashSet>,
 ) -> Result {
     let nodes_changed_query = queries.p0();
 
-    for (entity, style_data, inline_style, selector_flags, marker, child_of) in &nodes_changed_query
-    {
+    for (entity, style_data, inline_style, selector_flags, marker) in &nodes_changed_query {
         let inline_style_changed = inline_style.is_some_and(|s| s.is_changed());
         if !style_data.is_changed() && !marker.needs_style_recalculation() && !inline_style_changed
         {
@@ -518,16 +511,14 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
 
         let flags = selector_flags.recalculate_on_change_flags.load();
 
-        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS)
-            && let Some(&ChildOf(parent)) = child_of
-        {
-            to_be_marked.extend(children_query.get(parent)?.iter());
+        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS) {
+            to_be_marked.extend(ui_children.iter_ui_siblings(entity));
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
-            to_be_marked.extend(children_query.iter_descendants(entity));
+            to_be_marked.extend(ui_children.iter_ui_descendants(entity));
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_ASCENDANTS) {
-            to_be_marked.extend(parent_query.iter_ancestors(entity));
+            to_be_marked.extend(ui_children.iter_ui_ancestors(entity));
         }
     }
 
@@ -614,13 +605,13 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
 
 #[derive(SystemParam)]
 pub(crate) struct VarResolverParam<'w, 's> {
-    ancestors_query: Query<'w, 's, &'static ChildOf, With<NodeVars>>,
+    ui_children: CustomUiChildren<'w, 's>,
     vars_query: Query<'w, 's, &'static NodeVars>,
 }
 
 impl<'w, 's> VarResolverParam<'w, 's> {
     fn iter_self_and_ancestors(&self, entity: Entity) -> impl Iterator<Item = Entity> {
-        iter::once(entity).chain(self.ancestors_query.iter_ancestors(entity))
+        iter::once(entity).chain(self.ui_children.iter_ui_ancestors(entity))
     }
 
     fn get_all_names(&self, entity: Entity) -> FxHashSet<Arc<str>> {
@@ -769,7 +760,7 @@ pub(crate) fn calculate_style_and_set_vars(
         Query<&mut NodeStyleMarker>,
     )>,
     element_ref_system_param: css_selector::ElementRefSystemParam,
-    children_query: Query<&Children>,
+    ui_children: CustomUiChildren,
     media_features_param: MediaFeaturesParam,
     mut to_mark_descendants_parallel: Local<bevy_utils::Parallel<Vec<Entity>>>,
 ) {
@@ -826,7 +817,7 @@ pub(crate) fn calculate_style_and_set_vars(
     for to_mark_descendants in to_mark_descendants_parallel.iter_mut() {
         for entity in to_mark_descendants
             .drain(..)
-            .flat_map(|entity| children_query.iter_descendants(entity))
+            .flat_map(|entity| ui_children.iter_ui_descendants(entity))
         {
             if let Ok(mut marker) = marker_query.get_mut(entity) {
                 marker.set_needs_style_recalculation();
@@ -913,55 +904,6 @@ pub(crate) fn set_property_values(
     }
 }
 
-mod custom_descendants_iter {
-    use bevy_ecs::prelude::*;
-    use bevy_ecs::query::{QueryData, QueryFilter};
-
-    /// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
-    ///
-    /// Traverses the hierarchy depth-first.
-    pub struct DescendantDepthFirstIter<'w, 's, D: QueryData, F: QueryFilter>
-    where
-        D::ReadOnly: QueryData<Item<'w, 's> = &'w Children>,
-    {
-        children_query: &'w Query<'w, 's, D, F>,
-        stack: Vec<(Entity, Entity)>,
-    }
-
-    impl<'w, 's, D: QueryData, F: QueryFilter> DescendantDepthFirstIter<'w, 's, D, F>
-    where
-        D::ReadOnly: QueryData<Item<'w, 's> = &'w Children>,
-    {
-        /// Returns a new [`DescendantDepthFirstIter`].
-        pub fn new(children_query: &'w Query<'w, 's, D, F>, entity: Entity) -> Self {
-            DescendantDepthFirstIter {
-                children_query,
-                stack: children_query.get(entity).map_or(Vec::new(), |children| {
-                    children.iter().rev().map(|e| (entity, e)).collect()
-                }),
-            }
-        }
-    }
-
-    impl<'w, 's, D: QueryData, F: QueryFilter> Iterator for DescendantDepthFirstIter<'w, 's, D, F>
-    where
-        D::ReadOnly: QueryData<Item<'w, 's> = &'w Children>,
-    {
-        type Item = (Entity, Entity);
-
-        fn next(&mut self) -> Option<Self::Item> {
-            let (parent, entity) = self.stack.pop()?;
-
-            if let Ok(children) = self.children_query.get(entity) {
-                self.stack
-                    .extend(children.iter().rev().map(|e| (entity, e)));
-            }
-
-            Some((parent, entity))
-        }
-    }
-}
-
 pub(crate) fn compute_property_values_just_transitions_and_animations_condition(
     global_change_detection: Res<GlobalChangeDetection>,
 ) -> bool {
@@ -1006,8 +948,8 @@ pub(crate) fn compute_property_values_just_transitions_and_animations(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_property_values(
-    root_entities: Query<Entity, (Without<ChildOf>, With<NodeProperties>)>,
-    children_query: Query<&Children, With<NodeProperties>>,
+    root_nodes: CustomUiRoots,
+    ui_children: CustomUiChildren,
     #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
     mut node_properties_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
     empty_computed_properties: Res<EmptyComputedProperties>,
@@ -1038,7 +980,7 @@ pub(crate) fn compute_property_values(
     #[cfg(not(debug_assertions))]
     let trace_new_properties = |_: Entity, _: &NodeProperties| {};
 
-    for root in &root_entities {
+    for root in root_nodes.iter() {
         let (mut root_properties, mut root_marker) = node_properties_query.get_mut(root)?;
         root_properties.compute_pending_property_values_for_root(
             &type_registry,
@@ -1049,9 +991,7 @@ pub(crate) fn compute_property_values(
         set_needs_property_application(&root_properties, &mut root_marker);
         trace_new_properties(root, &root_properties);
 
-        for (parent, entity) in
-            custom_descendants_iter::DescendantDepthFirstIter::new(&children_query, root)
-        {
+        for (parent, entity) in ui_children.iter_ui_descendants_with_parent(root) {
             let Ok([(parent_properties, _), (mut properties, mut marker)]) =
                 node_properties_query.get_many_mut([parent, entity])
             else {

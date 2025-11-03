@@ -29,6 +29,7 @@ mod testing;
 
 pub mod css_selector;
 
+pub(crate) mod custom_iterators;
 mod layers;
 mod media_selector;
 mod systems;
@@ -846,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_descendants_for_recalculation() {
+    fn descendants_marked_for_style_recalculation() {
         let mut app = app();
 
         let app = &mut app;
@@ -871,7 +872,7 @@ mod tests {
                 });
         });
 
-        fn num_nodes_for_style_recalculation(app: &mut App) -> usize {
+        fn num_nodes_needs_style_recalculation(app: &mut App) -> usize {
             let markers = query!(app, &NodeStyleMarker);
             markers
                 .iter()
@@ -879,7 +880,7 @@ mod tests {
                 .count()
         }
 
-        fn clear_marked_for_recalculation(app: &mut App) {
+        fn clear_all_style_recalculation(app: &mut App) {
             app.world_mut()
                 .run_system_once(|mut query: Query<&mut NodeStyleMarker>| {
                     for mut computed_style in &mut query {
@@ -892,15 +893,15 @@ mod tests {
         // First run everything is marked for recalculation
         {
             app.update();
-            assert_eq!(num_nodes_for_style_recalculation(app), 10);
+            assert_eq!(num_nodes_needs_style_recalculation(app), 10);
             // We need to manually clear everything
-            clear_marked_for_recalculation(app);
+            clear_all_style_recalculation(app);
         }
 
         // With not updates, the number of nodes for recalculation should be still zero
         {
             app.update();
-            assert_eq!(num_nodes_for_style_recalculation(app), 0);
+            assert_eq!(num_nodes_needs_style_recalculation(app), 0);
         }
 
         {
@@ -913,9 +914,9 @@ mod tests {
             app.update();
 
             // Only root should be marked for recalculation again, since the flags says no recalculation is needed
-            assert_eq!(num_nodes_for_style_recalculation(app), 1);
+            assert_eq!(num_nodes_needs_style_recalculation(app), 1);
 
-            clear_marked_for_recalculation(app);
+            clear_all_style_recalculation(app);
         }
 
         // Only elements marked with Child should be marked
@@ -937,9 +938,9 @@ mod tests {
 
             app.update();
 
-            assert_eq!(num_nodes_for_style_recalculation(app), 3);
+            assert_eq!(num_nodes_needs_style_recalculation(app), 3);
 
-            clear_marked_for_recalculation(app);
+            clear_all_style_recalculation(app);
         }
 
         // All elements should be marked
@@ -961,9 +962,9 @@ mod tests {
 
             app.update();
 
-            assert_eq!(num_nodes_for_style_recalculation(app), 10);
+            assert_eq!(num_nodes_needs_style_recalculation(app), 10);
 
-            clear_marked_for_recalculation(app);
+            clear_all_style_recalculation(app);
         }
     }
 }

@@ -5,11 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.6.0] Unreleased
 
 ### Added
 - Support for the css properties:
   - `-bevy-image-rect`
+- Support for use of `GhostNode` in the UI hierarchy
+
+### Changed
+- Much of the internals have been changed to better support custom properties. 
+`ComponentProperty` functionality has been split between `ComponentProperty`,  `ComponentPropertiesRegistration` and `ComponentProperties` trait.
+If you were registering custom properties, this most probably is a breaking change.
+Check https://github.com/eckz/bevy_flair/blob/main/crates/bevy_flair_core/src/impls.rs on how to define custom properties.
+  - This fixes #12 where full components were replaced on every hot reload.
+- Ui node iteration is done through `UiChildren` and `UiRootNodes` to support `GhostNode`.
+  - This change is behind the `experimental_ghost_nodes` feature, but it could work even without it.
+  - This could be a breaking change if had a non-standard UI hierarchies (like not using Node). 
+- If a component that have been inserted automatically, doesn't have properties defined, it will be auto removed
+  - This affects components like `BackgroundGradient`, `Outline` or `BoxShadow`.
+
+### Fixed
+ 
 
 ## [0.5.1] - 11-Oct-2025
 

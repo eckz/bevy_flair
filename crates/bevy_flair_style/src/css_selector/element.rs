@@ -11,6 +11,7 @@ use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
 use selectors::{Element, OpaqueElement, SelectorImpl};
 use std::borrow::Borrow;
+use std::fmt;
 use tracing::trace;
 
 macro_rules! impl_element_commons {
@@ -69,12 +70,18 @@ macro_rules! impl_element_commons {
     };
 }
 
-#[derive(Debug, SystemParam)]
+#[derive(SystemParam)]
 pub(crate) struct ElementRefSystemParam<'w, 's> {
     style_data_query: Query<'w, 's, (&'static NodeStyleData, &'static NodeStyleSelectorFlags)>,
-    parent_query: Query<'w, 's, &'static ChildOf>,
-    children_query: Query<'w, 's, &'static Children>,
+    ui_children: CustomUiChildren<'w, 's>,
     siblings_query: Query<'w, 's, &'static Siblings>,
+}
+
+impl fmt::Debug for ElementRefSystemParam<'_, '_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ElementRefSystemParam")
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -133,7 +140,7 @@ impl Element for ElementRef<'_> {
     }
 
     fn parent_element(&self) -> Option<Self> {
-        let parent = self.queries.parent_query.get(self.entity).ok()?.parent();
+        let parent = self.queries.ui_children.get_parent(self.entity)?;
         Self::related_new(
             parent,
             self.queries,
@@ -172,10 +179,8 @@ impl Element for ElementRef<'_> {
     fn first_element_child(&self) -> Option<Self> {
         let first_child = self
             .queries
-            .children_query
-            .get(self.entity)
-            .ok()?
-            .iter()
+            .ui_children
+            .iter_ui_children(self.entity)
             .next()?;
         Self::related_new(
             first_child,
@@ -246,10 +251,10 @@ impl Element for ElementRef<'_> {
 
     fn is_empty(&self) -> bool {
         self.queries
-            .children_query
-            .get(self.entity)
-            .map(|ch| ch.is_empty())
-            .unwrap_or(true)
+            .ui_children
+            .iter_ui_children(self.entity)
+            .next()
+            .is_none()
     }
 
     fn is_root(&self) -> bool {
@@ -282,4 +287,5 @@ impl Element for ElementRef<'_> {
     }
 }
 
+use crate::custom_iterators::CustomUiChildren;
 pub(crate) use impl_element_commons;

@@ -52,6 +52,9 @@ cssparser = { workspace = true }
 selectors = { workspace = true }
 precomputed-hash = { version = "0.1" }
 
+[features]
+experimental_ghost_nodes = ["bevy_ui/ghost_nodes"]
+
 [dev-dependencies]
 bevy_scene = { workspace = true }
 ego-tree = "0.10"

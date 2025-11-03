@@ -50,6 +50,10 @@ bevy_flair_core = { workspace = true }
 bevy_flair_style = { workspace = true }
 bevy_flair_css_parser = { workspace = true }
 
+[features]
+default = []
+experimental_ghost_nodes = ["bevy_flair_style/experimental_ghost_nodes"]
+
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
 bevy = {version = "0.17", default-features = false, features = [
@@ -76,9 +80,6 @@ cssparser = "0.35.0"
 getrandom = { version = "0.3", default-features = false, features = [
     "wasm_js",
 ] }
-
-[features]
-default = []
 
 [[bench]]
 name = "flair_benches"

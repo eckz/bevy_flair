@@ -166,6 +166,8 @@ jobs:
           sudo apt-get install -y libudev-dev
       - name: cargo test
         run: cargo test --workspace
+      - name: cargo test --all-features
+        run: cargo test --workspace --all-features
   # Run cargo check --all-targets using MSRV
   check-msrv:
     runs-on: ubuntu-latest

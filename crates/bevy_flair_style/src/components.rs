@@ -57,12 +57,20 @@ pub struct Siblings {
 impl Siblings {
     /// Recalculate the values when siblings change.
     // TODO: Probably there is a more efficient way of doing this.
-    pub fn recalculate_with(&mut self, self_entity: Entity, siblings: &Children) {
-        let all_siblings = siblings.iter().enumerate().collect::<Vec<_>>();
+    pub fn recalculate_with(
+        &mut self,
+        self_entity: Entity,
+        siblings: impl IntoIterator<Item = Entity>,
+    ) {
+        let all_siblings = siblings.into_iter().enumerate().collect::<Vec<_>>();
         let entity_index = all_siblings
             .iter()
-            .find_map(|(index, e)| (*e == self_entity).then_some(*index))
-            .unwrap();
+            .find_map(|&(index, e)| (e == self_entity).then_some(index))
+            .unwrap_or_else(|| {
+                panic!(
+                    "self_entity is not part of the siblings: {self_entity:?} => {all_siblings:?}"
+                )
+            });
 
         let next_sibling =
             (entity_index < all_siblings.len() - 1).then(|| all_siblings[entity_index + 1].1);

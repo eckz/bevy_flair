@@ -47,6 +47,8 @@ It enables you to style UI components, taking advantage of the power of CSS.
 - Pseudo-elements `::before` and `::after` (enabled with [`PseudoElementsSupport`]).
 - Different stylesheets per subtree. With the use of a different [`NodeStyleSheet`] per subtree. It's even possible to not apply any style for a given subtree.
 - Use of custom times for transitions and animations (See <https://github.com/eckz/bevy_flair/blob/main/examples/animations.rs>).
+- Support for the use of [`GhostNode`] in the hierarchy. Ghost nodes are simply ignored.
+  - Enable `experimental_ghost_nodes` feature for better support of Ghost nodes.
 - Supports for custom properties. (Example TBA).
 - Supports for custom parsing. (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_parsing.rs>)
 
@@ -82,6 +84,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 [`conic-gradient()`]: https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/conic-gradient
 [`border`]: https://developer.mozilla.org/en-US/docs/Web/CSS/border
 [`grid`]: https://developer.mozilla.org/en-US/docs/Web/CSS/grid
+[`GhostNode`]: https://docs.rs/bevy/latest/bevy/ui/experimental/struct.GhostNode.html
 
 ## Missing features and limitations
 
@@ -211,7 +214,7 @@ Another good place to start are the examples in the [examples folder](https://gi
 
 | bevy | bevy_flair    |
 |------|---------------|
-| 0.17 | 0.5           |
+| 0.17 | 0.5, 0.6      |
 | 0.16 | 0.2, 0.3, 0.4 |
 | 0.15 | 0.1           |
 
