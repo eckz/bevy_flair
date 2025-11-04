@@ -424,7 +424,7 @@ pub struct NodeProperties {
     transitions: PropertiesHashMap<Transition>,
     pending_transition_events: Vec<TransitionEvent>,
 
-    animations: PropertiesHashMap<Vec<Animation>>,
+    animations: PropertiesHashMap<SmallVec<[Animation; 1]>>,
     pending_animation_events: Vec<AnimationEvent>,
 }
 
@@ -665,15 +665,14 @@ impl NodeProperties {
         for (property_id, value) in self
             .animations
             .iter()
-            .flat_map(|(property_id, animations)| {
+            .filter_map(|(property_id, animations)| {
                 animations
                     .iter()
-                    .filter_map(|animation| {
+                    // Find the first one that is running
+                    .find_map(|animation| {
                         (animation.state == AnimationState::Running)
-                            .then(|| animation.sample_value())
-                            .flatten()
+                            .then(|| (*property_id, animation.sample_value()))
                     })
-                    .map(move |value| (*property_id, value))
             })
         {
             self.pending_animation_values[property_id] = value.into();
@@ -836,21 +835,9 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
 
             // Pause all other animations for this property and try to find the animation with the same name
             for animation in animations.iter_mut() {
-                if !animation.state.is_finished() {
-                    if animation.name == name {
+                if !animation.state.is_finished() && animation.name == name {
                         existing_animation = Some(animation);
-                    } else {
-                        trace!("Pausing animation: {animation:?}");
-                        animation.state = AnimationState::Paused;
-
-                        self.pending_animation_events.push(AnimationEvent {
-                            entity: Entity::PLACEHOLDER,
-                            property_id,
-                            name: animation.name.clone(),
-                            event_type: AnimationEventType::Paused,
-                        });
                     }
-                }
             }
 
             match existing_animation {
@@ -886,7 +873,7 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
         self.computed_values = empty_computed_properties.0.clone();
     }
 
-    pub(crate) fn has_active_animations(&self) -> bool {
+    pub(crate) fn has_active_animations_or_transitions(&self) -> bool {
         self.active_transitions().next().is_some() || self.active_animations().next().is_some()
     }
 
@@ -994,6 +981,13 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
         self.animations
             .values()
             .filter_map(|t| t.iter().find(|a| a.state.needs_to_be_ticked()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn running_animations(&self) -> impl Iterator<Item = &Animation> {
+        self.animations
+            .values()
+            .filter_map(|t| t.iter().find(|a| a.state == AnimationState::Running))
     }
 
     #[cfg(debug_assertions)]
@@ -1420,6 +1414,7 @@ mod tests {
     use bevy_flair_core::{PropertyCanonicalName, PropertyValue, impl_component_properties};
     use bevy_reflect::TypeRegistry;
     use std::sync::LazyLock;
+    use crate::animations::{AnimationOptions, EasingFunction};
 
     #[derive(Component, Reflect)]
     struct TestComponent {
@@ -1692,19 +1687,19 @@ mod tests {
     const TRANSITION_1_SECOND: TransitionOptions = TransitionOptions {
         initial_delay: Duration::ZERO,
         duration: Duration::from_secs(1),
-        easing_function: crate::animations::EasingFunction::Linear,
+        easing_function: EasingFunction::Linear,
     };
 
     const TRANSITION_5_SECONDS: TransitionOptions = TransitionOptions {
         initial_delay: Duration::ZERO,
         duration: Duration::from_secs(5),
-        easing_function: crate::animations::EasingFunction::Linear,
+        easing_function: EasingFunction::Linear,
     };
 
     const TRANSITION_5_SECONDS_WITH_1_SEC_DELAY: TransitionOptions = TransitionOptions {
         initial_delay: Duration::from_secs(1),
         duration: Duration::from_secs(5),
-        easing_function: crate::animations::EasingFunction::Linear,
+        easing_function: EasingFunction::Linear,
     };
 
     #[test]
@@ -1745,7 +1740,7 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
@@ -1754,7 +1749,6 @@ mod tests {
                 to: value!(6.0),
             }]
         );
-        properties.pending_transition_events.clear();
 
         let running_transitions = properties.running_transitions().collect::<Vec<_>>();
         assert_eq!(running_transitions.len(), 1);
@@ -1775,7 +1769,7 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
@@ -1784,7 +1778,6 @@ mod tests {
                 to: value!(8.0),
             }]
         );
-        properties.pending_transition_events.clear();
 
         // We tick 4s (5s since start)
         properties.tick_animations(Duration::from_secs(4));
@@ -1801,7 +1794,7 @@ mod tests {
         properties.clear_finished_and_canceled_animations();
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Finished,
@@ -1810,7 +1803,6 @@ mod tests {
                 to: value!(6.0),
             }]
         );
-        properties.pending_transition_events.clear();
 
         // We tick 2s (7s since start) (which overshoots the property-3 transition)
         properties.tick_animations(Duration::from_secs(2));
@@ -1824,7 +1816,7 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Finished,
@@ -1833,7 +1825,6 @@ mod tests {
                 to: value!(8.0),
             }]
         );
-        properties.pending_transition_events.clear();
     }
 
     #[test]
@@ -2012,7 +2003,7 @@ mod tests {
         assert_eq!(properties.running_transitions().count(), 2);
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![
                 TransitionEvent {
                     entity: Entity::PLACEHOLDER,
@@ -2030,7 +2021,6 @@ mod tests {
                 }
             ]
         );
-        properties.pending_transition_events.clear();
 
         let new_transition_options = PropertiesHashMap::from_iter(properties! {
             PROPERTY_1 => TRANSITION_5_SECONDS,
@@ -2054,7 +2044,7 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Canceled,
@@ -2096,7 +2086,7 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
@@ -2105,7 +2095,6 @@ mod tests {
                 to: value!(5.0),
             }]
         );
-        properties.pending_transition_events.clear();
 
         // Reversed transition
         set_property_values_and_compute!(properties, { PROPERTY_1 => 0.0 });
@@ -2132,7 +2121,7 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![
                 TransitionEvent {
                     entity: Entity::PLACEHOLDER,
@@ -2150,7 +2139,6 @@ mod tests {
                 }
             ]
         );
-        properties.pending_transition_events.clear();
 
         // Tick 2 seconds back
         properties.tick_animations(Duration::from_secs(2));
@@ -2180,7 +2168,7 @@ mod tests {
         assert_eq!(property_1_transition.duration, 3.0);
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![
                 TransitionEvent {
                     entity: Entity::PLACEHOLDER,
@@ -2198,7 +2186,6 @@ mod tests {
                 }
             ]
         );
-        properties.pending_transition_events.clear();
 
         // Tick 3 seconds to finish the transition
         properties.tick_animations(Duration::from_secs(3));
@@ -2207,7 +2194,7 @@ mod tests {
         properties.clear_finished_and_canceled_animations();
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Finished,
@@ -2250,7 +2237,7 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
@@ -2259,7 +2246,6 @@ mod tests {
                 to: value!(5.0),
             }]
         );
-        properties.pending_transition_events.clear();
 
         // Reversed transition
         set_property_values_and_compute!(properties, { PROPERTY_2 => 0.0 });
@@ -2271,7 +2257,7 @@ mod tests {
         properties.tick_animations(Duration::ZERO);
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Replaced,
@@ -2280,7 +2266,6 @@ mod tests {
                 to: value!(5.0),
             }]
         );
-        properties.pending_transition_events.clear();
 
         // Since there is an original delay, now it's not running anymore, it's pending
         assert_eq!(properties.running_transitions().count(), 0);
@@ -2305,13 +2290,136 @@ mod tests {
         );
 
         assert_eq!(
-            properties.pending_transition_events,
+            mem::take(&mut properties.pending_transition_events),
             vec![TransitionEvent {
                 entity: Entity::PLACEHOLDER,
                 event_type: TransitionEventType::Started,
                 property_id: property_id!(PROPERTY_2),
                 from: value!(4.0),
                 to: value!(0.0),
+            }]
+        );
+    }
+
+    static TEST_KEYFRAMES: LazyLock<Vec<(f32, ReflectValue, EasingFunction)>> =
+        LazyLock::new(|| vec![
+            (0.0, ReflectValue::Float(0.0), EasingFunction::default()),
+            (1.0, ReflectValue::Float(1.0), EasingFunction::default()),
+        ]);
+
+    #[test]
+    fn properties_change_animations_add_and_pause() {
+        let mut properties = default_node_properties();
+
+        // Create an animation for PROPERTY_1.
+        let animation = ResolvedAnimation {
+            property_id: property_id!(PROPERTY_1),
+            name: "anim1".into(),
+            keyframes: TEST_KEYFRAMES.clone(),
+            options: AnimationOptions::default(),
+        };
+
+        properties.change_animations(vec![animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+
+        assert!(properties.has_active_animations_or_transitions());
+        assert_eq!(properties.active_animations().count(), 1);
+        assert_eq!(properties.running_animations().count(), 0);
+
+        properties.tick_animations(Duration::ZERO);
+
+        assert_eq!(properties.running_animations().count(), 1);
+
+        // There should be a started animation event emitted
+        assert_eq!(
+            mem::take(&mut properties.pending_animation_events),
+            vec![AnimationEvent {
+                entity: Entity::PLACEHOLDER,
+                event_type: AnimationEventType::Started,
+                name: animation.name.clone(),
+                property_id: property_id!(PROPERTY_1),
+            }]
+        );
+
+        // Now remove all animations -> existing running animation should be paused
+        properties.change_animations(vec![], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+
+        // There should be a paused animation event emitted
+        assert_eq!(
+            mem::take(&mut properties.pending_animation_events),
+            vec![AnimationEvent {
+                entity: Entity::PLACEHOLDER,
+                event_type: AnimationEventType::Paused,
+                name: animation.name.clone(),
+                property_id: property_id!(PROPERTY_1),
+            }]
+        );
+    }
+
+    #[test]
+    fn properties_consecutive_animations_on_same_property() {
+        let mut properties = default_node_properties();
+
+        // Add first animation "anim1" for PROPERTY_1
+        let initial_animation = ResolvedAnimation {
+            property_id: property_id!(PROPERTY_1),
+            name: "initial_animation".into(),
+            keyframes: TEST_KEYFRAMES.clone(),
+            options: AnimationOptions {
+                duration: Duration::from_secs(1),
+                ..AnimationOptions::default()
+            }
+        };
+        properties.change_animations(vec![initial_animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+
+        properties.tick_animations(Duration::ZERO);
+
+        assert!(properties.has_active_animations_or_transitions());
+        assert_eq!(properties.active_animations().count(), 1);
+        assert_eq!(properties.running_animations().count(), 1);
+
+        assert_eq!(
+            mem::take(&mut properties.pending_animation_events),
+            vec![AnimationEvent {
+                entity: Entity::PLACEHOLDER,
+                event_type: AnimationEventType::Started,
+                name: initial_animation.name.clone(),
+                property_id: property_id!(PROPERTY_1),
+            }]
+        );
+
+        // Add a second animation "anim2" for the same property.
+        let animation_with_delay = ResolvedAnimation {
+            property_id: property_id!(PROPERTY_1),
+            name: "animation_with_delay".into(),
+            keyframes: TEST_KEYFRAMES.clone(),
+            options: AnimationOptions {
+                initial_delay: Duration::from_secs(1),
+                duration: Duration::from_secs(1),
+                ..AnimationOptions::default()
+            }
+        };
+
+        properties.change_animations(vec![initial_animation.clone(), animation_with_delay.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+
+        properties.tick_animations(Duration::ZERO);
+
+        assert_eq!(properties.running_animations().count(), 1);
+        assert!(properties.pending_animation_events.is_empty());
+
+        properties.tick_animations(Duration::from_secs(1));
+
+        assert_eq!(
+            mem::take(&mut properties.pending_animation_events),
+            vec![AnimationEvent {
+                entity: Entity::PLACEHOLDER,
+                event_type: AnimationEventType::Finished,
+                name: initial_animation.name.clone(),
+                property_id: property_id!(PROPERTY_1),
+            },AnimationEvent {
+                entity: Entity::PLACEHOLDER,
+                event_type: AnimationEventType::Started,
+                name: animation_with_delay.name.clone(),
+                property_id: property_id!(PROPERTY_1),
             }]
         );
     }

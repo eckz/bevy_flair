@@ -1020,7 +1020,7 @@ pub(crate) fn tick_animations<T: Default + Send + Sync + 'static>(
     let delta = time.delta();
 
     for mut properties in &mut properties_query {
-        if properties.has_active_animations() {
+        if properties.has_active_animations_or_transitions() {
             global_change_detection.any_animation_active = true;
 
             properties.tick_animations(delta);
