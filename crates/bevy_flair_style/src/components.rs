@@ -662,18 +662,18 @@ impl NodeProperties {
             }
         }
 
-        for (property_id, value) in self
-            .animations
-            .iter()
-            .filter_map(|(property_id, animations)| {
-                animations
-                    .iter()
-                    // Find the first one that is running
-                    .find_map(|animation| {
-                        (animation.state == AnimationState::Running)
-                            .then(|| (*property_id, animation.sample_value()))
-                    })
-            })
+        for (property_id, value) in
+            self.animations
+                .iter()
+                .filter_map(|(property_id, animations)| {
+                    animations
+                        .iter()
+                        // Find the first one that is running
+                        .find_map(|animation| {
+                            (animation.state == AnimationState::Running)
+                                .then(|| (*property_id, animation.sample_value()))
+                        })
+                })
         {
             self.pending_animation_values[property_id] = value.into();
         }
@@ -784,9 +784,11 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
         let previous_animations_map = &self
             .animations
             .iter()
-            .filter_map(|(property_id, animations)| {
-                let running_animation = animations.iter().find(|a| a.state.needs_to_be_ticked())?;
-                Some((*property_id, running_animation.name.clone()))
+            .flat_map(|(property_id, animations)| {
+                animations.iter().filter_map(|a| {
+                    a.needs_to_be_ticked()
+                        .then_some((*property_id, a.name.clone()))
+                })
             })
             .collect::<FxHashSet<_>>();
 
@@ -835,12 +837,18 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
 
             // Pause all other animations for this property and try to find the animation with the same name
             for animation in animations.iter_mut() {
-                if !animation.state.is_finished() && animation.name == name {
-                        existing_animation = Some(animation);
-                    }
+                if animation.name == name {
+                    existing_animation = Some(animation);
+                }
             }
 
             match existing_animation {
+                Some(existing_animation) => {
+                    if existing_animation.state == AnimationState::Paused {
+                        existing_animation.state = AnimationState::Pending;
+                        trace!("Existing animation is now running: {existing_animation:?}");
+                    }
+                }
                 None => {
                     let new_animation = Animation::new(
                         name,
@@ -851,11 +859,6 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
                     let property = &property_registry[property_id];
                     trace!("New animation for {property}: {new_animation:?}");
                     animations.push(new_animation);
-                }
-                Some(existing_animation) => {
-                    // TODO: Update animation
-                    existing_animation.state = AnimationState::Pending;
-                    trace!("Existing animation is now running: {existing_animation:?}");
                 }
             }
         }
@@ -903,6 +906,9 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
 
         for (&property_id, animations) in self.animations.iter_mut() {
             for animation in animations.iter_mut() {
+                if !animation.needs_to_be_ticked() {
+                    return;
+                }
                 let was_pending = animation.state == AnimationState::Pending;
 
                 animation.tick(delta);
@@ -934,7 +940,7 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
             .retain(|_, transition| !transition.state.is_finished());
 
         for animations in self.animations.values_mut() {
-            animations.retain(|a| !a.state.is_finished());
+            animations.retain(|a| !a.state.is_canceled());
         }
     }
 
@@ -1411,10 +1417,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::animations::{AnimationOptions, EasingFunction};
     use bevy_flair_core::{PropertyCanonicalName, PropertyValue, impl_component_properties};
     use bevy_reflect::TypeRegistry;
     use std::sync::LazyLock;
-    use crate::animations::{AnimationOptions, EasingFunction};
 
     #[derive(Component, Reflect)]
     struct TestComponent {
@@ -2302,10 +2308,12 @@ mod tests {
     }
 
     static TEST_KEYFRAMES: LazyLock<Vec<(f32, ReflectValue, EasingFunction)>> =
-        LazyLock::new(|| vec![
-            (0.0, ReflectValue::Float(0.0), EasingFunction::default()),
-            (1.0, ReflectValue::Float(1.0), EasingFunction::default()),
-        ]);
+        LazyLock::new(|| {
+            vec![
+                (0.0, ReflectValue::Float(0.0), EasingFunction::default()),
+                (1.0, ReflectValue::Float(1.0), EasingFunction::default()),
+            ]
+        });
 
     #[test]
     fn properties_change_animations_add_and_pause() {
@@ -2314,7 +2322,7 @@ mod tests {
         // Create an animation for PROPERTY_1.
         let animation = ResolvedAnimation {
             property_id: property_id!(PROPERTY_1),
-            name: "anim1".into(),
+            name: "animation".into(),
             keyframes: TEST_KEYFRAMES.clone(),
             options: AnimationOptions::default(),
         };
@@ -2356,10 +2364,56 @@ mod tests {
     }
 
     #[test]
+    fn properties_animations_are_not_restarted() {
+        let mut properties = default_node_properties();
+
+        let animation = ResolvedAnimation {
+            property_id: property_id!(PROPERTY_1),
+            name: "animation".into(),
+            keyframes: TEST_KEYFRAMES.clone(),
+            options: AnimationOptions {
+                duration: Duration::from_secs(1),
+                ..AnimationOptions::default()
+            },
+        };
+
+        properties.change_animations(vec![animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.tick_animations(Duration::ZERO);
+
+        assert_eq!(
+            mem::take(&mut properties.pending_animation_events),
+            vec![AnimationEvent {
+                entity: Entity::PLACEHOLDER,
+                event_type: AnimationEventType::Started,
+                name: animation.name.clone(),
+                property_id: property_id!(PROPERTY_1),
+            }]
+        );
+
+        properties.tick_animations(Duration::from_secs(2));
+
+        assert_eq!(
+            mem::take(&mut properties.pending_animation_events),
+            vec![AnimationEvent {
+                entity: Entity::PLACEHOLDER,
+                event_type: AnimationEventType::Finished,
+                name: animation.name.clone(),
+                property_id: property_id!(PROPERTY_1),
+            }]
+        );
+
+        properties.clear_finished_and_canceled_animations();
+        // Same animation should not restart the animation
+        properties.change_animations(vec![animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.tick_animations(Duration::ZERO);
+
+        assert_eq!(mem::take(&mut properties.pending_animation_events), vec![]);
+    }
+
+    #[test]
     fn properties_consecutive_animations_on_same_property() {
         let mut properties = default_node_properties();
 
-        // Add first animation "anim1" for PROPERTY_1
         let initial_animation = ResolvedAnimation {
             property_id: property_id!(PROPERTY_1),
             name: "initial_animation".into(),
@@ -2367,9 +2421,13 @@ mod tests {
             options: AnimationOptions {
                 duration: Duration::from_secs(1),
                 ..AnimationOptions::default()
-            }
+            },
         };
-        properties.change_animations(vec![initial_animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.change_animations(
+            vec![initial_animation.clone()],
+            &TYPE_REGISTRY,
+            &PROPERTY_REGISTRY,
+        );
 
         properties.tick_animations(Duration::ZERO);
 
@@ -2387,7 +2445,7 @@ mod tests {
             }]
         );
 
-        // Add a second animation "anim2" for the same property.
+        // Add a second animation with a delay for the same property.
         let animation_with_delay = ResolvedAnimation {
             property_id: property_id!(PROPERTY_1),
             name: "animation_with_delay".into(),
@@ -2396,10 +2454,14 @@ mod tests {
                 initial_delay: Duration::from_secs(1),
                 duration: Duration::from_secs(1),
                 ..AnimationOptions::default()
-            }
+            },
         };
 
-        properties.change_animations(vec![initial_animation.clone(), animation_with_delay.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.change_animations(
+            vec![initial_animation.clone(), animation_with_delay.clone()],
+            &TYPE_REGISTRY,
+            &PROPERTY_REGISTRY,
+        );
 
         properties.tick_animations(Duration::ZERO);
 
@@ -2410,17 +2472,20 @@ mod tests {
 
         assert_eq!(
             mem::take(&mut properties.pending_animation_events),
-            vec![AnimationEvent {
-                entity: Entity::PLACEHOLDER,
-                event_type: AnimationEventType::Finished,
-                name: initial_animation.name.clone(),
-                property_id: property_id!(PROPERTY_1),
-            },AnimationEvent {
-                entity: Entity::PLACEHOLDER,
-                event_type: AnimationEventType::Started,
-                name: animation_with_delay.name.clone(),
-                property_id: property_id!(PROPERTY_1),
-            }]
+            vec![
+                AnimationEvent {
+                    entity: Entity::PLACEHOLDER,
+                    event_type: AnimationEventType::Finished,
+                    name: initial_animation.name.clone(),
+                    property_id: property_id!(PROPERTY_1),
+                },
+                AnimationEvent {
+                    entity: Entity::PLACEHOLDER,
+                    event_type: AnimationEventType::Started,
+                    name: animation_with_delay.name.clone(),
+                    property_id: property_id!(PROPERTY_1),
+                }
+            ]
         );
     }
 }

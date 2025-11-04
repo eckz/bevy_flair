@@ -151,6 +151,11 @@ impl AnimationState {
     pub fn is_finished(&self) -> bool {
         *self == AnimationState::Finished || *self == AnimationState::Canceled
     }
+
+    /// If the state indicates the animation has been canceled.
+    pub fn is_canceled(&self) -> bool {
+        *self == AnimationState::Canceled
+    }
 }
 
 /// Represents a single transitions between two values for a property
@@ -499,6 +504,10 @@ impl Animation {
         }
 
         self.sampled_curve.sample(t)
+    }
+
+    pub(crate) fn needs_to_be_ticked(&self) -> bool {
+        self.state.needs_to_be_ticked()
     }
 
     pub(crate) fn tick(&mut self, delta: Duration) {

@@ -23,9 +23,14 @@ Check https://github.com/eckz/bevy_flair/blob/main/crates/bevy_flair_core/src/im
   - This could be a breaking change if had a non-standard UI hierarchies (like not using Node). 
 - If a component that have been inserted automatically, doesn't have properties defined, it will be auto removed
   - This affects components like `BackgroundGradient`, `Outline` or `BoxShadow`.
+- It's not possible to restart animations by just using css. Previously some animations were restarted.
+but this is not correct according the css standard. I might need to introduce an explicit mechanism to restart animations.
+[Common tricks](https://css-tricks.com/restart-css-animation/) to restart animations will not work here.
 
 ### Fixed
-  - Font-faces did not get registered when using "import" (https://github.com/eckz/bevy_flair/issues/15)
+- Font-faces did not get registered when using "import" (https://github.com/eckz/bevy_flair/issues/15)
+- Multiple animations were not supported in the same property (https://github.com/eckz/bevy_flair/issues/18)
+- Some animations were restarted when hover (https://github.com/eckz/bevy_flair/issues/6)
 
 ## [0.5.1] - 11-Oct-2025
 
