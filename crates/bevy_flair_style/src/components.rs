@@ -28,7 +28,7 @@ use bevy_reflect::TypeRegistry;
 use bevy_text::TextSpan;
 use bevy_ui::widget::Text;
 use bevy_ui::{Display, Node};
-use bevy_utils::once;
+use bevy_utils::{TypeIdMap, once};
 use bevy_window::Window;
 use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
@@ -413,6 +413,9 @@ impl FromWorld for InitialPropertyValues {
 /// Also contains active animations and transits
 #[derive(Clone, Debug, Default, Component)]
 pub struct NodeProperties {
+    // Components that were inserted automatically, so they can be auto removed
+    pub(crate) auto_inserted_components: TypeIdMap<()>,
+
     pub(crate) pending_property_values: PropertyMap<PropertyValue>,
     pub(crate) property_values: PropertyMap<PropertyValue>,
 

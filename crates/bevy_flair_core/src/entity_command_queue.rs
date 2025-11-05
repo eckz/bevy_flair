@@ -51,6 +51,11 @@ impl EntityCommandQueue<'_> {
         self
     }
 
+    /// Returns a mutable reference to the underlying `CommandQueue`.
+    pub fn command_queue(&mut self) -> &mut CommandQueue {
+        self.command_queue
+    }
+
     /// Convenience wrapper to insert a bundle into the entity when the queue is applied.
     #[track_caller]
     pub fn insert(&mut self, bundle: impl Bundle) -> &mut Self {

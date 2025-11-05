@@ -354,6 +354,7 @@ impl Plugin for FlairStylePlugin {
                 TypeName("label")
             })
             .add_plugins(ReflectAnimationsPlugin)
+            .add_observer(systems::observe_on_component_auto_inserted)
             .configure_sets(
                 PostUpdate,
                 (
@@ -751,25 +752,11 @@ mod tests {
 
         let root_entity_id = app
             .world_mut()
-            .run_system_once(|mut commands: Commands| {
-                commands
-                    .spawn((Name::new("Root"), ROOT))
-                    .with_children(|children| {
-                        children.spawn(Child);
-                        children.spawn(Child);
-                    })
-                    .id()
-            })
-            .unwrap();
+            .spawn((Name::new("Root"), ROOT, children![(Child,), (Child,)]))
+            .id();
 
         app.update();
-
-        app.world_mut()
-            .run_system_once(move |mut commands: Commands| {
-                commands.entity(root_entity_id).with_child(Child);
-            })
-            .unwrap();
-
+        app.world_mut().entity_mut(root_entity_id).with_child(Child);
         app.update();
 
         assert_world_snapshot!(app, (Child, Siblings, NodeStyleData));
@@ -779,25 +766,19 @@ mod tests {
     fn spawn_many_children_and_grandchildren() {
         let mut app = app();
 
-        app.add_systems(Startup, |mut commands: Commands| {
-            commands
-                .spawn((Name::new("Root"), ROOT))
-                .with_children(|children| {
-                    children.spawn(Child).with_children(|children| {
-                        children.spawn(GrandChild);
-                        children.spawn(GrandChild);
-                        children.spawn(GrandChild);
-                    });
-                    children.spawn(Child);
-                    children
-                        .spawn((Child, NodeStyleSheet::Block))
-                        .with_children(|children| {
-                            children.spawn(GrandChild);
-                            children.spawn(GrandChild);
-                            children.spawn(GrandChild);
-                        });
-                });
-        });
+        app.world_mut().spawn((
+            Name::new("Root"),
+            ROOT,
+            children![
+                (Child, children![GrandChild, GrandChild, GrandChild]),
+                (Child,),
+                (
+                    Child,
+                    NodeStyleSheet::Block,
+                    children![GrandChild, GrandChild, GrandChild]
+                )
+            ],
+        ));
 
         app.update();
         assert_world_snapshot!(app, (Child, GrandChild, NodeStyleData, Siblings));
@@ -809,16 +790,12 @@ mod tests {
 
         let root_entity_id = app
             .world_mut()
-            .run_system_once(|mut commands: Commands| {
-                commands
-                    .spawn((Name::new("Root"), ROOT))
-                    .with_children(|children| {
-                        children.spawn(Child);
-                        children.spawn((Child, NodeStyleSheet::Block));
-                    })
-                    .id()
-            })
-            .unwrap();
+            .spawn((
+                Name::new("Root"),
+                ROOT,
+                children![(Child,), (Child, NodeStyleSheet::Block)],
+            ))
+            .id();
 
         app.update();
 
@@ -853,23 +830,19 @@ mod tests {
         let app = &mut app;
 
         app.add_systems(Startup, |mut commands: Commands| {
-            commands
-                .spawn((Name::new("Root"), ROOT))
-                .with_children(|children| {
-                    children
-                        .spawn((FirstChild, Child))
-                        .with_children(|children| {
-                            children.spawn(GrandChild);
-                            children.spawn(GrandChild);
-                            children.spawn(GrandChild);
-                        });
-                    children.spawn(Child);
-                    children.spawn(Child).with_children(|children| {
-                        children.spawn(GrandChild);
-                        children.spawn(GrandChild);
-                        children.spawn(GrandChild);
-                    });
-                });
+            commands.spawn((
+                Name::new("Root"),
+                ROOT,
+                children![
+                    (
+                        FirstChild,
+                        Child,
+                        children![GrandChild, GrandChild, GrandChild]
+                    ),
+                    (Child,),
+                    (Child, children![GrandChild, GrandChild, GrandChild])
+                ],
+            ));
         });
 
         fn num_nodes_needs_style_recalculation(app: &mut App) -> usize {

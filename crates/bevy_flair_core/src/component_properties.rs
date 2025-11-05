@@ -1,8 +1,11 @@
 use crate::component_property::ComponentFns;
 use crate::entity_command_queue::EntityCommandQueue;
-use crate::{ComponentPropertyId, ComputedValue, PropertyMap, PropertyRegistry};
-use bevy_ecs::world::{EntityMut, EntityRef, EntityWorldMut, FilteredEntityRef};
+use crate::{
+    ComponentAutoInserted, ComponentPropertyId, ComputedValue, PropertyMap, PropertyRegistry,
+};
+use bevy_ecs::world::{EntityMut, EntityWorldMut, FilteredEntityRef, World};
 use bevy_reflect::{ApplyError, ParsedPath, PartialReflect, TypeInfo};
+use std::any::TypeId;
 use std::fmt;
 use std::ops::Range;
 use tracing::debug;
@@ -73,6 +76,7 @@ pub struct ComponentPropertiesRegistration {
     pub(crate) component_type_info: &'static TypeInfo,
     pub(crate) component_fns: ComponentFns,
     registered_properties: (ComponentPropertyId, ComponentPropertyId),
+    auto_insert_remove: bool,
 }
 
 impl ComponentPropertiesRegistration {
@@ -81,18 +85,40 @@ impl ComponentPropertiesRegistration {
         component_type_info: &'static TypeInfo,
         component_fns: ComponentFns,
         registered_properties: Range<ComponentPropertyId>,
+        auto_insert_remove: bool,
     ) -> Self {
         let registered_properties = (registered_properties.start, registered_properties.end);
         Self {
             component_type_info,
             component_fns,
             registered_properties,
+            auto_insert_remove,
         }
     }
 
     /// Returns the type path of the component.
     pub fn component_type_path(&self) -> &'static str {
         self.component_type_info.type_path()
+    }
+
+    /// Returns the TypeId of the component.
+    pub fn component_type_id(&self) -> TypeId {
+        self.component_type_info.type_id()
+    }
+
+    fn emit_auto_insert_event_deferred(&self, queue: &mut EntityCommandQueue) {
+        let entity = queue.id();
+        let type_id = self.component_type_info.type_id();
+        queue
+            .command_queue()
+            .push(move |world: &mut World| world.trigger(ComponentAutoInserted { entity, type_id }))
+    }
+
+    fn emit_auto_insert_event(&self, entity_world_mut: &mut EntityWorldMut) {
+        let entity = entity_world_mut.id();
+        let type_id = self.component_type_info.type_id();
+        entity_world_mut
+            .world_scope(|world| world.trigger(ComponentAutoInserted { entity, type_id }))
     }
 
     fn internal_apply_values(
@@ -132,7 +158,7 @@ impl ComponentPropertiesRegistration {
                 self.internal_apply_values(component, property_registry, values)?;
                 Ok(())
             }
-            None if self.component_fns.auto_insert_remove => {
+            None if self.auto_insert_remove => {
                 let mut default_value = (self.component_fns.default)();
 
                 if self.internal_apply_values(&mut *default_value, property_registry, values)? {
@@ -144,6 +170,8 @@ impl ComponentPropertiesRegistration {
                     world_entity_mut.reborrow_scope(|entity| {
                         (self.component_fns.insert)(entity, default_value);
                     });
+
+                    self.emit_auto_insert_event(world_entity_mut)
                 }
 
                 Ok(())
@@ -170,7 +198,7 @@ impl ComponentPropertiesRegistration {
                 self.internal_apply_values(component, property_registry, values)?;
                 Ok(())
             }
-            None if self.component_fns.auto_insert_remove => {
+            None if self.auto_insert_remove => {
                 let mut component = (self.component_fns.default)();
                 if self.internal_apply_values(&mut *component, property_registry, values)? {
                     debug!(
@@ -182,8 +210,8 @@ impl ComponentPropertiesRegistration {
                     queue.push(move |entity: EntityWorldMut| {
                         insert_fn(entity, component);
                     });
+                    self.emit_auto_insert_event_deferred(&mut queue)
                 }
-
                 Ok(())
             }
             _ => Ok(()),
@@ -201,10 +229,14 @@ impl ComponentPropertiesRegistration {
         mut queue: EntityCommandQueue<'_>,
     ) -> Result<(), ApplyError> {
         let entity_ref = entity_ref.into();
+        let mut emit_event = false;
 
         let mut component = match (self.component_fns.reflect)(entity_ref) {
             Some(component) => component.reflect_clone().expect("Error cloning Component"),
-            None if self.component_fns.auto_insert_remove => (self.component_fns.default)(),
+            None if self.auto_insert_remove => {
+                emit_event = true;
+                (self.component_fns.default)()
+            }
             _ => {
                 return Ok(());
             }
@@ -215,6 +247,9 @@ impl ComponentPropertiesRegistration {
             queue.push(move |entity: EntityWorldMut| {
                 insert_fn(entity, component);
             });
+            if emit_event {
+                self.emit_auto_insert_event_deferred(&mut queue)
+            }
         }
         Ok(())
     }
@@ -224,8 +259,8 @@ impl ComponentPropertiesRegistration {
         &self,
         world_entity_mut: &mut EntityWorldMut<'_>,
         values: &PropertyMap<ComputedValue>,
-    ) {
-        if self.component_fns.auto_insert_remove
+    ) -> bool {
+        if self.auto_insert_remove
             && (self.component_fns.contains)((&*world_entity_mut).into())
             && self
                 .property_map_slice(values)
@@ -240,18 +275,22 @@ impl ComponentPropertiesRegistration {
             world_entity_mut.reborrow_scope(|entity| {
                 (self.component_fns.remove)(entity);
             });
+            true
+        } else {
+            false
         }
     }
 
     /// Removes the component from the entity using a queue if all its properties are `ComputedValue::None`.
-    pub fn auto_remove_deferred(
+    pub fn auto_remove_deferred<'w, 's>(
         &self,
-        entity: EntityRef<'_>,
+        entity_ref: impl Into<FilteredEntityRef<'w, 's>>,
         values: &PropertyMap<ComputedValue>,
         mut queue: EntityCommandQueue<'_>,
-    ) {
-        if self.component_fns.auto_insert_remove
-            && (self.component_fns.contains)(entity.into())
+    ) -> bool {
+        let entity_ref = entity_ref.into();
+        if self.auto_insert_remove
+            && (self.component_fns.contains)(entity_ref)
             && self
                 .property_map_slice(values)
                 .iter()
@@ -263,6 +302,9 @@ impl ComponentPropertiesRegistration {
                 queue.id()
             );
             queue.push(self.component_fns.remove);
+            true
+        } else {
+            false
         }
     }
 
@@ -307,11 +349,11 @@ pub trait ComponentProperties {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_component_properties {
-    (@component_fns #[component(auto_insert_remove)] $ty:path) => {
-        $crate::ComponentFns::new_auto_insert_remove::<$ty>()
+    (@auto_insert_remove #[component(auto_insert_remove)]) => {
+        true
     };
-    (@component_fns $ty:path) => {
-        $crate::ComponentFns::new::<$ty>()
+    (@auto_insert_remove) => {
+        false
     };
     (@inner_impl $(#[$($type_meta:tt)*])? $ty:path) => {
         impl $crate::ComponentProperties for $ty
@@ -323,7 +365,8 @@ macro_rules! impl_component_properties {
                 property_registry: &mut $crate::PropertyRegistry,
             ) -> $crate::ComponentPropertiesRegistration {
                 let component_type_info = <$ty as bevy_reflect::Typed>::type_info();
-                let component_fns = $crate::impl_component_properties!(@component_fns $(#[$($type_meta)*])? $ty);
+                let component_fns = $crate::ComponentFns::new::<$ty>();
+                let auto_insert_remove = $crate::impl_component_properties!(@auto_insert_remove $(#[$($type_meta)*])?);
 
                 let mut properties = Vec::new();
                 let path = bevy_reflect::ParsedPath::parse_static("").unwrap();
@@ -343,6 +386,7 @@ macro_rules! impl_component_properties {
                     component_type_info,
                     component_fns,
                     registered_properties,
+                    auto_insert_remove,
                 )
             }
         }
@@ -393,12 +437,13 @@ macro_rules! impl_component_properties {
 mod tests {
     use crate::entity_command_queue::EntityCommandQueue;
     use crate::{
-        ComputedValue, PropertyCanonicalName, PropertyRegistry, ReflectStructPropertyRefExt,
-        ReflectTupleStructPropertyRefExt, ReflectValue,
+        ComponentAutoInserted, ComputedValue, PropertyCanonicalName, PropertyRegistry,
+        ReflectStructPropertyRefExt, ReflectTupleStructPropertyRefExt, ReflectValue,
     };
-    use bevy_ecs::component::Component;
-    use bevy_ecs::world::{CommandQueue, World};
+    use bevy_ecs::prelude::*;
+    use bevy_ecs::world::CommandQueue;
     use bevy_reflect::prelude::*;
+    use std::any::TypeId;
 
     #[derive(Component, Reflect, PartialEq, Debug, Default)]
     pub struct StructComponent {
@@ -455,6 +500,16 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default, Resource)]
+    struct TrackAutoInserted(Vec<TypeId>);
+
+    fn observe_auto_inserted(
+        auto_inserted: On<ComponentAutoInserted>,
+        mut track: ResMut<TrackAutoInserted>,
+    ) {
+        track.0.push(auto_inserted.type_id);
+    }
+
     #[test]
     fn component_apply_values_world_mut() {
         let mut property_registry = PropertyRegistry::default();
@@ -478,6 +533,9 @@ mod tests {
         let mut properties = property_registry.create_property_map(ComputedValue::None);
 
         let mut world = World::new();
+        world.init_resource::<TrackAutoInserted>();
+        world.add_observer(observe_auto_inserted);
+
         let entity = world.spawn_empty().id();
 
         let mut entity_mut = world.entity_mut(entity);
@@ -509,6 +567,12 @@ mod tests {
         assert_ne!(properties[tuple_idx_1], ComputedValue::None);
         assert_ne!(properties[self_component_id], ComputedValue::None);
 
+        assert_eq!(
+            &world.resource::<TrackAutoInserted>().0,
+            &[TypeId::of::<StructComponent>()]
+        );
+
+        let mut entity_mut = world.entity_mut(entity);
         entity_mut.insert((TupleComponent::default(), SelfComponent::default()));
 
         // Reapply properties, now TupleComponent and SelfComponent are  present
@@ -540,6 +604,9 @@ mod tests {
         properties[x_id] = ComputedValue::Value(ReflectValue::Float(10.0));
 
         let mut world = World::new();
+        world.init_resource::<TrackAutoInserted>();
+        world.add_observer(observe_auto_inserted);
+
         let entity = world.spawn_empty().id();
 
         let mut entity_mut = world.entity_mut(entity);
@@ -547,6 +614,8 @@ mod tests {
         let mut entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
 
         for registered in property_registry.get_component_registrations() {
+            assert!(registered.auto_insert_remove);
+
             let entity_mut = &mut entity_mut;
             registered
                 .apply_values_mut(
@@ -566,6 +635,11 @@ mod tests {
             world.entity(entity).get::<StructComponent>().unwrap().x,
             10.0
         );
+
+        assert_eq!(
+            &world.resource::<TrackAutoInserted>().0,
+            &[TypeId::of::<StructComponent>()]
+        );
     }
 
     #[test]
@@ -581,6 +655,8 @@ mod tests {
         properties[x_id] = ComputedValue::Value(ReflectValue::Float(200.0));
 
         let mut world = World::new();
+        world.init_resource::<TrackAutoInserted>();
+        world.add_observer(observe_auto_inserted);
 
         // Component already present on the entity -> should be updated via deferred insert
         let entity = world.spawn(StructComponent { x: 1.0, y: 2.0 }).id();
@@ -609,6 +685,7 @@ mod tests {
             world.entity(entity).get::<StructComponent>().unwrap(),
             &StructComponent { x: 200.0, y: 2.0 }
         );
+        assert_eq!(&world.resource::<TrackAutoInserted>().0, &[]);
 
         // Component not present -> should be inserted via deferred insert (auto_insert_remove)
         let entity2 = world.spawn_empty().id();
@@ -637,6 +714,10 @@ mod tests {
         assert_eq!(
             world.entity(entity2).get::<StructComponent>().unwrap(),
             &StructComponent { x: -20.0, y: 0.0 }
+        );
+        assert_eq!(
+            &world.resource::<TrackAutoInserted>().0,
+            &[TypeId::of::<StructComponent>()]
         );
     }
 

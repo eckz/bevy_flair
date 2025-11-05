@@ -5,9 +5,9 @@ expression: scene_serializer
 Scene(
   resources: {},
   entities: {
-    4294967286: Entity(
+    4294967285: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967289),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967288),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
@@ -30,6 +30,36 @@ Scene(
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: None,
+          previous_sibling: Some(4294967286),
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+      },
+    ),
+    4294967286: Entity(
+      components: {
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967288),
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet_asset_id: Uuid(
+            uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
+          ),
+          is_root: false,
+          name: None,
+          classes: [],
+          attributes: {},
+          type_name: None,
+          pseudo_state: NodePseudoState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+            focused_and_visible: false,
+            disabled: false,
+            checked: false,
+          ),
+          is_pseudo_element: None,
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967285),
           previous_sibling: Some(4294967287),
         ),
         "bevy_flair_style::tests::GrandChild": GrandChild(),
@@ -37,7 +67,7 @@ Scene(
     ),
     4294967287: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967289),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967288),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
@@ -60,48 +90,18 @@ Scene(
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: Some(4294967286),
-          previous_sibling: Some(4294967288),
+          previous_sibling: None,
         ),
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
     4294967288: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967289),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
-          effective_style_sheet_asset_id: Uuid(
-            uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
-          ),
-          is_root: false,
-          name: None,
-          classes: [],
-          attributes: {},
-          type_name: None,
-          pseudo_state: NodePseudoState(
-            pressed: false,
-            hovered: false,
-            focused: false,
-            focused_and_visible: false,
-            disabled: false,
-            checked: false,
-          ),
-          is_pseudo_element: None,
-        ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
-        "bevy_flair_style::components::Siblings": Siblings(
-          next_sibling: Some(4294967287),
-          previous_sibling: None,
-        ),
-        "bevy_flair_style::tests::GrandChild": GrandChild(),
-      },
-    ),
-    4294967289: Entity(
-      components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967295),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
         "bevy_ecs::hierarchy::Children": Children([
-          4294967288,
           4294967287,
           4294967286,
+          4294967285,
         ]),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet_asset_id: Uuid(
@@ -125,14 +125,14 @@ Scene(
         "bevy_flair_style::components::NodeStyleSheet": Block,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: None,
-          previous_sibling: Some(4294967290),
+          previous_sibling: Some(4294967289),
         ),
         "bevy_flair_style::tests::Child": Child(),
       },
     ),
-    4294967290: Entity(
+    4294967289: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967295),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -154,15 +154,15 @@ Scene(
         ),
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
-          next_sibling: Some(4294967289),
-          previous_sibling: Some(4294967294),
+          next_sibling: Some(4294967288),
+          previous_sibling: Some(4294967293),
         ),
         "bevy_flair_style::tests::Child": Child(),
       },
     ),
-    4294967291: Entity(
+    4294967290: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967293),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -185,79 +185,14 @@ Scene(
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: None,
-          previous_sibling: Some(4294967292),
+          previous_sibling: Some(4294967291),
         ),
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
-    4294967292: Entity(
+    4294967291: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
-          effective_style_sheet_asset_id: Uuid(
-            uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
-          ),
-          is_root: false,
-          name: None,
-          classes: [],
-          attributes: {},
-          type_name: None,
-          pseudo_state: NodePseudoState(
-            pressed: false,
-            hovered: false,
-            focused: false,
-            focused_and_visible: false,
-            disabled: false,
-            checked: false,
-          ),
-          is_pseudo_element: None,
-        ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
-        "bevy_flair_style::components::Siblings": Siblings(
-          next_sibling: Some(4294967291),
-          previous_sibling: Some(4294967293),
-        ),
-        "bevy_flair_style::tests::GrandChild": GrandChild(),
-      },
-    ),
-    4294967293: Entity(
-      components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
-          effective_style_sheet_asset_id: Uuid(
-            uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
-          ),
-          is_root: false,
-          name: None,
-          classes: [],
-          attributes: {},
-          type_name: None,
-          pseudo_state: NodePseudoState(
-            pressed: false,
-            hovered: false,
-            focused: false,
-            focused_and_visible: false,
-            disabled: false,
-            checked: false,
-          ),
-          is_pseudo_element: None,
-        ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
-        "bevy_flair_style::components::Siblings": Siblings(
-          next_sibling: Some(4294967292),
-          previous_sibling: None,
-        ),
-        "bevy_flair_style::tests::GrandChild": GrandChild(),
-      },
-    ),
-    4294967294: Entity(
-      components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967295),
-        "bevy_ecs::hierarchy::Children": Children([
-          4294967293,
-          4294967292,
-          4294967291,
-        ]),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967293),
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -280,17 +215,82 @@ Scene(
         "bevy_flair_style::components::NodeStyleSheet": Inherited,
         "bevy_flair_style::components::Siblings": Siblings(
           next_sibling: Some(4294967290),
+          previous_sibling: Some(4294967292),
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+      },
+    ),
+    4294967292: Entity(
+      components: {
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967293),
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet_asset_id: Uuid(
+            uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
+          ),
+          is_root: false,
+          name: None,
+          classes: [],
+          attributes: {},
+          type_name: None,
+          pseudo_state: NodePseudoState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+            focused_and_visible: false,
+            disabled: false,
+            checked: false,
+          ),
+          is_pseudo_element: None,
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967291),
+          previous_sibling: None,
+        ),
+        "bevy_flair_style::tests::GrandChild": GrandChild(),
+      },
+    ),
+    4294967293: Entity(
+      components: {
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
+        "bevy_ecs::hierarchy::Children": Children([
+          4294967292,
+          4294967291,
+          4294967290,
+        ]),
+        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+          effective_style_sheet_asset_id: Uuid(
+            uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
+          ),
+          is_root: false,
+          name: None,
+          classes: [],
+          attributes: {},
+          type_name: None,
+          pseudo_state: NodePseudoState(
+            pressed: false,
+            hovered: false,
+            focused: false,
+            focused_and_visible: false,
+            disabled: false,
+            checked: false,
+          ),
+          is_pseudo_element: None,
+        ),
+        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Siblings": Siblings(
+          next_sibling: Some(4294967289),
           previous_sibling: None,
         ),
         "bevy_flair_style::tests::Child": Child(),
       },
     ),
-    4294967295: Entity(
+    4294967294: Entity(
       components: {
         "bevy_ecs::hierarchy::Children": Children([
-          4294967294,
-          4294967290,
+          4294967293,
           4294967289,
+          4294967288,
         ]),
         "bevy_ecs::name::Name": "Root",
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(

@@ -5,7 +5,7 @@ expression: scene_serializer
 Scene(
   resources: {},
   entities: {
-    4294967295: Entity(
+    4294967294: Entity(
       components: {
         "bevy_flair_style::components::NodeStyleData": NodeStyleData(
           effective_style_sheet_asset_id: Uuid(

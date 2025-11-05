@@ -3,6 +3,7 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::FilteredEntityRef;
 use bevy_reflect::*;
+use std::any::TypeId;
 use std::borrow::Cow;
 use std::{fmt, hash};
 
@@ -61,6 +62,15 @@ impl PropertyFns {
     }
 }
 
+/// Event emitted when a component is inserted automatically into an entity.
+#[derive(Clone, Debug, EntityEvent)]
+pub struct ComponentAutoInserted {
+    /// The entity the component was inserted into.
+    pub entity: Entity,
+    /// The id of the component that was inserted.
+    pub type_id: TypeId,
+}
+
 fn contains_component<T: Component<Mutability = Mutable> + Reflect>(
     entity: FilteredEntityRef<'_, '_>,
 ) -> bool {
@@ -82,7 +92,7 @@ fn reflect_mut_component<T: Component<Mutability = Mutable> + Reflect>(
 }
 
 fn insert_component<T: Component + TypePath>(
-    mut entity: EntityWorldMut<'_>,
+    mut entity_world_mut: EntityWorldMut<'_>,
     component: Box<dyn Reflect>,
 ) {
     let component = component
@@ -93,7 +103,7 @@ fn insert_component<T: Component + TypePath>(
 
         );
 
-    entity.insert(component);
+    entity_world_mut.insert(component);
 }
 
 fn remove_component<T: Component + TypePath>(mut entity: EntityWorldMut<'_>) {
@@ -112,7 +122,6 @@ pub struct ComponentFns {
     pub(crate) insert: fn(EntityWorldMut<'_>, Box<dyn Reflect>),
     pub(crate) remove: fn(EntityWorldMut<'_>),
     pub(crate) default: fn() -> Box<dyn Reflect>,
-    pub(crate) auto_insert_remove: bool,
 }
 
 impl ComponentFns {
@@ -121,7 +130,6 @@ impl ComponentFns {
     /// The type `T` must implement `Component`, and be [`Reflect`able, `Default` and provide a
     /// `TypePath`. This constructor wires the function pointers to implementations that
     /// operate on the concrete `T`.
-    ///
     pub fn new<T: Component<Mutability = Mutable> + Reflect + Default + TypePath>() -> Self {
         Self {
             contains: contains_component::<T>,
@@ -130,18 +138,6 @@ impl ComponentFns {
             insert: insert_component::<T>,
             remove: remove_component::<T>,
             default: || Box::<T>::default(),
-            auto_insert_remove: false,
-        }
-    }
-
-    /// Same as `new`, but marks `auto_insert_remove = true` which indicates the component
-    /// should be created automatically when missing (legacy behavior used by some APIs).
-    pub fn new_auto_insert_remove<
-        T: Component<Mutability = Mutable> + Reflect + TypePath + Default,
-    >() -> Self {
-        Self {
-            auto_insert_remove: true,
-            ..Self::new::<T>()
         }
     }
 }

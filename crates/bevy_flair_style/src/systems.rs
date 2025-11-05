@@ -1128,21 +1128,49 @@ pub(crate) fn apply_computed_properties(
     Ok(())
 }
 
+pub(crate) fn observe_on_component_auto_inserted(
+    component_auto_inserted: On<ComponentAutoInserted>,
+    mut node_properties_query: Query<&mut NodeProperties>,
+) {
+    if let Ok(mut node_properties) = node_properties_query.get_mut(component_auto_inserted.entity) {
+        node_properties
+            .auto_inserted_components
+            .insert(component_auto_inserted.type_id, ());
+    }
+}
+
 pub(crate) fn auto_remove_components(
     property_registry: Res<PropertyRegistry>,
     mut command_queue: Deferred<CommandQueue>,
-    query: Query<(EntityRef, &NodeProperties)>,
+    mut query: Query<(EntityRefExcept<NodeProperties>, &mut NodeProperties)>,
 ) {
-    for (entity_ref, properties) in &query {
+    for (entity_ref, mut properties) in &mut query {
+        if properties.auto_inserted_components.is_empty() {
+            continue;
+        }
+
         let entity = entity_ref.entity();
         let mut entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
 
         for component in property_registry.get_component_registrations() {
-            component.auto_remove_deferred(
-                entity_ref,
+            let component_type_id = component.component_type_id();
+
+            if !properties
+                .auto_inserted_components
+                .contains_key(&component_type_id)
+            {
+                continue;
+            }
+
+            if component.auto_remove_deferred(
+                &entity_ref,
                 &properties.computed_values,
                 entity_command_queue.reborrow(),
-            );
+            ) {
+                properties
+                    .auto_inserted_components
+                    .remove(&component_type_id);
+            }
         }
     }
 }
@@ -1154,6 +1182,7 @@ mod tests {
     use bevy_app::prelude::*;
     use bevy_asset::uuid_handle;
     use bevy_reflect::Reflect;
+    use std::any::TypeId;
     use std::sync::{Arc, Mutex, PoisonError};
 
     #[test]
@@ -1449,6 +1478,7 @@ mod tests {
             Update,
             (reset_properties_on_added, auto_remove_components).chain(),
         );
+        app.add_observer(observe_on_component_auto_inserted);
 
         let entity = app
             .world_mut()
@@ -1457,7 +1487,34 @@ mod tests {
 
         app.update();
 
+        // Still has the component because it wasn't auto removed
+        assert!(app.world().entity(entity).contains::<TestComponent>());
+
+        app.world_mut().trigger(ComponentAutoInserted {
+            entity,
+            type_id: TypeId::of::<TestComponent>(),
+        });
+        assert!(
+            app.world()
+                .entity(entity)
+                .get::<NodeProperties>()
+                .unwrap()
+                .auto_inserted_components
+                .contains_key(&TypeId::of::<TestComponent>())
+        );
+
+        app.update();
+
+        // Now it's removed because it was marked as auto inserted
         assert!(!app.world().entity(entity).contains::<TestComponent>());
+        assert!(
+            !app.world()
+                .entity(entity)
+                .get::<NodeProperties>()
+                .unwrap()
+                .auto_inserted_components
+                .contains_key(&TypeId::of::<TestComponent>())
+        );
     }
 
     const TEST_STYLE_SHEET_HANDLE: Handle<StyleSheet> =

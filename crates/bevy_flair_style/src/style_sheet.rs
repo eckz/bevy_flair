@@ -446,7 +446,6 @@ mod tests {
     use crate::media_selector::{MediaRangeSelector, MediaSelector};
     use crate::testing::{css_selector, entity};
     use bevy_ecs::component::Component;
-    use bevy_reflect::{ParsedPath, Typed};
     use std::sync::LazyLock;
     use std::time::Duration;
 
@@ -455,24 +454,9 @@ mod tests {
         value: f32,
     }
 
-    impl ComponentProperties for TestComponent {
-        fn register_component_properties(
-            property_registry: &mut PropertyRegistry,
-        ) -> ComponentPropertiesRegistration {
-            let component_type_info = Self::type_info();
-            let path = ParsedPath::parse_static("value").unwrap();
-            let registered_properties =
-                property_registry.register_properties([ComponentProperty::new(
-                    component_type_info,
-                    path,
-                    f32::type_info(),
-                )]);
-
-            ComponentPropertiesRegistration::new(
-                component_type_info,
-                ComponentFns::new::<Self>(),
-                registered_properties,
-            )
+    impl_component_properties! {
+        pub struct TestComponent {
+            value: f32,
         }
     }
 
