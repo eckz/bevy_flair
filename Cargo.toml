@@ -40,7 +40,7 @@ bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.6.
 
 cssparser = { version = "0.35" }
 cssparser-color = { version = "0.3" }
-selectors = { version = "0.31" }
+selectors = { version = "0.32" }
 
 [dependencies]
 bevy_app = { workspace = true }
@@ -55,7 +55,7 @@ default = []
 experimental_ghost_nodes = ["bevy_flair_style/experimental_ghost_nodes"]
 
 [dev-dependencies]
-criterion = { version = "0.5", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
+criterion = { version = "0.7", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
 bevy = {version = "0.17", default-features = false, features = [
     "std",
     "debug",
