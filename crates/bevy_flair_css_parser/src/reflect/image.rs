@@ -5,7 +5,7 @@ use crate::utils::parse_property_value_with;
 use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
 use bevy_reflect::FromType;
-use bevy_ui::prelude::{BorderRect, TextureSlicer};
+use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
 use bevy_ui::widget::NodeImageMode;
 use cssparser::{Parser, Token};
 
@@ -53,6 +53,29 @@ fn parse_tiled_params(parser: &mut Parser) -> Result<TiledParams, CssError> {
     Ok(result)
 }
 
+fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssError> {
+    let next = parser.located_next()?;
+    match &*next {
+        Token::Ident(ident) if ident.as_ref() == "auto" => {
+            return Ok(SliceScaleMode::default());
+        }
+        Token::Ident(ident) if ident.as_ref() == "stretch" => {
+            return Ok(SliceScaleMode::Stretch);
+        }
+        Token::Function(name) if name.eq_ignore_ascii_case("tile") => {
+            let stretch_value = parser.parse_nested_block_with(parse_f32)?;
+            return Ok(SliceScaleMode::Tile { stretch_value });
+        }
+        _ => {
+            return Err(CssError::new_located(
+                &next,
+                error_codes::UNEXPECTED_RILED_TOKEN,
+                "This is not valid tiled token. 'stretch', 'tile(2.0)' are valid tokens",
+            ));
+        }
+    }
+}
+
 fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
     let [top, right, bottom, left] = parse_four_values(parser, parse_f32)?;
 
@@ -63,9 +86,15 @@ fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
         bottom,
     };
 
+    let center_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();
+    let sides_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();
+    let max_corner_scale = parser.try_parse(parse_f32).unwrap_or(1.0);
+
     Ok(TextureSlicer {
         border,
-        ..Default::default()
+        center_scale_mode,
+        sides_scale_mode,
+        max_corner_scale,
     })
 }
 
@@ -116,7 +145,7 @@ impl FromType<NodeImageMode> for ReflectParseCss {
 #[cfg(test)]
 mod tests {
     use crate::reflect::testing::test_parse_reflect;
-    use bevy_ui::prelude::{BorderRect, TextureSlicer};
+    use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
 
     use bevy_ui::widget::NodeImageMode;
 
@@ -138,21 +167,23 @@ mod tests {
             NodeImageMode::Tiled { .. }
         ));
 
-        let expected_slicer = TextureSlicer {
-            border: BorderRect::all(20.0),
-            ..Default::default()
-        };
-
         assert!(matches!(
             test_parse_reflect::<NodeImageMode>("sliced(20px)"),
             NodeImageMode::Sliced(_)
         ));
 
-        let NodeImageMode::Sliced(slicer) = test_parse_reflect::<NodeImageMode>("sliced(20px)")
+        let NodeImageMode::Sliced(slicer) =
+            test_parse_reflect::<NodeImageMode>("sliced(20px stretch tile(2.0) 5.0)")
         else {
             unreachable!();
         };
 
+        let expected_slicer = TextureSlicer {
+            border: BorderRect::all(20.0),
+            center_scale_mode: SliceScaleMode::Stretch,
+            sides_scale_mode: SliceScaleMode::Tile { stretch_value: 2.0 },
+            max_corner_scale: 5.0,
+        };
         assert_eq!(expected_slicer, slicer);
     }
 }
