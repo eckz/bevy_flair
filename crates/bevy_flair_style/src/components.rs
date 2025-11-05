@@ -1329,31 +1329,34 @@ impl AttributeList {
 /// Component that stores inline style.
 /// It should not be used directly, look for the `InlineStyle` component.
 #[derive(Clone, Debug, Default, Component)]
-pub struct RawInlineStyle(pub(crate) Vec<(Arc<str>, SmallVec<[RulesetProperty; 1]>)>);
+pub struct RawInlineStyle {
+    pub(crate) properties: Vec<(Arc<str>, SmallVec<[RulesetProperty; 1]>)>,
+    pub(crate) vars: Vec<(Arc<str>, VarTokens)>,
+}
 
 impl RawInlineStyle {
     /// Insert a single property by its css property name.
-    pub fn insert_single(
+    pub fn insert_raw_single_property(
         &mut self,
         css_name: Arc<str>,
         property_id: ComponentPropertyId,
         value: PropertyValue,
     ) {
-        self.remove(&css_name);
-        self.0.push((
+        self.remove_raw_property(&css_name);
+        self.properties.push((
             css_name,
             smallvec![RulesetProperty::Specific { property_id, value }],
         ));
     }
 
-    /// Insert a multiple properties that belong to the same css property.
-    pub fn insert_multiple(
+    /// Insert multiple properties that belong to the same css property. (Like a shorthand)
+    pub fn insert_multiple_raw_properties(
         &mut self,
         css_name: Arc<str>,
         properties: impl IntoIterator<Item = (ComponentPropertyId, PropertyValue)>,
     ) {
-        self.remove(&css_name);
-        self.0.push((
+        self.remove_raw_property(&css_name);
+        self.properties.push((
             css_name,
             properties
                 .into_iter()
@@ -1363,14 +1366,14 @@ impl RawInlineStyle {
     }
 
     /// Insert a dynamic property by its css property name.
-    pub fn insert_dynamic(
+    pub fn insert_dynamic_raw_property(
         &mut self,
         css_name: Arc<str>,
         parser: DynamicParseVarTokens,
         tokens: VarTokens,
     ) {
-        self.remove(&css_name);
-        self.0.push((
+        self.remove_raw_property(&css_name);
+        self.properties.push((
             css_name.clone(),
             smallvec![RulesetProperty::Dynamic {
                 css_name,
@@ -1381,25 +1384,48 @@ impl RawInlineStyle {
     }
 
     /// Removes a property by its name.
-    fn remove(&mut self, css_name: &str) {
-        self.0.retain(|(name, _)| &**name != css_name)
+    fn remove_raw_property(&mut self, css_name: &str) {
+        self.properties.retain(|(name, _)| &**name != css_name)
     }
 
-    /// Clears the contents of the [`RawInlineStyle`];
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    /// Outputs the inline style into a [`PropertyMap`]
-    pub fn to_output<V: VarResolver>(
+    /// Outputs the properties of the inline style into a [`PropertyMap`]
+    pub fn properties_to_output<V: VarResolver>(
         &self,
         property_registry: &PropertyRegistry,
         var_resolver: &V,
         output: &mut PropertyMap<PropertyValue>,
     ) {
-        for property in self.0.iter().flat_map(|(_, properties)| properties.iter()) {
+        for property in self
+            .properties
+            .iter()
+            .flat_map(|(_, properties)| properties.iter())
+        {
             ruleset_property_to_output(property, property_registry, var_resolver, output);
         }
+    }
+
+    /// Inserts a var by its name and `VarToken`.
+    pub fn insert_raw_var(&mut self, var_name: Arc<str>, var_tokens: VarTokens) {
+        self.remove_raw_var(&var_name);
+        self.vars.push((var_name, var_tokens));
+    }
+
+    /// Removes a var by its name.
+    pub fn remove_raw_var(&mut self, var_name: &str) {
+        self.vars.retain(|(name, _)| &**name != var_name)
+    }
+
+    /// Outputs the vars of the inline style into a [`FxHashMap`].
+    pub fn vars_to_output(&self, output: &mut FxHashMap<Arc<str>, VarTokens>) {
+        for (name, var_tokens) in self.vars.iter() {
+            output.insert(name.clone(), var_tokens.clone());
+        }
+    }
+
+    /// Clears the contents of the [`RawInlineStyle`].
+    pub fn clear(&mut self) {
+        self.properties.clear();
+        self.vars.clear();
     }
 }
 

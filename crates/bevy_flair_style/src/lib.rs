@@ -49,7 +49,7 @@ pub(crate) type IdName = smol_str::SmolStr;
 pub(crate) type ClassName = smol_str::SmolStr;
 pub(crate) type AttributeKey = smol_str::SmolStr;
 pub(crate) type AttributeValue = smol_str::SmolStr;
-pub(crate) type VarName = std::sync::Arc<str>;
+pub(crate) type VarName = Arc<str>;
 
 // TODO: Add support to CoreWidgets added in bevy 0.17
 

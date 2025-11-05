@@ -27,6 +27,7 @@ Check https://github.com/eckz/bevy_flair/blob/main/crates/bevy_flair_core/src/im
 - It's not possible to restart animations by just using css. Previously some animations were restarted.
 but this is not correct according the css standard. I might need to introduce an explicit mechanism to restart animations.
 [Common tricks](https://css-tricks.com/restart-css-animation/) to restart animations will not work here.
+- Added the capabilities to `InlineStyle` to also set vars (https://github.com/eckz/bevy_flair/issues/20)
 
 ### Fixed
 - Font-faces did not get registered when using "import" (https://github.com/eckz/bevy_flair/issues/15)

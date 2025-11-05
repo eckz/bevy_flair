@@ -1,0 +1,7 @@
+:root {
+    --test-var: 1px;
+}
+
+.child {
+    width: var(--test-var);
+}

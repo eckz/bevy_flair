@@ -1,5 +1,6 @@
 use crate::parser::{CssPropertyParser, CssRulesetProperty};
-use crate::{ErrorReportGenerator, ShorthandPropertyRegistry};
+use crate::vars::parse_var_tokens;
+use crate::{CssError, ErrorReportGenerator, ShorthandPropertyRegistry};
 use bevy_ecs::prelude::*;
 use bevy_flair_core::PropertyRegistry;
 use bevy_flair_style::components::RawInlineStyle;
@@ -19,6 +20,7 @@ use tracing::error;
 #[require(RawInlineStyle)]
 pub struct InlineStyle {
     properties: LinkedHashMap<Arc<str>, SmolStr>,
+    vars: LinkedHashMap<Arc<str>, SmolStr>,
 }
 
 impl InlineStyle {
@@ -72,6 +74,52 @@ impl InlineStyle {
     pub fn remove_property(&mut self, css_name: &str) {
         self.properties.remove(css_name);
     }
+
+    /// Returns the variable value given a variable name.
+    ///
+    /// Accepts names with or without the leading `--`. Returns the raw stored string.
+    ///
+    /// # Example
+    /// ```
+    /// # use bevy_flair_css_parser::InlineStyle;
+    /// let mut style = InlineStyle::new("--my-var: 3px");
+    /// let my_var = style.get_var_value("--my-var");
+    /// # assert_eq!(my_var, Some("3px"))
+    /// ```
+    pub fn get_var_value(&mut self, var_name: &str) -> Option<&str> {
+        let var_name = var_name.strip_prefix("--").unwrap_or(var_name);
+        self.vars.get(var_name).map(|s| s.as_str())
+    }
+
+    /// Sets or updates a CSS custom property (variable).
+    ///
+    /// Accepts names with or without the leading `--`. Internally the name is stored
+    /// without the leading dashes.
+    ///
+    /// # Example
+    /// ```
+    /// # use bevy_flair_css_parser::InlineStyle;
+    /// let mut style = InlineStyle::new("--my-var: 10px");
+    /// style.set_var("other-var", "20px");
+    /// # assert_eq!(style, InlineStyle::new("--my-var: 10px; --other-var: 20px"))
+    /// ```
+    pub fn set_var(&mut self, var_name: impl Into<Arc<str>>, value: impl Into<SmolStr>) {
+        let mut var_name = var_name.into();
+
+        if let Some(strip) = var_name.strip_prefix("--") {
+            var_name = strip.into();
+        }
+
+        self.vars.insert(var_name, value.into());
+    }
+
+    /// Removes a CSS custom property (variable) by its name.
+    ///
+    /// Accepts names with or without the leading `--`.
+    pub fn remove_var(&mut self, var_name: &str) {
+        let var_name = var_name.strip_prefix("--").unwrap_or(var_name);
+        self.vars.remove(var_name);
+    }
 }
 
 impl<K, V> FromIterator<(K, V)> for InlineStyle
@@ -80,12 +128,19 @@ where
     V: Into<SmolStr>,
 {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
-        let properties = iter
-            .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
-            .collect();
+        let mut properties = LinkedHashMap::new();
+        let mut vars = LinkedHashMap::new();
 
-        Self { properties }
+        for (css_name, value) in iter.into_iter().map(|(k, v)| (k.into(), v.into())) {
+            if css_name.starts_with("--") {
+                let var_name = css_name.strip_prefix("--").unwrap();
+                vars.insert(var_name.into(), value);
+            } else {
+                properties.insert(css_name, value);
+            }
+        }
+
+        Self { properties, vars }
     }
 }
 
@@ -93,6 +148,7 @@ impl FromStr for InlineStyle {
     type Err = Infallible;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut properties = LinkedHashMap::new();
+        let mut vars = LinkedHashMap::new();
         for line in s.split(";") {
             let line = line.trim();
             if line.is_empty() {
@@ -104,9 +160,16 @@ impl FromStr for InlineStyle {
                 Some((css_name, value)) => (css_name.trim(), value.trim()),
             };
 
-            properties.insert(css_name.into(), value.into());
+            match css_name.strip_prefix("--") {
+                Some(var_name) => {
+                    vars.insert(var_name.into(), value.into());
+                }
+                None => {
+                    properties.insert(css_name.into(), value.into());
+                }
+            }
         }
-        Ok(Self { properties })
+        Ok(Self { properties, vars })
     }
 }
 
@@ -150,13 +213,13 @@ pub(crate) fn parse_inline_style(
 
             match output {
                 CssRulesetProperty::SingleProperty(property, value, _) => {
-                    raw_inline_style.insert_single(css_name, property, value);
+                    raw_inline_style.insert_raw_single_property(css_name, property, value);
                 }
                 CssRulesetProperty::MultipleProperties(properties, _) => {
-                    raw_inline_style.insert_multiple(css_name, properties);
+                    raw_inline_style.insert_multiple_raw_properties(css_name, properties);
                 }
                 CssRulesetProperty::DynamicProperty(_, parser, tokens, _) => {
-                    raw_inline_style.insert_dynamic(css_name, parser, tokens);
+                    raw_inline_style.insert_dynamic_raw_property(css_name, parser, tokens);
                 }
                 CssRulesetProperty::Error(mut err) => {
                     err.improve_location_with_sub_str(&css_contents);
@@ -173,6 +236,35 @@ pub(crate) fn parse_inline_style(
                 }
             }
         }
+
+        for (var_name, var_str) in inline_style.vars.iter() {
+            let var_name = var_name.clone();
+
+            let mut input = ParserInput::new(var_str);
+            let mut parser = Parser::new(&mut input);
+
+            let result = parser.parse_entirely(|parser| {
+                parse_var_tokens(parser).map_err(|err| err.into_parse_error())
+            });
+
+            let var_tokens = match result {
+                Ok(output) => output,
+                Err(parser_err) => {
+                    let mut err = CssError::from(parser_err);
+                    err.improve_location_with_sub_str(var_str);
+
+                    let file_name = format!("inline:{var_name}");
+                    let mut report_generator = ErrorReportGenerator::new(&file_name, var_str);
+                    report_generator.add_error(Into::into(err));
+                    let message = report_generator.into_message();
+
+                    error!("{message}");
+                    return;
+                }
+            };
+
+            raw_inline_style.insert_raw_var(var_name, var_tokens);
+        }
     }
 }
 
@@ -181,11 +273,11 @@ mod tests {
     use super::*;
     use crate::reflect::ReflectParsePlugin;
     use crate::shorthand::ShorthandPropertiesPlugin;
-    use bevy_app::{App, PostUpdate};
+    use bevy_app::{App, Update};
     use bevy_flair_core::{
         ImplComponentPropertiesPlugin, PropertyRegistryPlugin, PropertyValue, ReflectValue,
     };
-    use bevy_flair_style::{VarResolver, VarTokens};
+    use bevy_flair_style::{VarResolver, VarToken, VarTokens};
     use bevy_ui::Val;
 
     fn test_app() -> App {
@@ -198,7 +290,7 @@ mod tests {
             ShorthandPropertiesPlugin,
         ));
 
-        app.add_systems(PostUpdate, parse_inline_style);
+        app.add_systems(Update, parse_inline_style);
 
         app
     }
@@ -225,6 +317,16 @@ mod tests {
             InlineStyle::new("width: 30px;  height:  50px"),
             InlineStyle::from_iter([("width", "30px"), ("height", "50px")])
         );
+
+        assert_eq!(
+            InlineStyle::new("width: 30px;  --some-var: blue"),
+            InlineStyle::from_iter([("width", "30px"), ("--some-var", "blue")])
+        );
+
+        assert_eq!(
+            InlineStyle::new("--some-var: 30px;  --some-var: blue"),
+            InlineStyle::from_iter([("--some-var", "blue")])
+        );
     }
     #[test]
     fn test_parse_inline_style() {
@@ -250,15 +352,23 @@ mod tests {
         app.update();
 
         {
-            let mut output = property_registry.create_unset_values_map();
+            let mut property_output = property_registry.create_unset_values_map();
+            let mut var_output = Default::default();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
+            raw_inline_style.properties_to_output(
+                &property_registry,
+                &NoVarsSupportedResolver,
+                &mut property_output,
+            );
+            raw_inline_style.vars_to_output(&mut var_output);
 
             assert_eq!(
-                output[width_property_id],
+                property_output[width_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(30.0)))
             );
-            assert_eq!(output[height_property_id], PropertyValue::None);
+            assert_eq!(property_output[height_property_id], PropertyValue::None);
+
+            assert!(var_output.is_empty());
         }
 
         app.update();
@@ -271,24 +381,37 @@ mod tests {
         inline_style.set_property("height", "20px");
         inline_style.set_property("padding", "10px");
 
+        inline_style.set_var("--my-var", "blue");
+
         app.update();
 
         {
-            let mut output = property_registry.create_unset_values_map();
+            let mut property_output = property_registry.create_unset_values_map();
+            let mut var_output = Default::default();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
+            raw_inline_style.properties_to_output(
+                &property_registry,
+                &NoVarsSupportedResolver,
+                &mut property_output,
+            );
+            raw_inline_style.vars_to_output(&mut var_output);
 
             assert_eq!(
-                output[width_property_id],
+                property_output[width_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(30.0)))
             );
             assert_eq!(
-                output[height_property_id],
+                property_output[height_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(20.0)))
             );
             assert_eq!(
-                output[padding_left_property_id],
+                property_output[padding_left_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(10.0)))
+            );
+
+            assert_eq!(
+                var_output.get("my-var"),
+                Some(&VarTokens::from_iter([VarToken::Ident("blue".into())]))
             );
         }
 
@@ -299,24 +422,37 @@ mod tests {
             .unwrap();
         inline_style.set_property("padding-left", "5px");
 
+        inline_style.set_var("my-var", "red");
+
         app.update();
 
         {
-            let mut output = property_registry.create_unset_values_map();
+            let mut property_output = property_registry.create_unset_values_map();
+            let mut var_output = Default::default();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
+            raw_inline_style.properties_to_output(
+                &property_registry,
+                &NoVarsSupportedResolver,
+                &mut property_output,
+            );
+            raw_inline_style.vars_to_output(&mut var_output);
 
             assert_eq!(
-                output[width_property_id],
+                property_output[width_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(30.0)))
             );
             assert_eq!(
-                output[height_property_id],
+                property_output[height_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(20.0)))
             );
             assert_eq!(
-                output[padding_left_property_id],
+                property_output[padding_left_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(5.0)))
+            );
+
+            assert_eq!(
+                var_output.get("my-var"),
+                Some(&VarTokens::from_iter([VarToken::Ident("red".into())]))
             );
         }
 
@@ -331,17 +467,21 @@ mod tests {
         app.update();
 
         {
-            let mut output = property_registry.create_unset_values_map();
+            let mut property_output = property_registry.create_unset_values_map();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            raw_inline_style.to_output(&property_registry, &NoVarsSupportedResolver, &mut output);
+            raw_inline_style.properties_to_output(
+                &property_registry,
+                &NoVarsSupportedResolver,
+                &mut property_output,
+            );
 
             assert_eq!(
-                output[width_property_id],
+                property_output[width_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(30.0)))
             );
-            assert_eq!(output[height_property_id], PropertyValue::None);
+            assert_eq!(property_output[height_property_id], PropertyValue::None);
             assert_eq!(
-                output[padding_left_property_id],
+                property_output[padding_left_property_id],
                 PropertyValue::Value(ReflectValue::Val(Val::Px(10.0)))
             );
         }
