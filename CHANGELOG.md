@@ -33,6 +33,7 @@ but this is not correct according the css standard. I might need to introduce an
 - Font-faces did not get registered when using "import" (https://github.com/eckz/bevy_flair/issues/15)
 - Multiple animations were not supported in the same property (https://github.com/eckz/bevy_flair/issues/18)
 - Some animations were restarted when hover (https://github.com/eckz/bevy_flair/issues/6)
+- @keyframes does not support `var()`, but it was never reported as an error, now it does. 
 
 ## [0.5.1] - 11-Oct-2025
 

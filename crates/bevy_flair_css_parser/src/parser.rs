@@ -734,11 +734,14 @@ impl CssPropertyParser<'_> {
     pub(crate) fn parse_ruleset_property(
         &self,
         property_name: &str,
+        parse_vars: bool,
         parser: &mut Parser,
     ) -> CssRulesetProperty {
         if let Some(shorthand_property) = self.get_shorthand_css(property_name) {
             let initial_state = parser.state();
-            parser.look_for_var_or_env_functions();
+            if parse_vars {
+                parser.look_for_var_or_env_functions();
+            }
 
             let result = parser.parse_entirely(|parser| {
                 let properties = shorthand_property
@@ -765,7 +768,7 @@ impl CssPropertyParser<'_> {
                         .collect(),
                     important_level,
                 ),
-                Err(_) if seen_var_or_env_functions => {
+                Err(_) if parse_vars && seen_var_or_env_functions => {
                     parser.reset(&initial_state);
 
                     let result = parser.parse_entirely(|parser| {
@@ -808,7 +811,9 @@ impl CssPropertyParser<'_> {
             ));
         };
         let initial_state = parser.state();
-        parser.look_for_var_or_env_functions();
+        if parse_vars {
+            parser.look_for_var_or_env_functions();
+        }
 
         let parse_fn = reflect_parse_css.parse_fn();
         let result = parser.parse_entirely(|parser| {
@@ -823,7 +828,7 @@ impl CssPropertyParser<'_> {
             Ok((value, important_level)) => {
                 CssRulesetProperty::SingleProperty(property_id, value, important_level)
             }
-            Err(_) if seen_var_or_env_functions => {
+            Err(_) if parse_vars && seen_var_or_env_functions => {
                 parser.reset(&initial_state);
 
                 let result = parser.parse_entirely(|parser| {
@@ -901,9 +906,14 @@ where
 /// ```
 struct CssRulesetBodyParser<'a, 'i> {
     inner: CssParserContext<'a, 'i>,
+    // Parse 'transition' property
     parse_transition: bool,
+    // Parse 'animation' property
     parse_animation: bool,
+    // Parse nested parser
     parse_nested: bool,
+    // Parse properties with `var(--some-var)`
+    parse_dynamic: bool,
 }
 
 impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
@@ -943,6 +953,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     parse_transition: true,
                     parse_animation: true,
                     parse_nested: true,
+                    parse_dynamic: true,
                     inner: self.inner.clone(),
                 };
                 let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -965,6 +976,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     parse_transition: true,
                     parse_animation: true,
                     parse_nested: true,
+                    parse_dynamic: true,
                     inner: self.inner.clone(),
                 };
                 let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -1011,6 +1023,7 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
             parse_transition: true,
             parse_animation: true,
             parse_nested: true,
+            parse_dynamic: true,
             inner: self.inner.clone(),
         };
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -1077,7 +1090,7 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
         } else {
             self.inner
                 .property_parser
-                .parse_ruleset_property(&property_name, input)
+                .parse_ruleset_property(&property_name, self.parse_dynamic, input)
                 .into_parse_result()
         }
     }
@@ -1192,6 +1205,7 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
             parse_transition: false,
             parse_animation: false,
             parse_nested: false,
+            parse_dynamic: false,
             inner: self.inner.clone(),
         };
 
@@ -1472,6 +1486,7 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
             parse_transition: true,
             parse_animation: true,
             parse_nested: true,
+            parse_dynamic: true,
             inner: self.inner.clone(),
         };
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);

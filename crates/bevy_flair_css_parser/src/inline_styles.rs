@@ -201,7 +201,7 @@ pub(crate) fn parse_inline_style(
                 parser.expect_ident()?;
                 parser.expect_colon()?;
 
-                let result = css_property_parser.parse_ruleset_property(&css_name, parser);
+                let result = css_property_parser.parse_ruleset_property(&css_name, true, parser);
                 if let CssRulesetProperty::Error(error) = result {
                     Err(error.into_parse_error())
                 } else {
