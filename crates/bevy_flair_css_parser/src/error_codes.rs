@@ -46,7 +46,8 @@ define_errors!(enums => {
 
 define_errors!(image => {
     UNEXPECTED_IMAGE_MODE_TOKEN(40, "Unexpected image mode token"),
-    UNEXPECTED_RILED_TOKEN(41, "Unexpected token for tiled()"),
+    UNEXPECTED_TILED_TOKEN(41, "Unexpected token for tiled()"),
+    UNEXPECTED_SLICE_SCALE_MODE_TOKEN(42, "Unexpected slice scale mode token"),
 });
 
 define_errors!(grid => {

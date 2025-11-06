@@ -1,8 +1,8 @@
 use crate::error::CssError;
 use crate::error_codes::image as error_codes;
-use crate::reflect::ui::{parse_f32, parse_four_values};
+use crate::reflect::ui::parse_four_values;
 use crate::utils::parse_property_value_with;
-use crate::{ParserExt, ReflectParseCss};
+use crate::{ParserExt, ReflectParseCss, parse_calc_f32};
 use bevy_flair_core::ReflectValue;
 use bevy_reflect::FromType;
 use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
@@ -43,7 +43,7 @@ fn parse_tiled_params(parser: &mut Parser) -> Result<TiledParams, CssError> {
             _ => {
                 return Err(CssError::new_located(
                     &next,
-                    error_codes::UNEXPECTED_RILED_TOKEN,
+                    error_codes::UNEXPECTED_TILED_TOKEN,
                     "This is not valid tiled token. 'tile_x', 'tile_y', 3.2 are valid tokens",
                 ));
             }
@@ -59,19 +59,19 @@ fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssErro
         Token::Ident(ident) if ident.as_ref() == "auto" => Ok(SliceScaleMode::default()),
         Token::Ident(ident) if ident.as_ref() == "stretch" => Ok(SliceScaleMode::Stretch),
         Token::Function(name) if name.eq_ignore_ascii_case("tile") => {
-            let stretch_value = parser.parse_nested_block_with(parse_f32)?;
+            let stretch_value = parser.parse_nested_block_with(parse_calc_f32)?;
             Ok(SliceScaleMode::Tile { stretch_value })
         }
         _ => Err(CssError::new_located(
             &next,
-            error_codes::UNEXPECTED_RILED_TOKEN,
-            "This is not valid tiled token. 'stretch', 'tile(2.0)' are valid tokens",
+            error_codes::UNEXPECTED_SLICE_SCALE_MODE_TOKEN,
+            "This is not valid slice scale mode token. 'stretch', 'tile(2.0)' are valid tokens",
         )),
     }
 }
 
 fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
-    let [top, right, bottom, left] = parse_four_values(parser, parse_f32)?;
+    let [top, right, bottom, left] = parse_four_values(parser, parse_calc_f32)?;
 
     let border = BorderRect {
         left,
@@ -82,7 +82,7 @@ fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
 
     let center_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();
     let sides_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();
-    let max_corner_scale = parser.try_parse(parse_f32).unwrap_or(1.0);
+    let max_corner_scale = parser.try_parse(parse_calc_f32).unwrap_or(1.0);
 
     Ok(TextureSlicer {
         border,
