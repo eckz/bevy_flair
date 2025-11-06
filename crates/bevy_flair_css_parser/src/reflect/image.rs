@@ -62,13 +62,11 @@ fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssErro
             let stretch_value = parser.parse_nested_block_with(parse_f32)?;
             Ok(SliceScaleMode::Tile { stretch_value })
         }
-        _ => {
-            Err(CssError::new_located(
-                &next,
-                error_codes::UNEXPECTED_RILED_TOKEN,
-                "This is not valid tiled token. 'stretch', 'tile(2.0)' are valid tokens",
-            ));
-        }
+        _ => Err(CssError::new_located(
+            &next,
+            error_codes::UNEXPECTED_RILED_TOKEN,
+            "This is not valid tiled token. 'stretch', 'tile(2.0)' are valid tokens",
+        )),
     }
 }
 
