@@ -56,18 +56,14 @@ fn parse_tiled_params(parser: &mut Parser) -> Result<TiledParams, CssError> {
 fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssError> {
     let next = parser.located_next()?;
     match &*next {
-        Token::Ident(ident) if ident.as_ref() == "auto" => {
-            return Ok(SliceScaleMode::default());
-        }
-        Token::Ident(ident) if ident.as_ref() == "stretch" => {
-            return Ok(SliceScaleMode::Stretch);
-        }
+        Token::Ident(ident) if ident.as_ref() == "auto" => Ok(SliceScaleMode::default()),
+        Token::Ident(ident) if ident.as_ref() == "stretch" => Ok(SliceScaleMode::Stretch),
         Token::Function(name) if name.eq_ignore_ascii_case("tile") => {
             let stretch_value = parser.parse_nested_block_with(parse_f32)?;
-            return Ok(SliceScaleMode::Tile { stretch_value });
+            Ok(SliceScaleMode::Tile { stretch_value })
         }
         _ => {
-            return Err(CssError::new_located(
+            Err(CssError::new_located(
                 &next,
                 error_codes::UNEXPECTED_RILED_TOKEN,
                 "This is not valid tiled token. 'stretch', 'tile(2.0)' are valid tokens",
