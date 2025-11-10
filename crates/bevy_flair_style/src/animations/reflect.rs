@@ -6,9 +6,10 @@ use bevy_app::{App, Plugin};
 use bevy_color::{Color, Mix, Oklaba};
 use bevy_math::{Curve, FloatExt as _, Rot2, Vec2, curve::CurveExt as _};
 use bevy_reflect::{FromReflect, FromType};
+use bevy_ui::widget::TextShadow;
 use bevy_ui::{
-    AngularColorStop, BackgroundGradient, BorderGradient, ColorStop, ConicGradient, Gradient,
-    LinearGradient, RadialGradient, UiPosition, Val, Val2,
+    AngularColorStop, BackgroundGradient, BorderGradient, BoxShadow, ColorStop, ConicGradient,
+    Gradient, LinearGradient, RadialGradient, ShadowStyle, UiPosition, Val, Val2,
 };
 use bevy_utils::once;
 use std::any::type_name;
@@ -390,6 +391,16 @@ fn interpolate_gradient(a: &Gradient, b: &Gradient, t: f32) -> Gradient {
     }
 }
 
+fn interpolate_shadow_style(a: &ShadowStyle, b: &ShadowStyle, t: f32) -> ShadowStyle {
+    ShadowStyle {
+        color: interpolate_color(&a.color, &b.color, t),
+        x_offset: interpolate_val(&a.x_offset, &b.x_offset, t),
+        y_offset: interpolate_val(&a.y_offset, &b.y_offset, t),
+        spread_radius: interpolate_val(&a.spread_radius, &b.spread_radius, t),
+        blur_radius: interpolate_val(&a.blur_radius, &b.blur_radius, t),
+    }
+}
+
 impl InterpolateValue for BackgroundGradient {
     fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
         BackgroundGradient(interpolate_list_with(
@@ -411,6 +422,31 @@ impl InterpolateValue for BorderGradient {
             interpolate_gradient,
             "Cannot interpolate between different number of gradients",
         ))
+    }
+}
+
+impl InterpolateValue for BoxShadow {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        BoxShadow(interpolate_list_with(
+            &a.0,
+            &b.0,
+            t,
+            interpolate_shadow_style,
+            "Cannot interpolate between different number of box shadows",
+        ))
+    }
+}
+
+fn interpolate_text_shadow(a: &TextShadow, b: &TextShadow, t: f32) -> TextShadow {
+    TextShadow {
+        offset: a.offset.lerp(b.offset, t),
+        color: interpolate_color(&a.color, &b.color, t),
+    }
+}
+
+impl InterpolateValue for TextShadow {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        interpolate_text_shadow(a, b, t)
     }
 }
 
@@ -451,6 +487,8 @@ impl Plugin for ReflectAnimationsPlugin {
                 Val2,
                 BackgroundGradient,
                 BorderGradient,
+                BoxShadow,
+                TextShadow,
             )
         );
     }
@@ -460,11 +498,12 @@ impl Plugin for ReflectAnimationsPlugin {
 mod tests {
     use crate::animations::{ReflectAnimatable, ReflectAnimationsPlugin};
     use bevy_app::App;
+    use bevy_color::{Alpha, Color, Mix};
     use bevy_ecs::prelude::AppTypeRegistry;
     use bevy_flair_core::ReflectValue;
     use bevy_math::{Curve, Rot2, Vec2};
     use bevy_reflect::FromReflect;
-    use bevy_ui::Val;
+    use bevy_ui::{BoxShadow, Val, widget::TextShadow};
     use std::any::TypeId;
 
     #[track_caller]
@@ -530,6 +569,57 @@ mod tests {
         assert_eq!(
             test_transition(Val::ZERO, Val::Percent(10.0), 0.5),
             Val::Percent(5.0)
+        );
+    }
+
+    #[test]
+    fn box_shadow_transition() {
+        assert_eq!(
+            test_transition(
+                BoxShadow::new(
+                    Color::BLACK,
+                    Val::Px(0.0),
+                    Val::Px(0.0),
+                    Val::Percent(100.0),
+                    Val::Auto
+                ),
+                BoxShadow::new(
+                    Color::WHITE,
+                    Val::Px(10.0),
+                    Val::Px(10.0),
+                    Val::Percent(0.0),
+                    Val::Auto
+                ),
+                0.5
+            ),
+            BoxShadow::new(
+                Color::Oklaba(Color::BLACK.into()).mix(&Color::Oklaba(Color::WHITE.into()), 0.5),
+                Val::Px(5.0),
+                Val::Px(5.0),
+                Val::Percent(50.0),
+                Val::Auto
+            ),
+        );
+    }
+
+    #[test]
+    fn text_shadow_transition() {
+        assert_eq!(
+            test_transition(
+                TextShadow {
+                    offset: Vec2::new(10.0, 10.0),
+                    color: Color::WHITE.with_alpha(1.0)
+                },
+                TextShadow {
+                    offset: Vec2::new(50.0, 50.0),
+                    color: Color::WHITE.with_alpha(0.0)
+                },
+                0.5
+            ),
+            TextShadow {
+                offset: Vec2::new(30.0, 30.0),
+                color: Color::Oklaba(Color::WHITE.with_alpha(0.5).into())
+            },
         );
     }
 }
