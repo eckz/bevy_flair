@@ -26,6 +26,10 @@
     --button-active-border: var(--color-red-700);
 
     --button-border-radius: 5px;
+
+    --duration-fast: 0.4s;
+    --duration-medium: 0.6s;
+    --duration-slow: 1s;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -51,7 +55,7 @@
     color: var(--text-color);
     background-color: var(--background-color);
 
-    transition: background-color 0.3s;
+    transition: background-color var(--duration-medium);
 }
 
 button {
@@ -79,7 +83,8 @@ button {
     border-color: var(--button-border);
     border-radius: var(--button-border-radius);
 
-    transition: background 0.6s, scale 0.6s, border-radius 1.0s ease-in-out, border-color 0.4s, outline-color 0.4s, width 0.6s, height 0.6s;
+    transition-property: border-radius, border-color, background, scale, outline-color;
+    transition-duration: var(--duration-slow), var(--duration-medium), var(--duration-fast);
 
     outline: initial;
     scale: 1.0;

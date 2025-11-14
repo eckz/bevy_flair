@@ -12,7 +12,6 @@ use bevy_flair_core::*;
 use bevy_reflect::prelude::*;
 use bevy_text::TextSpan;
 use bevy_ui::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Write;
 use std::marker::PhantomData;
@@ -55,7 +54,7 @@ pub(crate) type VarName = Arc<str>;
 
 /// Represents the current pseudo state of an entity.
 /// By default, it supports only the basic pseudo classes like `:hover`, `:active`, and `:focus`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect)]
 pub struct NodePseudoState {
     /// If the entity is pressed
     pub pressed: bool,
@@ -154,12 +153,6 @@ impl From<bevy_window::WindowTheme> for ColorScheme {
 pub(crate) struct GlobalChangeDetection {
     pub any_property_value_changed: bool,
     pub any_animation_active: bool,
-}
-
-impl GlobalChangeDetection {
-    pub fn any_property_change(&self) -> bool {
-        self.any_property_value_changed || self.any_animation_active
-    }
 }
 
 /// System sets for the [`FlairStylePlugin`] plugin.
@@ -394,7 +387,7 @@ impl Plugin for FlairStylePlugin {
                         systems::calculate_effective_style_sheet,
                         systems::compute_window_media_features,
                         (systems::sort_pseudo_elements, systems::sync_siblings_system).chain(),
-                        systems::reset_properties_on_added,
+                        systems::reset_properties,
                     )
                         .in_set(StyleSystems::Prepare),
                     (
@@ -425,14 +418,13 @@ impl Plugin for FlairStylePlugin {
                     (
                         systems::compute_property_values
                             .run_if(systems::compute_property_values_condition),
-                        systems::compute_property_values_just_transitions_and_animations
-                            .run_if(systems::compute_property_values_just_transitions_and_animations_condition)
+                        systems::compute_just_animation_properties_values
+                            .run_if(systems::compute_just_animation_properties_values_condition)
                     ).in_set(StyleSystems::ComputeProperties),
                     systems::emit_animation_events.in_set(StyleSystems::EmitAnimationEvents),
                     systems::emit_redraw_event.in_set(StyleSystems::EmitRedrawEvent),
                     (
-                        systems::apply_computed_properties
-                            .run_if(systems::apply_computed_properties_condition),
+                        systems::apply_computed_properties,
                         systems::auto_remove_components
                             .run_if(systems::auto_remove_components_condition)
                     )
@@ -440,6 +432,24 @@ impl Plugin for FlairStylePlugin {
                         .in_set(StyleSystems::ApplyComputedProperties),
                 ),
             );
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_utils {
+    use crate::{VarResolver, VarTokens};
+    use std::sync::Arc;
+
+    pub(crate) struct NoVarsSupportedResolver;
+
+    impl VarResolver for NoVarsSupportedResolver {
+        fn get_all_names(&self) -> Vec<Arc<str>> {
+            panic!("No vars support on this test")
+        }
+
+        fn get_var_tokens(&self, _var_name: &str) -> Option<&'_ VarTokens> {
+            panic!("No vars support on this test")
+        }
     }
 }
 
@@ -539,6 +549,7 @@ mod tests {
             },
             AssetPlugin::default(),
             PropertyRegistryPlugin,
+            ImplComponentPropertiesPlugin,
             FlairStylePlugin,
         ));
 

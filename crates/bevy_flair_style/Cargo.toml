@@ -21,7 +21,7 @@ dbg_macro = "warn"
 
 [dependencies]
 thiserror = "2.0"
-serde = "1.0"
+#serde = "1.0"
 derive_more = { version = "2.0", features = ["debug", "deref", "deref_mut"] }
 bitflags = "2.8"
 rustc-hash = "2.1"

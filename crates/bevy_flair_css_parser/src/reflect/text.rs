@@ -17,7 +17,6 @@ const NONE_TEXT_SHADOW: TextShadow = TextShadow {
 
 fn parse_string(parser: &mut Parser) -> Result<String, CssError> {
     let str = parser.expect_string()?;
-
     Ok(str.to_string())
 }
 
@@ -100,7 +99,7 @@ impl FromType<String> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_reflect;
+    use crate::reflect::reflect_test_utils::test_parse_reflect;
     use bevy_color::palettes::css;
     use bevy_math::Vec2;
     use bevy_text::LineHeight;

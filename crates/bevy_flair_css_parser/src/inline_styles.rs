@@ -2,7 +2,7 @@ use crate::parser::{CssPropertyParser, CssRulesetProperty};
 use crate::vars::parse_var_tokens;
 use crate::{CssError, ErrorReportGenerator, ShorthandPropertyRegistry};
 use bevy_ecs::prelude::*;
-use bevy_flair_core::PropertyRegistry;
+use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::components::RawInlineStyle;
 use cssparser::{Parser, ParserInput};
 use linked_hash_map::LinkedHashMap;
@@ -177,6 +177,7 @@ pub(crate) fn parse_inline_style(
     mut inline_style_query: Query<(&mut InlineStyle, &mut RawInlineStyle), Changed<InlineStyle>>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
+    css_property_registry: Res<CssPropertyRegistry>,
     shorthand_property_registry: Res<ShorthandPropertyRegistry>,
 ) {
     let type_registry = app_type_registry.read();
@@ -184,6 +185,7 @@ pub(crate) fn parse_inline_style(
     let css_property_parser = CssPropertyParser {
         type_registry: &type_registry,
         property_registry: &property_registry,
+        css_property_registry: &css_property_registry,
         shorthand_property_registry: &shorthand_property_registry,
     };
 
@@ -333,15 +335,16 @@ mod tests {
         let mut app = test_app();
 
         let property_registry = app.world().resource::<PropertyRegistry>().clone();
+        let css_property_registry = app.world().resource::<CssPropertyRegistry>().clone();
 
-        let width_property_id = property_registry
-            .get_property_id_by_css_name("width")
+        let width_property_id = css_property_registry
+            .resolve_property("width", &property_registry)
             .unwrap();
-        let height_property_id = property_registry
-            .get_property_id_by_css_name("height")
+        let height_property_id = css_property_registry
+            .resolve_property("height", &property_registry)
             .unwrap();
-        let padding_left_property_id = property_registry
-            .get_property_id_by_css_name("padding-left")
+        let padding_left_property_id = css_property_registry
+            .resolve_property("padding-left", &property_registry)
             .unwrap();
 
         let entity = app

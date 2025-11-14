@@ -1,13 +1,16 @@
-use crate::{
-    ResolveTokensError, StyleFontFace, VarName, VarToken, VarTokens, builder::StyleSheetBuilder,
-};
+use crate::{StyleFontFace, VarName, VarToken, VarTokens, builder::StyleSheetBuilder};
 
 use bevy_flair_core::*;
 use std::borrow::Borrow;
 use std::cmp::PartialEq;
+use std::collections::HashMap;
 use std::fmt::Display;
 
-use crate::animations::{AnimationOptions, EasingFunction};
+use crate::animations::{
+    AnimationOptions, AnimationProperties, AnimationPropertyId, EasingFunction,
+    TransitionPropertyId, from_properties_to_animation_configuration,
+    from_properties_to_transition_configuration,
+};
 use crate::components::NodeStyleData;
 use std::ops::Deref;
 
@@ -20,7 +23,7 @@ use bevy_reflect::{FromReflect, Reflect, TypePath};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::error;
+use tracing::{error, warn};
 
 pub(crate) trait StyleMatchableElement:
     selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<NodeStyleData>
@@ -45,6 +48,7 @@ impl ResolvedAnimation {
         name: &Arc<str>,
         property_id: ComponentPropertyId,
         keyframes: &AnimationKeyframes,
+        default_timing_function: &EasingFunction,
         options: &AnimationOptions,
     ) -> Self {
         Self {
@@ -58,7 +62,7 @@ impl ResolvedAnimation {
                         v.clone(),
                         easing
                             .clone()
-                            .unwrap_or_else(|| options.default_easing_function.clone()),
+                            .unwrap_or_else(|| default_timing_function.clone()),
                     )
                 })
                 .collect(),
@@ -242,8 +246,8 @@ pub(crate) enum RulesetProperty {
 pub(crate) struct Ruleset {
     pub(super) vars: FxHashMap<Arc<str>, VarTokens>,
     pub(super) properties: Vec<RulesetProperty>,
-    pub(super) animations: Vec<(Arc<str>, AnimationOptions)>,
-    pub(super) transitions: PropertiesHashMap<TransitionOptions>,
+    pub(super) transition_properties: AnimationProperties<TransitionPropertyId>,
+    pub(super) animation_properties: AnimationProperties<AnimationPropertyId>,
 }
 
 /// ID of a ruleset in a [`StyleSheet`].
@@ -306,15 +310,8 @@ pub(crate) fn ruleset_property_to_output<V: VarResolver>(
             {
                 Ok(v) => v,
                 Err(err) => {
-                    let extra_message = if matches!(err, ResolveTokensError::UnknownVarName(_)) {
-                        let all_names = var_resolver.get_all_names();
-                        format!("\nAvailable variables are {all_names:#?}",)
-                    } else {
-                        Default::default()
-                    };
-                    error!(
-                        "Property '{css_name}' cannot cannot be parsed because var tokens cannot be resolved: {err}{extra_message}"
-                    );
+                    let err = err.enhance_error(var_resolver);
+                    error!("Error parsing '{css_name}': {err}");
                     return;
                 }
             };
@@ -361,25 +358,6 @@ impl StyleSheet {
         }
     }
 
-    pub(crate) fn get_transition_options(
-        &self,
-        rules_sets: &[StyleSheetRulesetId],
-    ) -> PropertiesHashMap<TransitionOptions> {
-        let mut result = PropertiesHashMap::default();
-
-        for ruleset_id in rules_sets {
-            let ruleset = self.get(*ruleset_id).unwrap();
-
-            result.extend(
-                ruleset
-                    .transitions
-                    .iter()
-                    .map(|(property, options)| (*property, options.clone())),
-            );
-        }
-        result
-    }
-
     pub(crate) fn get_vars(
         &self,
         rules_sets: &[StyleSheetRulesetId],
@@ -398,23 +376,86 @@ impl StyleSheet {
         result
     }
 
-    pub(crate) fn get_animations(
+    pub(crate) fn resolve_transition_options<V: VarResolver>(
         &self,
         rules_sets: &[StyleSheetRulesetId],
-    ) -> Vec<ResolvedAnimation> {
-        let mut result = Vec::new();
+        property_registry: &PropertyRegistry,
+        css_property_registry: &CssPropertyRegistry,
+        var_resolver: &V,
+    ) -> PropertiesHashMap<TransitionOptions> {
+        let mut output = HashMap::default();
 
         for ruleset_id in rules_sets {
             let ruleset = self.get(*ruleset_id).unwrap();
+            ruleset
+                .transition_properties
+                .resolve_to_output(var_resolver, &mut output);
+        }
+        let configurations = from_properties_to_transition_configuration(&output);
 
-            for (animation_name, options) in &ruleset.animations {
-                for (id, keyframes) in self.animation_keyframes[animation_name].iter() {
-                    let resolved = ResolvedAnimation::new(animation_name, *id, keyframes, options);
+        configurations
+            .into_iter()
+            .flat_map(|config| {
+                let property_name = &*config.property_name;
 
-                    result.push(resolved);
+                match css_property_registry.resolve(property_name, property_registry) {
+                    Ok(CssResolveResult::Property(property_id)) => {
+                        vec![(property_id, config.options)]
+                    }
+                    Ok(CssResolveResult::Shorthand(properties)) => properties
+                        .into_iter()
+                        .map(|id| (id, config.options.clone()))
+                        .collect(),
+                    Err(CssResolveError::CssPropertyNotRegistered(_)) => {
+                        warn!("Css property '{property_name}' does not exist, skipping");
+                        Vec::new()
+                    }
+                    Err(err) => {
+                        error!("Error resolving css property '{property_name}': {err}, skipping");
+                        Vec::new()
+                    }
                 }
+            })
+            .collect()
+    }
+
+    pub(crate) fn resolve_animations<V: VarResolver>(
+        &self,
+        rule_sets: &[StyleSheetRulesetId],
+        var_resolver: &V,
+    ) -> Vec<ResolvedAnimation> {
+        let mut properties = HashMap::default();
+
+        for ruleset_id in rule_sets {
+            let ruleset = self.get(*ruleset_id).unwrap();
+
+            ruleset
+                .animation_properties
+                .resolve_to_output(var_resolver, &mut properties);
+        }
+        let animations = from_properties_to_animation_configuration(&properties);
+
+        let mut result = Vec::new();
+        for animation in animations {
+            let animation_name = &animation.name;
+            let Some(property_keyframes) = self.animation_keyframes.get(animation_name) else {
+                warn!("Animation '{animation_name}' does not exist");
+                continue;
+            };
+
+            for (id, keyframes) in property_keyframes {
+                let resolved = ResolvedAnimation::new(
+                    animation_name,
+                    *id,
+                    keyframes,
+                    &animation.default_timing_function,
+                    &animation.options,
+                );
+
+                result.push(resolved);
             }
         }
+
         result
     }
 
@@ -442,8 +483,9 @@ impl StyleSheet {
 mod tests {
     use super::*;
     use crate::ColorScheme;
-    use crate::animations::{AnimationDirection, IterationCount};
+    use crate::animations::AnimationProperty;
     use crate::media_selector::{MediaRangeSelector, MediaSelector};
+    use crate::test_utils::NoVarsSupportedResolver;
     use crate::testing::{css_selector, entity};
     use bevy_ecs::component::Component;
     use std::sync::LazyLock;
@@ -463,9 +505,17 @@ mod tests {
     const TEST_PROPERTY: PropertyCanonicalName =
         PropertyCanonicalName::from_component::<TestComponent>(".value");
 
+    const CSS_TEST_PROPERTY: &str = "test-property";
+
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
         let mut registry = PropertyRegistry::default();
         registry.register::<TestComponent>();
+        registry
+    });
+
+    static CSS_PROPERTY_REGISTRY: LazyLock<CssPropertyRegistry> = LazyLock::new(|| {
+        let registry = CssPropertyRegistry::default();
+        registry.register_property(CSS_TEST_PROPERTY, TEST_PROPERTY);
         registry
     });
 
@@ -500,25 +550,13 @@ mod tests {
         }};
     }
 
-    struct NoVarsSupportedResolver;
-
-    impl VarResolver for NoVarsSupportedResolver {
-        fn get_all_names(&self) -> Vec<Arc<str>> {
-            panic!("No vars support on tests")
-        }
-
-        fn get_var_tokens(&self, _var_name: &str) -> Option<&'_ VarTokens> {
-            panic!("No vars support on tests")
-        }
-    }
-
     macro_rules! get_properties {
         ($style_sheet:expr, $rules:expr) => {{
             let mut property_map = PROPERTY_REGISTRY.create_unset_values_map();
             $style_sheet.get_property_values(
                 $rules,
                 &PROPERTY_REGISTRY,
-                &NoVarsSupportedResolver,
+                &crate::test_utils::NoVarsSupportedResolver,
                 &mut property_map,
             );
             property_map
@@ -530,20 +568,6 @@ mod tests {
             &crate::css_selector::testing::TestElementRef::new(&entity!($($tt)*))
         };
     }
-
-    const TRANSITION_OPTIONS: TransitionOptions = TransitionOptions {
-        initial_delay: Duration::ZERO,
-        duration: Duration::from_secs(1),
-        easing_function: EasingFunction::Linear,
-    };
-
-    const ANIMATION_OPTIONS: AnimationOptions = AnimationOptions {
-        initial_delay: Duration::ZERO,
-        duration: Duration::from_secs(1),
-        default_easing_function: EasingFunction::Linear,
-        direction: AnimationDirection::Normal,
-        iteration_count: IterationCount::ONE,
-    };
 
     const TEST_ANIMATION_NAME: &str = "test-animation";
 
@@ -593,8 +617,18 @@ mod tests {
         let rule_with_name_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!("#test_name"))
-            .with_property_transitions([TEST_PROPERTY], TRANSITION_OPTIONS)
-            .with_animation(TEST_ANIMATION_NAME, ANIMATION_OPTIONS)
+            .with_transition_property(AnimationProperty::new_specific_property(
+                TransitionPropertyId::PropertyName,
+                [CSS_TEST_PROPERTY],
+            ))
+            .with_transition_property(AnimationProperty::new_specific_property(
+                TransitionPropertyId::Duration,
+                [Duration::from_secs(1)],
+            ))
+            .with_animation_property(AnimationProperty::new_shorthand_specific([[
+                (AnimationPropertyId::Name, TEST_ANIMATION_NAME.into()),
+                (AnimationPropertyId::Duration, Duration::from_secs(1).into()),
+            ]]))
             .id();
 
         let rule_class_id = builder
@@ -667,43 +701,66 @@ mod tests {
         );
 
         assert_eq!(
-            style_sheet.get_transition_options(&[
-                rule_any_id,
-                rule_class_id,
-                rule_class_with_hover_id
-            ]),
+            style_sheet.resolve_transition_options(
+                &[rule_any_id, rule_class_id, rule_class_with_hover_id],
+                &PROPERTY_REGISTRY,
+                &CSS_PROPERTY_REGISTRY,
+                &NoVarsSupportedResolver,
+            ),
             properties! {}
         );
 
+        let expected_transition_options = TransitionOptions {
+            duration: Duration::from_secs(1),
+            ..Default::default()
+        };
+
         assert_eq!(
-            style_sheet.get_transition_options(&[
-                rule_any_id,
-                rule_class_id,
-                rule_class_with_hover_id,
-                rule_with_name_id
-            ]),
-            properties! { TEST_PROPERTY => TRANSITION_OPTIONS }
+            style_sheet.resolve_transition_options(
+                &[
+                    rule_any_id,
+                    rule_class_id,
+                    rule_class_with_hover_id,
+                    rule_with_name_id
+                ],
+                &PROPERTY_REGISTRY,
+                &CSS_PROPERTY_REGISTRY,
+                &NoVarsSupportedResolver,
+            ),
+            properties! { TEST_PROPERTY => expected_transition_options }
         );
 
         assert_eq!(
-            style_sheet.get_animations(&[rule_any_id, rule_class_id, rule_class_with_hover_id]),
+            style_sheet.resolve_animations(
+                &[rule_any_id, rule_class_id, rule_class_with_hover_id],
+                &NoVarsSupportedResolver
+            ),
             vec![]
         );
+
+        let expected_animation_options = AnimationOptions {
+            duration: Duration::from_secs(1),
+            ..Default::default()
+        };
 
         let expected_animation = ResolvedAnimation::new(
             &test_animation_name_arc,
             resolve!(TEST_PROPERTY),
             &keyframes,
-            &ANIMATION_OPTIONS,
+            &EasingFunction::default(),
+            &expected_animation_options,
         );
 
         assert_eq!(
-            style_sheet.get_animations(&[
-                rule_any_id,
-                rule_class_id,
-                rule_class_with_hover_id,
-                rule_with_name_id
-            ]),
+            style_sheet.resolve_animations(
+                &[
+                    rule_any_id,
+                    rule_class_id,
+                    rule_class_with_hover_id,
+                    rule_with_name_id
+                ],
+                &NoVarsSupportedResolver
+            ),
             vec![expected_animation]
         );
     }

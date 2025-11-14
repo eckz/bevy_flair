@@ -372,7 +372,7 @@ impl FromType<BoxShadow> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::{test_err_parse_reflect, test_parse_reflect};
+    use crate::reflect::reflect_test_utils::{test_err_parse_reflect, test_parse_reflect};
     use bevy_color::palettes::css;
     use bevy_math::{Rot2, Vec2};
     use bevy_ui::{BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};

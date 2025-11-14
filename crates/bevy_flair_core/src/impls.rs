@@ -1,4 +1,6 @@
-use crate::{PropertyRegistry, PropertyValue, RegisterComponentPropertiesExt as _};
+use crate::{
+    CssPropertyRegistry, PropertyRegistry, PropertyValue, RegisterComponentPropertiesExt as _,
+};
 use crate::{impl_component_properties, impl_extract_component_properties};
 use bevy_app::{App, Plugin};
 use bevy_asset::Handle;
@@ -209,11 +211,11 @@ macro_rules! set_inherited_properties {
 
 macro_rules! set_css_properties {
     ($app:expr => { $($css:literal => $ty:path[$path:literal] ,)* }) => {{
-        let mut properties_registry = $app.world_mut().resource_mut::<PropertyRegistry>();
+        let css_registry = $app.world_mut().resource_mut::<CssPropertyRegistry>();
 
         $({
             let canonical_name = $crate::PropertyCanonicalName::from_component::<$ty>($path);
-            properties_registry.register_css_property($css, canonical_name);
+            css_registry.register_property($css, canonical_name);
         })*
     }}
 }
@@ -360,7 +362,9 @@ impl Plugin for ImplComponentPropertiesPlugin {
 #[cfg(test)]
 mod tests {
     use super::ImplComponentPropertiesPlugin;
-    use crate::{ComputedValue, PropertyRegistry, PropertyRegistryPlugin, ReflectValue};
+    use crate::{
+        ComputedValue, CssPropertyRegistry, PropertyRegistry, PropertyRegistryPlugin, ReflectValue,
+    };
     use bevy_app::App;
     use bevy_color::Color;
     use bevy_ui::prelude::*;
@@ -373,17 +377,18 @@ mod tests {
         let entity = app.world_mut().spawn(Node::default()).id();
 
         let property_registry = app.world_mut().resource::<PropertyRegistry>().clone();
+        let css_registry = app.world().resource::<CssPropertyRegistry>().clone();
 
         let mut properties = property_registry.create_property_map(ComputedValue::None);
 
-        let display_id = property_registry
-            .get_property_id_by_css_name("display")
+        let display_id = css_registry
+            .resolve_property("display", &property_registry)
             .unwrap();
-        let margin_left_id = property_registry
-            .get_property_id_by_css_name("margin-left")
+        let margin_left_id = css_registry
+            .resolve_property("margin-left", &property_registry)
             .unwrap();
-        let background_color_id = property_registry
-            .get_property_id_by_css_name("background-color")
+        let background_color_id = css_registry
+            .resolve_property("background-color", &property_registry)
             .unwrap();
 
         properties[margin_left_id] = ReflectValue::Val(Val::Px(100.0)).into();

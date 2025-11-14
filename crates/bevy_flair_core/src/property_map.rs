@@ -2,6 +2,7 @@
 
 use crate::ComponentPropertyId;
 use bevy_reflect::Reflect;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, IndexMut, Range};
@@ -220,6 +221,12 @@ impl<T> Deref for PropertyMut<'_, T> {
         // SAFETY: pointer always point to a valid reference
         let map = unsafe { self.map.as_ref() };
         &map[self.index]
+    }
+}
+
+impl<T: Debug> Debug for PropertyMut<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
     }
 }
 

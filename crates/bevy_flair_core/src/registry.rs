@@ -11,7 +11,7 @@ use std::any::TypeId;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::ops::{Index, Range};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use thiserror::Error;
 use tracing::{debug, trace};
 
@@ -164,6 +164,11 @@ impl From<ComponentPropertyId> for usize {
     }
 }
 
+impl ComponentPropertyId {
+    /// A placeholder property id that is never valid.
+    pub const PLACEHOLDER: Self = Self(u32::MAX);
+}
+
 #[derive(Debug, Default)]
 struct PropertyRegistryInner {
     properties: Vec<ComponentProperty>,
@@ -172,14 +177,12 @@ struct PropertyRegistryInner {
     canonical_names: FxHashMap<PropertyCanonicalName, ComponentPropertyId>,
     //registrations: FxHashMap<TypeId, ComponentPropertiesRegistration>,
     registrations: Vec<ComponentPropertiesRegistration>,
-
-    css_names: FxHashMap<Cow<'static, str>, ComponentPropertyId>,
 }
 
 /// Error when trying to resolve a property that is not registered.
 #[derive(Debug, Error)]
 #[error("Property '{0}' is not registered")]
-pub struct ResolvePropertyError(String);
+pub struct CanonicalNameNotFoundError(String);
 
 /// Registry for component properties.
 ///
@@ -204,7 +207,7 @@ impl PropertyRegistry {
     pub fn resolve<'a>(
         &self,
         property_ref: impl Into<ComponentPropertyRef<'a>>,
-    ) -> Result<ComponentPropertyId, ResolvePropertyError> {
+    ) -> Result<ComponentPropertyId, CanonicalNameNotFoundError> {
         let property_ref = property_ref.into();
         match property_ref {
             ComponentPropertyRef::Id(property_id) => Ok(property_id),
@@ -213,21 +216,8 @@ impl PropertyRegistry {
                 .canonical_names
                 .get(name.as_ref())
                 .copied()
-                .ok_or_else(|| ResolvePropertyError(name.to_string())),
+                .ok_or_else(|| CanonicalNameNotFoundError(name.to_string())),
         }
-    }
-
-    /// Get a property by its css name.
-    pub fn get_property_id_by_css_name(&self, css_name: &str) -> Option<ComponentPropertyId> {
-        self.inner.css_names.get(css_name).copied()
-    }
-
-    /// Returns the css name assigned to a property id.
-    pub fn get_css_name_by_property_id(&self, property_id: ComponentPropertyId) -> Option<&str> {
-        self.inner
-            .css_names
-            .iter()
-            .find_map(|(name, id)| (*id == property_id).then(|| name.as_ref()))
     }
 
     /// Returns an iterator visiting all properties with ids in inserted order.
@@ -343,32 +333,6 @@ impl PropertyRegistry {
         let registration = T::register_component_properties(self);
         trace!("Component registration: {registration:?}");
         self.add_registration(registration);
-    }
-
-    /// Registers a css property name for a given property reference.
-    /// Panics if the css name is already registered for another property.
-    pub fn register_css_property<'a>(
-        &mut self,
-        css_name: impl Into<Cow<'static, str>>,
-        property_ref: impl Into<ComponentPropertyRef<'a>>,
-    ) -> ComponentPropertyId {
-        let css_name = css_name.into();
-        let property_ref = property_ref.into();
-
-        if let Some(other_id) = self.inner.css_names.get(&css_name) {
-            let other_property = &self.inner.properties[other_id.0 as usize];
-            panic!(
-                "Cannot register css property '{css_name}' because another property ('{other_property}') was already registered the css name '{css_name}'."
-            );
-        }
-
-        let id = self
-            .resolve(property_ref)
-            .expect("Invalid property reference provided");
-        let inner = self.inner_mut();
-        inner.css_names.insert(css_name, id);
-
-        id
     }
 
     /// Creates a [`PropertyMap`] that contains all the initial values taken from the [`Default`] values
@@ -489,6 +453,180 @@ impl<'a> DoubleEndedIterator for Iter<'a> {
 impl ExactSizeIterator for Iter<'_> {
     fn len(&self) -> usize {
         self.inner.len()
+    }
+}
+
+type CssName = Cow<'static, str>;
+
+#[derive(Default, Debug)]
+struct InnerCssPropertyRegistry {
+    properties: FxHashMap<CssName, ComponentPropertyRef<'static>>,
+    shorthands: FxHashMap<CssName, Vec<ComponentPropertyRef<'static>>>,
+}
+
+/// Error when trying to resolve a property that is not registered.
+#[derive(Debug, Error)]
+pub enum CssResolveError {
+    #[error(transparent)]
+    /// Error when the canonical name is not found.
+    CanonicalNameNotFoundError(#[from] CanonicalNameNotFoundError),
+    #[error("Css property '{0}' not registered")]
+    /// Css property is not registered.
+    CssPropertyNotRegistered(String),
+}
+
+/// Result of resolving a css property name.
+#[derive(Debug, PartialEq)]
+pub enum CssResolveResult {
+    /// Single property.
+    Property(ComponentPropertyId),
+    /// Shorthand property.
+    Shorthand(Vec<ComponentPropertyId>),
+}
+
+/// Registry for css property names.
+/// It allows to map css property names to component property references.
+#[derive(Default, Clone, Debug, Resource)]
+pub struct CssPropertyRegistry(Arc<RwLock<InnerCssPropertyRegistry>>);
+
+impl CssPropertyRegistry {
+    #[inline]
+    fn inner_mut(&self) -> RwLockWriteGuard<'_, InnerCssPropertyRegistry> {
+        self.0
+            .try_write()
+            .expect("CssPropertyRegistry inner lock is poisoned or already blocked")
+    }
+
+    #[inline]
+    fn inner(&self) -> RwLockReadGuard<'_, InnerCssPropertyRegistry> {
+        self.0
+            .try_read()
+            .expect("CssPropertyRegistry inner lock is poisoned or already blocked")
+    }
+
+    /// Get the css name by its property reference.
+    /// This might return None if the property reference is not registered by the correct ref variant,
+    /// for example if the property was registered by canonical name but the search is done by id.
+    pub fn get_css_name_by_property_ref(
+        &self,
+        property_ref: ComponentPropertyRef<'_>,
+    ) -> Option<CssName> {
+        let inner = self.inner();
+        inner.properties.iter().find_map(|(name, property)| {
+            if *property == property_ref.as_ref() {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get a property by its css name.
+    pub fn get_property(&self, css_name: &str) -> Option<ComponentPropertyRef<'static>> {
+        let inner = self.inner();
+        inner.properties.get(css_name).cloned()
+    }
+
+    /// Resolve a property by its css name into a `ComponentPropertyId`.
+    pub fn resolve_property(
+        &self,
+        css_name: &str,
+        property_registry: &PropertyRegistry,
+    ) -> Result<ComponentPropertyId, CssResolveError> {
+        let inner = self.inner();
+        let property_ref = inner
+            .properties
+            .get(css_name)
+            .ok_or_else(|| CssResolveError::CssPropertyNotRegistered(css_name.into()))?;
+        Ok(property_registry.resolve(property_ref.as_ref())?)
+    }
+
+    /// Get a shorthand by its css name.
+    pub fn get_shorthand(&self, css_name: &str) -> Option<Vec<ComponentPropertyRef<'static>>> {
+        let inner = self.inner();
+        inner.shorthands.get(css_name).cloned()
+    }
+
+    /// Resolve a shorthand by its css name into the `ComponentPropertyId`s.
+    pub fn resolve_shorthand(
+        &self,
+        css_name: &str,
+        property_registry: &PropertyRegistry,
+    ) -> Result<Vec<ComponentPropertyId>, CssResolveError> {
+        let inner = self.inner();
+        let property_refs = inner
+            .shorthands
+            .get(css_name)
+            .ok_or_else(|| CssResolveError::CssPropertyNotRegistered(css_name.into()))?;
+        let mut property_ids = Vec::with_capacity(property_refs.len());
+        for property_ref in property_refs {
+            let property_id = property_registry.resolve(property_ref.as_ref())?;
+            property_ids.push(property_id);
+        }
+        Ok(property_ids)
+    }
+
+    /// Resolve a css name into either a property (single id) or a shorthand (multiple ids).
+    pub fn resolve(
+        &self,
+        css_name: &str,
+        property_registry: &PropertyRegistry,
+    ) -> Result<CssResolveResult, CssResolveError> {
+        if let Ok(shorthand_properties) = self.resolve_shorthand(css_name, property_registry) {
+            return Ok(CssResolveResult::Shorthand(shorthand_properties));
+        }
+        self.resolve_property(css_name, property_registry)
+            .map(CssResolveResult::Property)
+    }
+
+    /// Registers a css property name for a given property reference.
+    /// Panics if the css name is already registered for another property.
+    pub fn register_property<'a>(
+        &self,
+        css_name: impl Into<Cow<'static, str>>,
+        property_ref: impl Into<ComponentPropertyRef<'a>>,
+    ) {
+        let mut inner = self.inner_mut();
+        let css_name = css_name.into();
+        let property_ref = property_ref.into().into_static();
+
+        if let Some(other_ref) = inner.properties.get(&css_name) {
+            panic!(
+                "Cannot register css property '{css_name}' because it was already registered ('{other_ref:?}')."
+            );
+        }
+
+        if inner.properties.contains_key(&css_name) {
+            panic!(
+                "Cannot register css property '{css_name}' because it was already registered as a shorthand."
+            );
+        }
+        inner.properties.insert(css_name, property_ref);
+    }
+
+    /// Registers a css shorthand name for a given list of property references.
+    /// Panics if the css name is already registered for another property or shorthand.
+    pub fn register_shorthand<'a>(
+        &self,
+        css_name: impl Into<Cow<'static, str>>,
+        property_refs: impl IntoIterator<Item = impl Into<ComponentPropertyRef<'a>>>,
+    ) {
+        let mut inner = self.inner_mut();
+        let css_name = css_name.into();
+        let property_refs = property_refs
+            .into_iter()
+            .map(|r| r.into().into_static())
+            .collect();
+
+        if inner.shorthands.contains_key(&css_name) {
+            panic!("Cannot register css shorthand '{css_name}' because it was already registered.");
+        }
+        if inner.properties.contains_key(&css_name) {
+            panic!(
+                "Cannot register css shorthand '{css_name}' because it was already registered as a property."
+            );
+        }
+        inner.shorthands.insert(css_name, property_refs);
     }
 }
 

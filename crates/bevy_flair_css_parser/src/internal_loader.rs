@@ -1,13 +1,14 @@
 use crate::parser::{
-    AnimationKeyFrame, CssAnimation, CssRuleset, CssRulesetProperty, CssStyleSheetItem,
-    CssTransitionProperty, parse_css,
+    AnimationKeyFrame, CssRuleset, CssRulesetProperty, CssStyleSheetItem, parse_css,
 };
 use crate::utils::ImportantLevel;
 use crate::{
     CssStyleLoaderError, CssStyleLoaderErrorMode, ErrorReportGenerator, ShorthandPropertyRegistry,
 };
 
-use bevy_flair_core::{ComponentPropertyRef, PropertiesHashMap, PropertyRegistry, PropertyValue};
+use bevy_flair_core::{
+    ComponentPropertyRef, CssPropertyRegistry, PropertiesHashMap, PropertyRegistry, PropertyValue,
+};
 use bevy_flair_style::css_selector::CssSelector;
 use bevy_flair_style::{
     AnimationKeyframesBuilder, StyleBuilderProperty, StyleSheet, StyleSheetBuilder,
@@ -19,6 +20,7 @@ use tracing::{error, info, warn};
 pub(crate) struct InternalStylesheetLoader<'a> {
     pub(crate) type_registry: &'a TypeRegistry,
     pub(crate) property_registry: &'a PropertyRegistry,
+    pub(crate) css_property_registry: &'a CssPropertyRegistry,
     pub(crate) shorthand_property_registry: &'a ShorthandPropertyRegistry,
     pub(crate) error_mode: CssStyleLoaderErrorMode,
     pub(crate) imports: &'a FxHashMap<String, StyleSheet>,
@@ -121,37 +123,11 @@ impl InternalStylesheetLoader<'_> {
                                 }]);
                                 report_important_level(report_generator, important_level);
                             }
-                            CssRulesetProperty::Transitions(property_transitions) => {
-                                for transition_fallible in property_transitions {
-                                    match transition_fallible {
-                                        Ok(CssTransitionProperty {
-                                            properties,
-                                            options,
-                                        }) => {
-                                            for property in properties {
-                                                ruleset_builder.add_property_transition(
-                                                    property,
-                                                    options.clone(),
-                                                );
-                                            }
-                                        }
-                                        Err(error) => {
-                                            report_generator.add_error(error);
-                                        }
-                                    }
-                                }
+                            CssRulesetProperty::AnimationProperty(property) => {
+                                ruleset_builder.add_animation_property(property);
                             }
-                            CssRulesetProperty::Animations(animations) => {
-                                for animation_fallible in animations {
-                                    match animation_fallible {
-                                        Ok(CssAnimation { name, options }) => {
-                                            ruleset_builder.add_animation(name, options);
-                                        }
-                                        Err(error) => {
-                                            report_generator.add_error(error);
-                                        }
-                                    }
-                                }
+                            CssRulesetProperty::TransitionProperty(property) => {
+                                ruleset_builder.add_transition_property(property);
                             }
                             CssRulesetProperty::Var(var_name, tokens) => {
                                 ruleset_builder.add_var(var_name, tokens);
@@ -278,6 +254,7 @@ impl InternalStylesheetLoader<'_> {
         parse_css(
             self.type_registry,
             self.property_registry,
+            self.css_property_registry,
             self.shorthand_property_registry,
             self.imports,
             contents,

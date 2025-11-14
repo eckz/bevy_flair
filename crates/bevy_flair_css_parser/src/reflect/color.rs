@@ -203,7 +203,7 @@ impl FromType<Color> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_reflect;
+    use crate::reflect::reflect_test_utils::test_parse_reflect;
     use bevy_color::Color;
 
     macro_rules! color_approx_eq {

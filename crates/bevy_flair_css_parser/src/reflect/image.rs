@@ -138,7 +138,7 @@ impl FromType<NodeImageMode> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_reflect;
+    use crate::reflect::reflect_test_utils::test_parse_reflect;
     use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
 
     use bevy_ui::widget::NodeImageMode;

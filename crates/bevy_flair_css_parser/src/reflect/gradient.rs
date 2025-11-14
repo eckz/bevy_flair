@@ -595,7 +595,7 @@ impl FromType<BorderGradient> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_reflect;
+    use crate::reflect::reflect_test_utils::test_parse_reflect;
     use bevy_color::palettes::css;
     use bevy_ui::{
         AngularColorStop, BackgroundGradient, ColorStop, ConicGradient, Gradient,

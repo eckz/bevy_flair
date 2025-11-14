@@ -5,7 +5,7 @@ use bevy_app::{App, Plugin, PostUpdate};
 use bevy_asset::AssetApp;
 use bevy_ecs::prelude::AppTypeRegistry;
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_flair_core::PropertyRegistry;
+use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::StyleSystems;
 pub use cssparser::{self, BasicParseError, CowRcStr, Parser, Token};
 use derive_more::Deref;
@@ -257,17 +257,19 @@ impl Plugin for FlairCssParserPlugin {
         let world = app.world();
         let type_registry_arc = world.resource::<AppTypeRegistry>().0.clone();
         let property_registry = world.resource::<PropertyRegistry>().clone();
+        let css_property_registry = world.resource::<CssPropertyRegistry>().clone();
         let shorthand_registry = world.resource::<ShorthandPropertyRegistry>().clone();
         app.register_asset_loader(CssStyleSheetLoader::new(
             type_registry_arc,
             property_registry,
+            css_property_registry,
             shorthand_registry,
         ));
     }
 }
 
 #[cfg(test)]
-pub(crate) mod testing {
+pub(crate) mod test_utils {
     use crate::utils::{ImportantLevel, try_parse_important_level};
     use crate::{CssError, ErrorReportGenerator};
     use cssparser::{ParseError, Parser, ParserInput};

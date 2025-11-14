@@ -91,7 +91,7 @@ pub fn parse_var_tokens(input: &mut Parser) -> Result<VarTokens, CssError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::parse_property_content_with;
+    use crate::test_utils::parse_property_content_with;
 
     #[test]
     fn test_parse_var_tokens() {

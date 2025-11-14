@@ -46,7 +46,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 - Inline CSS properties.
 - Pseudo-elements `::before` and `::after` (enabled with [`PseudoElementsSupport`]).
 - Different stylesheets per subtree. With the use of a different [`NodeStyleSheet`] per subtree. It's even possible to not apply any style for a given subtree.
-- Use of custom times for transitions and animations (See <https://github.com/eckz/bevy_flair/blob/main/examples/animations.rs>).
+- Use of custom `Time` for transitions and animations (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_time.rs>).
 - Support for the use of [`GhostNode`] in the hierarchy. Ghost nodes are simply ignored.
   - Enable `experimental_ghost_nodes` feature for better support of Ghost nodes.
 - Supports for custom properties. (Example TBA).
@@ -94,7 +94,6 @@ It enables you to style UI components, taking advantage of the power of CSS.
   - Currently, `!important` is detected but ignored with a warning.
 - Limited font support: only single fonts via `@font-face`. No local or fallback fonts.
 - No advanced color functions like `color-mix()` or relative color syntax (e.g. `lch(from blue calc(l + 20) c h)`).
-- No individual animation or transition properties like `animation-name`, `transition-duration`, etc.
 
 
 ## Showcase

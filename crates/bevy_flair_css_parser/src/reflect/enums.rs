@@ -117,7 +117,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::ReflectParseCssEnum;
-    use crate::reflect::testing::{test_parse_reflect, test_property_value_parse_fn};
+    use crate::reflect::reflect_test_utils::{test_parse_reflect, test_property_value_parse_fn};
     use bevy_reflect::{FromReflect, FromType, Reflect};
     use bevy_ui::{BoxSizing, Display};
 

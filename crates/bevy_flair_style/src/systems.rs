@@ -1,8 +1,9 @@
 use crate::components::{
     AttributeList, ClassList, DependsOnMediaFeaturesFlags, EmptyComputedProperties,
     InitialPropertyValues, NodeProperties, NodeStyleActiveRules, NodeStyleData, NodeStyleMarker,
-    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, PseudoElement, PseudoElementsSupport,
-    RawInlineStyle, RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
+    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, PropertyIdDebugHelper,
+    PropertyIdDebugHelperParam, PseudoElement, PseudoElementsSupport, RawInlineStyle,
+    RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
 };
 use crate::{
     ColorScheme, GlobalChangeDetection, NodePseudoState, StyleSheet, VarResolver, VarTokens,
@@ -19,7 +20,7 @@ use crate::custom_iterators::{CustomUiChildren, CustomUiRoots};
 use crate::media_selector::MediaFeaturesProvider;
 use bevy_camera::{Camera, NormalizedRenderTarget};
 use bevy_ecs::relationship::RelationshipSourceCollection;
-use bevy_ecs::system::SystemParam;
+use bevy_ecs::system::{SystemParam, SystemState};
 use bevy_ecs::world::{CommandQueue, EntityRefExcept};
 use bevy_flair_core::*;
 use bevy_input_focus::{InputFocus, InputFocusVisible};
@@ -33,12 +34,21 @@ use smol_str::SmolStr;
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
 
-pub(crate) fn reset_properties_on_added(
+pub(crate) fn reset_properties(
     empty_computed_properties: Res<EmptyComputedProperties>,
-    mut style_query: Query<&mut NodeProperties, Added<NodeProperties>>,
+    mut style_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
 ) {
-    for mut properties in &mut style_query {
-        properties.reset(&empty_computed_properties)
+    debug_assert!(
+        !empty_computed_properties.is_empty(),
+        "EmptyComputedProperties cannot be empty"
+    );
+    for (mut properties, mut marker) in &mut style_query {
+        if marker.needs_reset() || properties.is_added() {
+            marker.clear_reset();
+            marker.set_needs_style_recalculation();
+
+            properties.reset(&empty_computed_properties)
+        }
     }
 }
 
@@ -537,7 +547,6 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
     mut asset_msg_reader: MessageReader<AssetEvent<StyleSheet>>,
     empty_computed_properties: Res<EmptyComputedProperties>,
     mut style_query: Query<(
-        Entity,
         EntityRefExcept<(
             NodeStyleSelectorFlags,
             NodeStyleMarker,
@@ -566,7 +575,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
 
     let initial_values_map = property_registry.create_initial_values_map();
 
-    for (entity, entity_ref, style_data, mut flags, mut marker, mut properties, mut vars) in
+    for (entity_ref, style_data, mut flags, mut marker, mut properties, mut vars) in
         &mut style_query
     {
         if !modified_stylesheets.contains(&style_data.effective_style_sheet_asset_id) {
@@ -584,7 +593,8 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
             }
         }
 
-        let mut entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
+        let mut entity_command_queue =
+            EntityCommandQueue::new(entity_ref.entity(), &mut command_queue);
         for component in property_registry.get_component_registrations() {
             component
                 .apply_values_ref(
@@ -783,6 +793,7 @@ pub(crate) fn calculate_style_and_set_vars(
             if !marker.needs_style_recalculation() {
                 return;
             }
+            debug!("Calculating style on '{name_or_entity}'");
 
             let entity = name_or_entity.entity;
             let stylesheet_id = data.effective_style_sheet_asset_id;
@@ -832,6 +843,7 @@ pub(crate) fn calculate_style_and_set_vars(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn set_property_values(
     style_sheets: Res<Assets<StyleSheet>>,
     var_resolver: VarResolverParam,
@@ -845,6 +857,7 @@ pub(crate) fn set_property_values(
     )>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
+    css_property_registry: Res<CssPropertyRegistry>,
     mut global_change_detection: ResMut<GlobalChangeDetection>,
     mut any_property_change_parallel: Local<bevy_utils::Parallel<bool>>,
 ) {
@@ -866,14 +879,20 @@ pub(crate) fn set_property_values(
             };
 
             let new_rules = &active_rules.active_rules;
+            let entity_var_resolver = var_resolver.resolver_for_entity(name_or_entity.entity);
 
-            properties.set_transition_options(style_sheet.get_transition_options(new_rules));
+            properties.set_transition_options(style_sheet.resolve_transition_options(
+                new_rules,
+                &property_registry,
+                &css_property_registry,
+                &entity_var_resolver,
+            ));
 
             let mut property_values = property_registry.create_unset_values_map();
             style_sheet.get_property_values(
                 new_rules,
                 &property_registry,
-                &var_resolver.resolver_for_entity(name_or_entity.entity),
+                &entity_var_resolver,
                 &mut property_values,
             );
 
@@ -881,7 +900,7 @@ pub(crate) fn set_property_values(
             if let Some(inline_style) = inline_style {
                 inline_style.properties_to_output(
                     &property_registry,
-                    &var_resolver.resolver_for_entity(name_or_entity.entity),
+                    &entity_var_resolver,
                     &mut property_values,
                 );
             }
@@ -892,11 +911,19 @@ pub(crate) fn set_property_values(
             properties.pending_property_values = property_values;
 
             // Apply animations
-            properties.change_animations(
-                style_sheet.get_animations(new_rules),
-                &type_registry,
-                &property_registry,
-            );
+            let animations = style_sheet.resolve_animations(new_rules, &entity_var_resolver);
+
+            if !animations.is_empty() {
+                trace!(
+                    "Resolved animations for '{name_or_entity}': {debug_animations:?}'",
+                    debug_animations = animations
+                        .iter()
+                        .map(|a| { (&a.name, &a.options) })
+                        .collect::<Vec<_>>()
+                );
+            }
+
+            properties.set_animations(animations, &type_registry, &property_registry);
 
             marker.clear_style_recalculation();
         },
@@ -910,11 +937,10 @@ pub(crate) fn set_property_values(
     }
 }
 
-pub(crate) fn compute_property_values_just_transitions_and_animations_condition(
+pub(crate) fn compute_just_animation_properties_values_condition(
     global_change_detection: Res<GlobalChangeDetection>,
 ) -> bool {
     !global_change_detection.any_property_value_changed
-        && global_change_detection.any_animation_active
 }
 
 pub(crate) fn compute_property_values_condition(
@@ -934,20 +960,32 @@ fn set_needs_property_application(properties: &NodeProperties, marker: &mut Node
     if !properties
         .pending_computed_values
         .ptr_eq(&properties.computed_values)
-        || !properties
-            .pending_animation_values
-            .ptr_eq(&properties.computed_values)
+        || properties.pending_computed_animation_values != properties.last_computed_animation_values
     {
         marker.set_needs_property_application();
     }
 }
 
-pub(crate) fn compute_property_values_just_transitions_and_animations(
+// Only compute_property_values or compute_just_animation_properties_values can be executed on the same frame
+
+pub(crate) fn compute_just_animation_properties_values(
     empty_computed_properties: Res<EmptyComputedProperties>,
-    mut node_properties_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
+    mut node_properties_query: Query<(NameOrEntity, &mut NodeProperties, &mut NodeStyleMarker)>,
+    #[cfg(debug_assertions)] debug_helper: PropertyIdDebugHelperParam,
 ) {
-    for (mut properties, mut marker) in &mut node_properties_query {
-        properties.just_compute_transitions_and_animations(&empty_computed_properties);
+    for (_name_or_entity, mut properties, mut marker) in &mut node_properties_query {
+        properties.compute_just_animation_properties_values(&empty_computed_properties);
+
+        #[cfg(debug_assertions)]
+        if properties.pending_computed_animation_values != properties.last_computed_animation_values
+        {
+            let debug_animations = properties
+                .debug_pending_computed_animation_values()
+                .into_debug(&debug_helper);
+
+            trace!("Applying animation properties on '{_name_or_entity}':\n{debug_animations:#?}");
+        }
+
         set_needs_property_application(&properties, &mut marker);
     }
 }
@@ -956,31 +994,39 @@ pub(crate) fn compute_property_values_just_transitions_and_animations(
 pub(crate) fn compute_property_values(
     root_nodes: CustomUiRoots,
     ui_children: CustomUiChildren,
-    #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
     mut node_properties_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
     empty_computed_properties: Res<EmptyComputedProperties>,
     initial_values: Res<InitialPropertyValues>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
+    #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
+    #[cfg(debug_assertions)] debug_helper: PropertyIdDebugHelperParam,
 ) -> Result {
     let type_registry = app_type_registry.0.read();
 
     #[cfg(debug_assertions)]
     let trace_new_properties = |entity: Entity, properties: &NodeProperties| {
-        use tracing::{Level, enabled};
-        if enabled!(Level::TRACE)
-            && !properties
-                .pending_computed_values
-                .ptr_eq(&properties.computed_values)
-        {
-            let Ok(name_or_entity) = name_or_entity_query.get(entity) else {
-                return;
-            };
+        if !tracing::enabled!(tracing::Level::TRACE) {
+            return;
+        }
+        let Ok(name_or_entity) = name_or_entity_query.get(entity) else {
+            return;
+        };
 
+        if properties.pending_computed_values != properties.computed_values {
             let debug_properties = properties
-                .pending_computed_values()
-                .into_debug(&property_registry);
+                .debug_pending_computed_values()
+                .into_debug(&debug_helper);
             trace!("Applying properties on '{name_or_entity}':\n{debug_properties:#?}");
+        }
+
+        if properties.pending_computed_animation_values != properties.last_computed_animation_values
+        {
+            let debug_animations = properties
+                .debug_pending_computed_animation_values()
+                .into_debug(&debug_helper);
+
+            trace!("Applying animation properties on '{name_or_entity}':\n{debug_animations:#?}");
         }
     };
     #[cfg(not(debug_assertions))]
@@ -988,6 +1034,7 @@ pub(crate) fn compute_property_values(
 
     for root in root_nodes.iter() {
         let (mut root_properties, mut root_marker) = node_properties_query.get_mut(root)?;
+
         root_properties.compute_pending_property_values_for_root(
             &type_registry,
             &property_registry,
@@ -1026,11 +1073,12 @@ pub(crate) fn tick_animations<T: Default + Send + Sync + 'static>(
     let delta = time.delta();
 
     for mut properties in &mut properties_query {
-        if properties.has_active_animations_or_transitions() {
-            global_change_detection.any_animation_active = true;
-
+        if properties.has_tickable_animations_or_transitions() {
             properties.tick_animations(delta);
             properties.clear_finished_and_canceled_animations();
+        }
+        if properties.has_active_animations_or_transitions() {
+            global_change_detection.any_animation_active = true;
         }
     }
 }
@@ -1047,31 +1095,38 @@ pub(crate) fn emit_animation_events(
 }
 
 pub(crate) fn emit_redraw_event(
-    global_change_detection: Res<GlobalChangeDetection>,
+    properties_query: Query<&NodeProperties>,
     mut request_redraw_writer: MessageWriter<RequestRedraw>,
 ) {
-    if global_change_detection.any_animation_active {
+    if properties_query
+        .iter()
+        .any(|properties| properties.has_tickable_animations_or_transitions())
+    {
         request_redraw_writer.write(RequestRedraw);
     }
 }
 
-pub(crate) fn apply_computed_properties_condition(
-    global_change_detection: Res<GlobalChangeDetection>,
-) -> bool {
-    global_change_detection.any_property_change()
-}
-
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_computed_properties(
     world: &mut World,
-    properties_query_state: &mut QueryState<(Entity, &mut NodeProperties, &mut NodeStyleMarker)>,
+    properties_query_state: &mut QueryState<(
+        NameOrEntity,
+        &mut NodeProperties,
+        &mut NodeStyleMarker,
+    )>,
     mut empty_computed_properties_local: Local<Option<EmptyComputedProperties>>,
     mut property_registry_local: Local<Option<PropertyRegistry>>,
+    debug_helper_param_state: &mut SystemState<PropertyIdDebugHelperParam>,
+    mut debug_helper_local: Local<Option<PropertyIdDebugHelper>>,
     mut modified_entities: Local<EntityHashSet>,
     mut pending_changes: Local<Vec<(Entity, PropertyMap<ComputedValue>)>>,
     mut command_queue: Local<CommandQueue>,
 ) -> Result {
     let property_registry =
         property_registry_local.get_or_insert_with(|| world.resource::<PropertyRegistry>().clone());
+
+    let debug_helper = debug_helper_local
+        .get_or_insert_with(|| debug_helper_param_state.get(world).as_helper().to_owned());
 
     let empty_computed_properties = empty_computed_properties_local
         .get_or_insert_with(|| world.resource::<EmptyComputedProperties>().clone());
@@ -1080,7 +1135,7 @@ pub(crate) fn apply_computed_properties(
     debug_assert!(pending_changes.is_empty());
 
     let mut properties_query = properties_query_state.query_mut(world);
-    for (entity, mut properties, mut marker) in &mut properties_query {
+    for (name_or_entity, mut properties, mut marker) in &mut properties_query {
         if !marker.needs_property_application() {
             properties.clear_pending_computed_properties();
             continue;
@@ -1088,11 +1143,22 @@ pub(crate) fn apply_computed_properties(
         marker.clear_needs_property_application();
         let mut entity_modified = false;
         let mut entity_pending_changes = empty_computed_properties.0.clone();
-        properties.apply_computed_properties(empty_computed_properties, |property_id, value| {
-            entity_modified = true;
-            entity_pending_changes[property_id] = value.into();
-        });
+        properties.apply_computed_properties(
+            |property_id, value| {
+                entity_modified = true;
+                entity_pending_changes[property_id] = value.into();
+            },
+            |property_id| {
+                let property_name = debug_helper.property_id_into_string(property_id);
+                warn!(
+                    "Cannot set property '{property_name}' on '{name_or_entity}' to None.\
+                    You should avoid this by setting a baseline style that sets a default values.\
+                    You can try to use '{property_name}: initial' as a baseline style."
+                );
+            },
+        );
 
+        let entity = name_or_entity.entity;
         if entity_modified {
             pending_changes.push((entity, entity_pending_changes));
             modified_entities.insert(entity);
@@ -1154,6 +1220,11 @@ pub(crate) fn auto_remove_components(
         if properties.auto_inserted_components.is_empty() {
             continue;
         }
+
+        debug_assert!(
+            !properties.computed_values.is_empty(),
+            "`auto_remove_components` expects computed_values to not be empty"
+        );
 
         let entity = entity_ref.entity();
         let mut entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
@@ -1480,10 +1551,7 @@ mod tests {
 
         app.insert_resource(property_registry);
         app.init_resource::<EmptyComputedProperties>();
-        app.add_systems(
-            Update,
-            (reset_properties_on_added, auto_remove_components).chain(),
-        );
+        app.add_systems(Update, (reset_properties, auto_remove_components).chain());
         app.add_observer(observe_on_component_auto_inserted);
 
         let entity = app
@@ -1540,7 +1608,7 @@ mod tests {
         app.add_systems(
             Update,
             (
-                reset_properties_on_added,
+                reset_properties,
                 calculate_effective_style_sheet,
                 mark_as_changed_on_style_sheet_change,
             )
@@ -1607,7 +1675,7 @@ mod tests {
         app.add_systems(
             Update,
             (
-                reset_properties_on_added,
+                reset_properties,
                 mark_all_for_property_application,
                 apply_computed_properties,
             )
@@ -1646,7 +1714,7 @@ mod tests {
                     .unwrap();
 
                 assert!(!properties.computed_values.is_empty());
-                properties.pending_animation_values = properties.computed_values.clone();
+                properties.pending_computed_animation_values = properties.computed_values.clone();
                 properties.pending_computed_values = properties.computed_values.clone();
 
                 properties.pending_computed_values[left_property] =

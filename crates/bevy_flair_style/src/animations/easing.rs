@@ -1,19 +1,15 @@
 use bevy_math::{
     Vec2,
-    curve::{
-        Curve, Interval, UnevenSampleAutoCurve,
-        easing::{EaseFunction as BevyEaseFunction, JumpAt},
-    },
+    curve::{Curve, Interval, JumpAt, StepsCurve, UnevenSampleAutoCurve},
 };
 use bevy_reflect::Reflect;
 
 use crate::animations::curves::CubicBezierEaseCurve;
-use serde::{Deserialize, Serialize};
 
 /// Represents the position of the step in a [`EasingFunction::Steps`].
 ///
 /// This is equivalent to the CSS [`step-position`](https://developer.mozilla.org/en-US/docs/Web/CSS/easing-function/steps#step-position).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Reflect, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Reflect)]
 pub enum StepPosition {
     /// Indicates that the first step happens when the animation begins.
     JumpStart,
@@ -44,10 +40,10 @@ impl From<StepPosition> for JumpAt {
 }
 
 /// Represents [`EasingFunction`] as a [`Curve<f32>`].
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone)]
 pub(crate) enum EasingFunctionCurve {
     CubicBezier(CubicBezierEaseCurve),
-    BevyEaseFunction(BevyEaseFunction),
+    StepsCurve(StepsCurve),
     LinearPoints(UnevenSampleAutoCurve<f32>),
     SingleLinearPoint(f32),
     Linear,
@@ -68,7 +64,7 @@ impl Curve<f32> for EasingFunctionCurve {
     fn sample_clamped(&self, t: f32) -> f32 {
         match self {
             EasingFunctionCurve::CubicBezier(curve) => curve.sample_clamped(t),
-            EasingFunctionCurve::BevyEaseFunction(curve) => curve.sample_clamped(t),
+            EasingFunctionCurve::StepsCurve(curve) => curve.sample_clamped(t),
             EasingFunctionCurve::LinearPoints(curve) => curve.sample_clamped(t),
             EasingFunctionCurve::SingleLinearPoint(point) => *point,
             EasingFunctionCurve::Linear => t.clamp(0.0, 1.0),
@@ -79,7 +75,7 @@ impl Curve<f32> for EasingFunctionCurve {
 /// Represents an easing function that can be used in animations.
 ///
 /// It's the equivalent to the CSS [`<easing-function>`](https://developer.mozilla.org/en-US/docs/Web/CSS/easing-function).
-#[derive(Clone, PartialEq, Debug, Default, Reflect, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Default, Reflect)]
 pub enum EasingFunction {
     /// Transitions at an even speed.
     Linear,
@@ -111,6 +107,18 @@ pub enum EasingFunction {
 }
 
 impl EasingFunction {
+    /// Equal to Steps { steps: 1, pos: jump-start }
+    pub const STEP_START: Self = Self::Steps {
+        steps: 1,
+        pos: StepPosition::JumpStart,
+    };
+
+    /// Equal to Steps { steps: 1, pos: jump-end }
+    pub const STEP_END: Self = Self::Steps {
+        steps: 1,
+        pos: StepPosition::JumpEnd,
+    };
+
     pub(crate) fn into_easing_curve(self) -> EasingFunctionCurve {
         match self {
             EasingFunction::Linear => EasingFunctionCurve::Linear,
@@ -144,9 +152,9 @@ impl EasingFunction {
             EasingFunction::CubicBezier { p1, p2 } => {
                 EasingFunctionCurve::CubicBezier(CubicBezierEaseCurve::new(p1, p2))
             }
-            EasingFunction::Steps { steps, pos } => EasingFunctionCurve::BevyEaseFunction(
-                BevyEaseFunction::Steps(steps as usize, pos.into()),
-            ),
+            EasingFunction::Steps { steps, pos } => {
+                EasingFunctionCurve::StepsCurve(StepsCurve(steps as usize, pos.into()))
+            }
         }
     }
 }

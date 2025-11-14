@@ -38,7 +38,7 @@ impl FromType<Handle<Font>> for ReflectParseCss {
 
 #[cfg(test)]
 mod tests {
-    use crate::reflect::testing::test_parse_reflect_from_to;
+    use crate::reflect::reflect_test_utils::test_parse_reflect_from_to;
     use bevy_asset::Handle;
     use bevy_flair_style::{AssetPathPlaceHolder, FontTypePlaceholder};
     use bevy_image::Image;

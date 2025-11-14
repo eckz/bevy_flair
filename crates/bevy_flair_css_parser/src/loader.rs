@@ -7,7 +7,7 @@ use bevy_asset::{AssetLoader, AssetServer, AsyncReadExt, LoadContext, LoadDirect
 use bevy_ecs::change_detection::{MaybeLocation, Res};
 use bevy_ecs::prelude::AppTypeRegistry;
 use bevy_ecs::system::SystemParam;
-use bevy_flair_core::PropertyRegistry;
+use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::{StyleSheet, StyleSheetBuilderError};
 use bevy_reflect::TypeRegistryArc;
 use rustc_hash::FxHashMap;
@@ -73,6 +73,7 @@ pub struct CssStyleLoaderSetting {
 pub struct CssStyleSheetLoader {
     type_registry_arc: TypeRegistryArc,
     property_registry: PropertyRegistry,
+    css_property_registry: CssPropertyRegistry,
     shorthand_property_registry: ShorthandPropertyRegistry,
 }
 
@@ -84,11 +85,13 @@ impl CssStyleSheetLoader {
     pub fn new(
         type_registry_arc: TypeRegistryArc,
         property_registry: PropertyRegistry,
+        css_property_registry: CssPropertyRegistry,
         shorthand_property_registry: ShorthandPropertyRegistry,
     ) -> Self {
         Self {
             type_registry_arc,
             property_registry,
+            css_property_registry,
             shorthand_property_registry,
         }
     }
@@ -132,6 +135,7 @@ impl AssetLoader for CssStyleSheetLoader {
         let internal_loader = InternalStylesheetLoader {
             type_registry: &type_registry,
             property_registry: &self.property_registry,
+            css_property_registry: &self.css_property_registry,
             shorthand_property_registry: &self.shorthand_property_registry,
             error_mode: settings.error_mode,
             imports: &imports,
@@ -182,6 +186,7 @@ impl AssetLoader for CssStyleSheetLoader {
 pub struct InlineCssStyleSheetParser<'w> {
     app_type_registry: Res<'w, AppTypeRegistry>,
     property_registry: Res<'w, PropertyRegistry>,
+    css_property_registry: Res<'w, CssPropertyRegistry>,
     shorthand_property_registry: Res<'w, ShorthandPropertyRegistry>,
     asset_server: Res<'w, AssetServer>,
 }
@@ -210,6 +215,7 @@ impl<'w> InlineCssStyleSheetParser<'w> {
         let internal_loader = InternalStylesheetLoader {
             type_registry,
             property_registry: &self.property_registry,
+            css_property_registry: &self.css_property_registry,
             shorthand_property_registry: &self.shorthand_property_registry,
             error_mode: CssStyleLoaderErrorMode::ReturnError,
             imports: &imports,

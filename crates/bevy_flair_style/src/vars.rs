@@ -1,4 +1,4 @@
-use crate::ToCss;
+use crate::{ToCss, VarResolver};
 
 use std::fmt;
 
@@ -8,6 +8,7 @@ use smol_str::SmolStr;
 use std::fmt::Write;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::error;
 
 /// Represents a token used in variable resolution, based on CSS token types.
 #[derive(PartialEq, Debug, Clone)]
@@ -141,6 +142,18 @@ pub enum ResolveTokensError {
     /// Too many recursive calls during resolution (likely a cyclic reference).
     #[error("Var resolve reached the maximum recursion level, likely a cyclic reference")]
     MaxRecursionReached,
+}
+
+impl ResolveTokensError {
+    pub(crate) fn enhance_error<V: VarResolver>(self, var_resolver: &V) -> String {
+        let extra_message = if matches!(&self, ResolveTokensError::UnknownVarName(_)) {
+            let all_names = var_resolver.get_all_names();
+            format!("\nAvailable variables are {all_names:#?}",)
+        } else {
+            Default::default()
+        };
+        format!("{self}{extra_message}")
+    }
 }
 
 const MAX_DEFAULT_RECURSION: u32 = 8;

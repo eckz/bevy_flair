@@ -1,5 +1,6 @@
-use crate::animations::AnimationOptions;
-use crate::animations::TransitionOptions;
+use crate::animations::{
+    AnimationProperties, AnimationProperty, AnimationPropertyId, TransitionPropertyId,
+};
 use crate::{
     AnimationKeyframes, DynamicParseVarTokens, VarName, VarTokens,
     style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
@@ -23,7 +24,7 @@ use thiserror::Error;
 pub enum StyleSheetBuilderError {
     /// Error while trying to resolve a property that does not exist.
     #[error(transparent)]
-    PropertyNotRegistered(#[from] ResolvePropertyError),
+    PropertyNotRegistered(#[from] CanonicalNameNotFoundError),
     /// A property has a value of a different type than the one from the property.
     #[error(
         "Expected property {property:?} to have a value of type '{expected_value_type_path}', but found a type '{found_value_type_path}'"
@@ -238,18 +239,18 @@ impl RulesetBuilder<'_> {
         self.ruleset_id
     }
 
-    pub(crate) fn add_values_from_ruleset(&mut self, other: Ruleset) {
+    pub(crate) fn add_values_from_ruleset(&mut self, mut other: Ruleset) {
         self.ruleset.vars.extend(other.vars);
         self.ruleset
             .properties
             .extend(other.properties.into_iter().map(Into::into));
-        self.ruleset.property_transitions.extend(
-            other
-                .transitions
-                .into_iter()
-                .map(|(id, t)| (ComponentPropertyRef::Id(id), t)),
-        );
-        self.ruleset.animations.extend(other.animations);
+
+        self.ruleset
+            .transition_properties
+            .extend(mem::take(&mut *other.transition_properties));
+        self.ruleset
+            .animation_properties
+            .extend(mem::take(&mut *other.animation_properties));
     }
 
     /// Add a [`CssSelector`] for the current ruleset.
@@ -318,48 +319,31 @@ impl RulesetBuilder<'_> {
         self
     }
 
-    /// Add properties transitions options for the current ruleset.
-    pub fn add_property_transitions<'a, P: Into<ComponentPropertyRef<'a>>>(
-        &mut self,
-        properties: impl IntoIterator<Item = P>,
-        options: TransitionOptions,
-    ) {
-        self.ruleset.property_transitions.extend(
-            properties
-                .into_iter()
-                .map(|property| (property.into().into_static(), options.clone())),
-        );
+    /// Adds a transition property to this ruleset.
+    pub fn add_transition_property(&mut self, property: AnimationProperty<TransitionPropertyId>) {
+        self.ruleset.transition_properties.push(property);
     }
 
-    /// Add a single transition options for the current ruleset.
-    pub fn add_property_transition<'a>(
-        &mut self,
-        property: impl Into<ComponentPropertyRef<'a>>,
-        options: TransitionOptions,
-    ) {
-        self.add_property_transitions([property], options);
-    }
-
-    /// Add properties transitions options for the current ruleset.
-    pub fn with_property_transitions<'a, P: Into<ComponentPropertyRef<'a>>>(
+    /// Adds a transition property to this ruleset.
+    pub fn with_transition_property(
         mut self,
-        properties: impl IntoIterator<Item = P>,
-        options: TransitionOptions,
+        property: AnimationProperty<TransitionPropertyId>,
     ) -> Self {
-        self.add_property_transitions(properties, options);
+        self.add_transition_property(property);
         self
     }
 
-    /// Add an active animation to the current ruleset.
-    /// Animation will be run when this ruleset is applied.
-    pub fn add_animation(&mut self, name: impl Into<Arc<str>>, options: AnimationOptions) {
-        self.ruleset.animations.push((name.into(), options));
+    /// Adds an animation property to this ruleset.
+    pub fn add_animation_property(&mut self, property: AnimationProperty<AnimationPropertyId>) {
+        self.ruleset.animation_properties.push(property);
     }
 
-    /// Add an active animation to the current ruleset.
-    /// Animation will be run when this ruleset is applied.
-    pub fn with_animation(mut self, name: impl Into<Arc<str>>, options: AnimationOptions) -> Self {
-        self.add_animation(name, options);
+    /// Adds an animation property to this ruleset.
+    pub fn with_animation_property(
+        mut self,
+        property: AnimationProperty<AnimationPropertyId>,
+    ) -> Self {
+        self.add_animation_property(property);
         self
     }
 }
@@ -369,26 +353,27 @@ impl RulesetBuilder<'_> {
 struct BuilderRuleset {
     pub(super) vars: FxHashMap<VarName, VarTokens>,
     pub(super) properties: Vec<StyleBuilderProperty>,
-    pub(super) property_transitions: FxHashMap<ComponentPropertyRef<'static>, TransitionOptions>,
-    pub(super) animations: Vec<(Arc<str>, AnimationOptions)>,
+
+    pub(super) transition_properties: AnimationProperties<TransitionPropertyId>,
+    pub(super) animation_properties: AnimationProperties<AnimationPropertyId>,
 }
 
 impl BuilderRuleset {
     fn is_empty(&self) -> bool {
         self.vars.is_empty()
             && self.properties.is_empty()
-            && self.property_transitions.is_empty()
-            && self.animations.is_empty()
+            && self.transition_properties.is_empty()
+            && self.animation_properties.is_empty()
     }
 
     fn resolve(
         self,
         property_registry: &PropertyRegistry,
-    ) -> Result<Ruleset, ResolvePropertyError> {
+    ) -> Result<Ruleset, CanonicalNameNotFoundError> {
         fn resolve_properties(
             property_registry: &PropertyRegistry,
             properties: Vec<StyleBuilderProperty>,
-        ) -> Result<Vec<RulesetProperty>, ResolvePropertyError> {
+        ) -> Result<Vec<RulesetProperty>, CanonicalNameNotFoundError> {
             properties
                 .into_iter()
                 .map(|property| {
@@ -415,22 +400,12 @@ impl BuilderRuleset {
         }
 
         let properties = resolve_properties(property_registry, self.properties)?;
-
-        let property_transitions = self
-            .property_transitions
-            .into_iter()
-            .map(|(property_ref, options)| Ok((property_registry.resolve(&property_ref)?, options)))
-            .collect::<Result<_, ResolvePropertyError>>()?;
-
-        let animations = self.animations;
-
         let vars = self.vars;
-
         Ok(Ruleset {
             vars,
             properties,
-            animations,
-            transitions: property_transitions,
+            animation_properties: self.animation_properties,
+            transition_properties: self.transition_properties,
         })
     }
 }
@@ -563,12 +538,6 @@ impl StyleSheetBuilder {
                     },
                 )?;
             }
-        }
-
-        for (animation_name, _) in rulesets.iter().flat_map(|a| a.animations.iter()) {
-            let _ = animation_keyframes.get(&**animation_name).ok_or_else(|| {
-                StyleSheetBuilderError::AnimationDoesNotExist(animation_name.clone())
-            })?;
         }
 
         for (animation_name, properties) in animation_keyframes.iter() {
@@ -790,7 +759,7 @@ impl StyleSheetBuilder {
 
                 Ok((animation_name, properties))
             })
-            .collect::<Result<FxHashMap<_, _>, ResolvePropertyError>>()?;
+            .collect::<Result<FxHashMap<_, _>, CanonicalNameNotFoundError>>()?;
 
         Self::validate_all_properties(property_registry, &animation_keyframes, &rulesets)?;
 

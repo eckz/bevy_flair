@@ -1,3 +1,5 @@
+mod animations;
+
 use bevy_flair_style::css_selector::CssSelector;
 use std::cell::RefCell;
 
@@ -9,35 +11,20 @@ use crate::utils::{ImportantLevel, try_parse_important_level};
 use crate::vars::parse_var_tokens;
 use crate::{CssParseResult, LocatedStr, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
 use crate::{ReflectParseCss, error_codes};
-use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyRegistry, PropertyValue};
-use bevy_flair_style::animations::{
-    AnimationDirection, AnimationOptions, EasingFunction, IterationCount, StepPosition,
-    TransitionOptions,
-};
+use bevy_flair_core::{ComponentPropertyId, CssPropertyRegistry, PropertyRegistry, PropertyValue};
+use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, TransitionPropertyId};
 use bevy_flair_style::{
     ColorScheme, DynamicParseVarTokens, MediaRangeSelector, MediaSelector, MediaSelectors,
     StyleSheet, VarTokens,
 };
-use bevy_math::Vec2;
+
 use bevy_reflect::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Debug;
-use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct CssTransitionProperty {
-    pub properties: Vec<ComponentPropertyRef<'static>>,
-    pub options: TransitionOptions,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct CssAnimation {
-    pub name: String,
-    pub options: AnimationOptions,
-}
+pub use animations::*;
 
 #[derive(Clone, derive_more::Debug)]
 pub enum CssRulesetProperty {
@@ -50,8 +37,8 @@ pub enum CssRulesetProperty {
         ImportantLevel,
     ),
     Var(Arc<str>, VarTokens),
-    Transitions(Vec<CssParseResult<CssTransitionProperty>>),
-    Animations(Vec<CssParseResult<CssAnimation>>),
+    TransitionProperty(AnimationProperty<TransitionPropertyId>),
+    AnimationProperty(AnimationProperty<AnimationPropertyId>),
     NestedRuleset(CssRuleset),
     Error(CssError),
 }
@@ -154,359 +141,6 @@ pub enum CssStyleSheetItem {
     AnimationKeyFrames(AnimationKeyFrames),
     LayersDefinition(Vec<String>),
     Error(CssError),
-}
-
-/// Parses a [`Duration`] from a CSS token.
-///
-/// This function recognizes two types of values:
-///
-/// - `<number>s` → [`Duration::from_secs_f32`]
-/// - `<number>ms` → [`Duration::from_millis`]
-///
-/// # Example
-///
-/// ```
-/// # use std::time::Duration;
-/// # use cssparser::{Parser, ParserInput};
-/// # use bevy_flair_css_parser::parse_duration;
-///
-/// let mut input = ParserInput::new("3.0s");
-/// let mut parser = Parser::new(&mut input);
-/// let duration = parse_duration(&mut parser).unwrap();
-/// assert_eq!(duration, Duration::from_secs_f32(3.0));
-/// ```
-pub fn parse_duration(parser: &mut Parser) -> Result<Duration, CssError> {
-    let next = parser.located_next()?;
-
-    Ok(match &*next {
-        Token::Dimension { value, unit, .. }
-            if *value >= 0.001 && unit.as_ref().eq_ignore_ascii_case("s") =>
-        {
-            Duration::from_secs_f32(*value)
-        }
-        Token::Dimension {
-            int_value: Some(int_value),
-            unit,
-            ..
-        } if *int_value >= 0 && unit.as_ref().eq_ignore_ascii_case("ms") => {
-            Duration::from_millis(*int_value as u64)
-        }
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::animations::INVALID_DURATION,
-                "Expected a dimensional number, like 5s",
-            ));
-        }
-    })
-}
-
-fn parse_easing_linear_parameters(parser: &mut Parser) -> Result<Vec<(f32, f32)>, CssError> {
-    fn unwrap_points(points: Vec<(Option<f32>, f32)>) -> Vec<(f32, f32)> {
-        points
-            .into_iter()
-            .map(|(progress, point)| (progress.unwrap(), point))
-            .collect()
-    }
-
-    parser.skip_whitespace();
-
-    if parser.is_exhausted() {
-        return Ok(Vec::new());
-    }
-
-    let mut points = parser.parse_comma_separated::<_, _, ()>(|parser| {
-        let point = parser.expect_number()?;
-
-        // TODO: Fail if percentage is outside of the 0.0-1.0 range
-        let progress = if !parser.is_exhausted() {
-            Some(parser.expect_percentage()?)
-        } else {
-            None
-        };
-        Ok((progress, point))
-    })?;
-
-    // points cannot be empty at this point
-    debug_assert!(!points.is_empty());
-
-    // If the first control point lacks an input progress value, set its input progress value to 0.
-    if points[0].0.is_none() {
-        points[0].0 = Some(0.0);
-    }
-
-    if points.len() == 1 {
-        return Ok(unwrap_points(points));
-    }
-
-    // If the last control point lacks an input progress value, set its input progress value to 1.
-    if points.last().unwrap().0.is_none() {
-        points.last_mut().unwrap().0 = Some(1.0);
-    }
-
-    // If any control point has an input progress value that is less than the input progress value of any preceding control point, set its input progress value to the largest input progress value of any preceding control point.
-    {
-        let mut previous_valid_progress_value = points[0].0.unwrap();
-        for (progress, _) in &mut points {
-            if let Some(progress) = progress {
-                if *progress < previous_valid_progress_value {
-                    *progress = previous_valid_progress_value;
-                } else {
-                    previous_valid_progress_value = *progress;
-                }
-            }
-        }
-    }
-
-    // If any control point still lacks an input progress value, then for each contiguous run of such control points,
-    // set their input progress values so that they are evenly spaced between the preceding and following control points with input progress values.
-    {
-        let mut from_progress_value_idx = 0;
-        while from_progress_value_idx < points.len() - 1 {
-            let mut to_progress_value_idx = from_progress_value_idx + 1;
-
-            while points[to_progress_value_idx].0.is_none() {
-                to_progress_value_idx += 1;
-            }
-
-            let num_points_without_progress = to_progress_value_idx - from_progress_value_idx - 1;
-            if num_points_without_progress > 0 {
-                let from_progress_value = points[from_progress_value_idx].0.unwrap();
-                let to_progress_value = points[to_progress_value_idx].0.unwrap();
-
-                let space = (to_progress_value - from_progress_value)
-                    / (num_points_without_progress + 1) as f32;
-
-                for (i, (progress_value, _)) in points
-                    [(from_progress_value_idx + 1)..to_progress_value_idx]
-                    .iter_mut()
-                    .enumerate()
-                {
-                    *progress_value = Some(from_progress_value + ((i + 1) as f32 * space));
-                }
-            }
-
-            from_progress_value_idx = to_progress_value_idx;
-        }
-    }
-
-    Ok(unwrap_points(points))
-}
-
-fn parse_easing_steps_parameters(parser: &mut Parser) -> Result<EasingFunction, CssError> {
-    let steps = parser.expect_integer()?;
-
-    // TODO: If the <step-position> is jump-none, the <integer> must be at least 2,
-    //       or the function is invalid. Otherwise, the <integer> must be at least 1,
-    //       or the function is invalid.
-
-    if parser.is_exhausted() {
-        Ok(EasingFunction::Steps {
-            steps,
-            pos: StepPosition::default(),
-        })
-    } else {
-        parser.expect_comma()?;
-        let step_position = parser.expect_located_ident()?;
-
-        let pos = match_ignore_ascii_case! { &step_position,
-            "jump-start" => StepPosition::JumpStart,
-            "jump-end" => StepPosition::JumpEnd,
-            "jump-none" => StepPosition::JumpNone,
-            "jump-both" => StepPosition::JumpBoth,
-            "start" => StepPosition::Start,
-            "end" => StepPosition::End,
-            _ =>
-                return Err(CssError::new_located(
-                    &step_position,
-                    error_codes::animations::INVALID_STEP_POSITION,
-                    "Expected a step position name. Valid values are: 'jump-start' | 'jump-end' | 'jump-none' | 'jump-both' | 'start' | 'end'",
-                )),
-
-        };
-
-        Ok(EasingFunction::Steps { steps, pos })
-    }
-}
-
-fn parse_easing_cubic_bezier_parameters(parser: &mut Parser) -> Result<EasingFunction, CssError> {
-    // TODO: Both x values must be in the range [0, 1] or the definition is invalid.
-
-    let x1 = parser.expect_number()?;
-    parser.expect_comma()?;
-    let y1 = parser.expect_number()?;
-    parser.expect_comma()?;
-    let x2 = parser.expect_number()?;
-    parser.expect_comma()?;
-    let y2 = parser.expect_number()?;
-
-    Ok(EasingFunction::CubicBezier {
-        p1: Vec2::new(x1, y1),
-        p2: Vec2::new(x2, y2),
-    })
-}
-
-fn parse_easing_function(parser: &mut Parser) -> Result<EasingFunction, CssError> {
-    let next = parser.located_next()?;
-
-    match &*next {
-        Token::Ident(easing_name) => Ok(match_ignore_ascii_case! { &easing_name,
-            "linear" => EasingFunction::Linear,
-            "ease" => EasingFunction::Ease,
-            "ease-in" => EasingFunction::EaseIn,
-            "ease-out" => EasingFunction::EaseOut,
-            "ease-in-out" => EasingFunction::EaseInOut,
-            _ =>
-                return Err(CssError::new_located(
-                    &next,
-                    error_codes::animations::INVALID_EASING_FUNCTION_KEYWORD,
-                    "Expected a valid easing function. Valid values are: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'",
-                )),
-
-        }),
-        Token::Function(function_name) => {
-            match_ignore_ascii_case! { &function_name,
-                "linear" => Ok(
-                    EasingFunction::LinearPoints(
-                        parser.parse_nested_block_with(parse_easing_linear_parameters)?
-                    )
-                ),
-                "steps" => {
-                    parser.parse_nested_block_with(parse_easing_steps_parameters)
-                },
-                "cubic-bezier" => {
-                    parser.parse_nested_block_with(parse_easing_cubic_bezier_parameters)
-                },
-                _ =>
-                    Err(CssError::new_located(
-                        &next,
-                        error_codes::animations::INVALID_EASING_FUNCTION_NAME,
-                        "Expected a valid easing function name. Valid values are: 'linear()' | 'steps()' | cubic-bezier()",
-                    )),
-            }
-        }
-        _ => Err(CssError::new_located(
-            &next,
-            error_codes::animations::INVALID_EASING_FUNCTION_TOKEN,
-            "Expected a valid easing function token. Valid values are: 'linear' | 'ease' | 'steps(..)'",
-        )),
-    }
-}
-
-fn parse_transition_options(parser: &mut Parser) -> Result<TransitionOptions, CssError> {
-    let duration = parse_duration(parser)?;
-
-    let easing_function = if !parser.is_exhausted() {
-        parse_easing_function(parser)?
-    } else {
-        EasingFunction::default()
-    };
-
-    let initial_delay = if !parser.is_exhausted() {
-        parse_duration(parser)?
-    } else {
-        Duration::ZERO
-    };
-
-    Ok(TransitionOptions {
-        duration,
-        initial_delay,
-        easing_function,
-    })
-}
-
-fn parse_iteration_count(parser: &mut Parser) -> Result<IterationCount, CssError> {
-    let next = parser.located_next()?;
-
-    Ok(match &*next {
-        Token::Ident(ident) if ident.eq_ignore_ascii_case("infinite") => IterationCount::Infinite,
-        Token::Number {
-            int_value: Some(int_value),
-            ..
-        } if *int_value > 0 => {
-            // This conversion cannot fail since we're checking for it being > 0
-            IterationCount::Count(NonZeroU32::new(*int_value as u32).unwrap())
-        }
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::animations::INVALID_ITERATION_COUNT,
-                "Expected a whole number, like 3, or 'infinite'",
-            ));
-        }
-    })
-}
-
-fn parse_animation_direction(parser: &mut Parser) -> Result<AnimationDirection, CssError> {
-    let easing_function_name = parser.expect_located_ident()?;
-
-    Ok(match_ignore_ascii_case! { &easing_function_name,
-        "normal" => AnimationDirection::Normal,
-        "reverse" => AnimationDirection::Reverse,
-        "alternate" => AnimationDirection::Alternate,
-        "alternate-reverse" => AnimationDirection::AlternateReverse,
-        _ =>
-
-            return Err(CssError::new_located(
-                &easing_function_name,
-                error_codes::animations::INVALID_ANIMATION_DIRECTION,
-                "Expected a valid animation direction. Valid values are: 'normal' | 'reverse' | 'alternate'",
-            )),
-
-    })
-}
-
-fn parse_animation_options(parser: &mut Parser) -> Result<AnimationOptions, CssError> {
-    let duration = parse_duration(parser)?;
-
-    let mut options = AnimationOptions {
-        duration,
-        ..Default::default()
-    };
-
-    while !parser.is_exhausted() {
-        if let Ok(easing_function) = parser.try_parse(parse_easing_function) {
-            options.default_easing_function = easing_function;
-            continue;
-        }
-        if let Ok(initial_delay) = parser.try_parse(parse_duration) {
-            options.initial_delay = initial_delay;
-            continue;
-        }
-        if let Ok(iteration_count) = parser.try_parse(parse_iteration_count) {
-            options.iteration_count = iteration_count;
-            continue;
-        }
-        if let Ok(direction) = parser.try_parse(parse_animation_direction) {
-            options.direction = direction;
-            continue;
-        }
-
-        // We have not found anything valid, we return here
-        return Ok(options);
-    }
-    Ok(options)
-}
-
-fn parse_single_animation(
-    parser: &mut Parser,
-    declared_animations: &FxHashSet<CowRcStr<'_>>,
-) -> Result<CssAnimation, CssError> {
-    let options = parse_animation_options(parser)?;
-    let name = parser.expect_located_ident()?;
-
-    if !declared_animations.contains(name.as_ref()) {
-        return Err(CssError::new_located(
-            &name,
-            error_codes::animations::NONE_EXISTING_ANIMATION,
-            format!("Animation '{name}' does not exist"),
-        ));
-    }
-
-    Ok(CssAnimation {
-        name: name.to_string(),
-        options,
-    })
 }
 
 // Parses media selectors like `(min-width: 30px) and (max-width: 50px)`
@@ -661,6 +295,7 @@ fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError
 pub(crate) struct CssPropertyParser<'a> {
     pub(crate) type_registry: &'a TypeRegistry,
     pub(crate) property_registry: &'a PropertyRegistry,
+    pub(crate) css_property_registry: &'a CssPropertyRegistry,
     pub(crate) shorthand_property_registry: &'a ShorthandPropertyRegistry,
 }
 
@@ -679,7 +314,9 @@ impl CssPropertyParser<'_> {
     }
 
     fn get_css_property(&self, css_name: &str) -> Option<ComponentPropertyId> {
-        self.property_registry.get_property_id_by_css_name(css_name)
+        self.css_property_registry
+            .resolve_property(css_name, self.property_registry)
+            .ok()
     }
 
     fn get_reflect_parse_css(&self, type_path: &'static str) -> Option<ReflectParseCss> {
@@ -693,42 +330,6 @@ impl CssPropertyParser<'_> {
                     .data::<ReflectParseCssEnum>()
                     .map(|rpe| (*rpe).into())
             })
-    }
-
-    fn parse_single_property_transition(
-        &self,
-        parser: &mut Parser,
-    ) -> Result<CssTransitionProperty, CssError> {
-        let property_name = parser.expect_located_ident()?;
-
-        let properties = if let Some(shorthand_property) = self.get_shorthand_css(&property_name) {
-            shorthand_property
-                .sub_properties
-                .iter()
-                .map(|css_ref| {
-                    ComponentPropertyRef::Id(
-                        self.property_registry
-                            .get_property_id_by_css_name(css_ref)
-                            .unwrap(),
-                    )
-                })
-                .collect()
-        } else if let Some(property_id) = self.get_css_property(&property_name) {
-            vec![ComponentPropertyRef::Id(property_id)]
-        } else {
-            return Err(CssError::new_located(
-                &property_name,
-                error_codes::basic::PROPERTY_NOT_RECOGNIZED,
-                format!("Property '{property_name}' is not recognized as a valid property",),
-            ));
-        };
-
-        let options = parse_transition_options(parser)?;
-
-        Ok(CssTransitionProperty {
-            properties,
-            options,
-        })
     }
 
     pub(crate) fn parse_ruleset_property(
@@ -759,9 +360,11 @@ impl CssPropertyParser<'_> {
                         .into_iter()
                         .map(|(css_ref, value)| {
                             (
-                                self.property_registry
-                                    .get_property_id_by_css_name(&css_ref)
-                                    .unwrap(),
+                                self.css_property_registry
+                                    .resolve_property(&css_ref, self.property_registry)
+                                    .unwrap_or_else(|err| {
+                                        panic!("Failed to resolve property '{css_ref}': {err}");
+                                    }),
                                 value,
                             )
                         })
@@ -781,7 +384,8 @@ impl CssPropertyParser<'_> {
                     match result {
                         Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
                             shorthand_property.css_name.as_ref().into(),
-                            shorthand_property.as_dynamic_parse_var_tokens(self.property_registry),
+                            shorthand_property
+                                .as_dynamic_parse_var_tokens(self.css_property_registry),
                             var_tokens,
                             important_level,
                         ),
@@ -1036,6 +640,14 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
     }
 }
 
+pub fn prefix_eq_ignore_ascii_case(s: &str, prefix: &str) -> bool {
+    if prefix.len() > s.len() {
+        return false;
+    }
+    let start_slice = &s[..prefix.len()];
+    start_slice.eq_ignore_ascii_case(prefix)
+}
+
 impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
     type Declaration = CssRulesetProperty;
     type Error = CssError;
@@ -1057,36 +669,21 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
                 Ok(value) => CssRulesetProperty::Var(var_name.into(), value),
                 Err(err) => CssRulesetProperty::Error(CssError::from(err)),
             })
-        } else if self.parse_transition && property_name.eq_ignore_ascii_case("transition") {
-            let transitions: Vec<_> =
-                input.parse_comma_separated_ignoring_errors::<_, _, ()>(|parser| {
-                    let result = self
-                        .inner
-                        .property_parser
-                        .parse_single_property_transition(parser);
-                    if result.is_err() {
-                        while !parser.is_exhausted() {
-                            let _ = parser.next()?;
-                        }
-                    }
-                    Ok(result)
-                });
-
-            debug_assert!(!transitions.is_empty());
-            Ok(CssRulesetProperty::Transitions(transitions))
-        } else if self.parse_animation && property_name.eq_ignore_ascii_case("animation") {
-            let animations = input.parse_comma_separated_ignoring_errors::<_, _, ()>(|parser| {
-                let declared_animations = self.inner.declared_animations.borrow();
-                let result = parse_single_animation(parser, &declared_animations);
-                if result.is_err() {
-                    while !parser.is_exhausted() {
-                        let _ = parser.next()?;
-                    }
+        } else if self.parse_transition && prefix_eq_ignore_ascii_case(&property_name, "transition")
+        {
+            let result = parse_transition_property(&property_name, input);
+            Ok(match result {
+                Ok(transition_property) => {
+                    CssRulesetProperty::TransitionProperty(transition_property)
                 }
-                Ok(result)
-            });
-            debug_assert!(!animations.is_empty());
-            Ok(CssRulesetProperty::Animations(animations))
+                Err(err) => CssRulesetProperty::Error(err),
+            })
+        } else if self.parse_animation && prefix_eq_ignore_ascii_case(&property_name, "animation") {
+            let result = parse_animation_property(&property_name, input);
+            Ok(match result {
+                Ok(animation_property) => CssRulesetProperty::AnimationProperty(animation_property),
+                Err(err) => CssRulesetProperty::Error(err),
+            })
         } else {
             self.inner
                 .property_parser
@@ -1502,6 +1099,7 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
 pub fn parse_css<F>(
     type_registry: &TypeRegistry,
     property_registry: &PropertyRegistry,
+    css_property_registry: &CssPropertyRegistry,
     shorthand_property_registry: &ShorthandPropertyRegistry,
     imports: &FxHashMap<String, StyleSheet>,
     contents: &str,
@@ -1518,6 +1116,7 @@ pub fn parse_css<F>(
             property_parser: CssPropertyParser {
                 type_registry,
                 property_registry,
+                css_property_registry,
                 shorthand_property_registry,
             },
             declared_animations: Default::default(),
@@ -1603,9 +1202,14 @@ mod tests {
     fn property_registry() -> PropertyRegistry {
         let mut registry = PropertyRegistry::default();
         registry.register::<TestComponent>();
-        registry.register_css_property("width", TestComponent::property_ref("width"));
-        registry.register_css_property("height", TestComponent::property_ref("height"));
-        registry.register_css_property(
+        registry
+    }
+
+    fn css_property_registry() -> CssPropertyRegistry {
+        let registry = CssPropertyRegistry::default();
+        registry.register_property("width", TestComponent::property_ref("width"));
+        registry.register_property("height", TestComponent::property_ref("height"));
+        registry.register_property(
             "property-enum",
             TestComponent::property_ref("property_enum"),
         );
@@ -1627,6 +1231,8 @@ mod tests {
     }
 
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(property_registry);
+    static CSS_PROPERTY_REGISTRY: LazyLock<CssPropertyRegistry> =
+        LazyLock::new(css_property_registry);
     static SHORTHAND_PROPERTY_REGISTRY: LazyLock<ShorthandPropertyRegistry> =
         LazyLock::new(shorthand_property_registry);
 
@@ -1666,6 +1272,7 @@ mod tests {
         parse_css(
             &type_registry,
             &PROPERTY_REGISTRY,
+            &CSS_PROPERTY_REGISTRY,
             &SHORTHAND_PROPERTY_REGISTRY,
             &DEPENDENCIES,
             contents,
@@ -1832,8 +1439,8 @@ mod tests {
 
     macro_rules! property_id {
         ($property_name:literal) => {
-            PROPERTY_REGISTRY
-                .get_property_id_by_css_name($property_name)
+            CSS_PROPERTY_REGISTRY
+                .resolve_property($property_name, &PROPERTY_REGISTRY)
                 .expect("Invalid property_name provided")
         };
     }
@@ -1844,7 +1451,7 @@ mod tests {
                 CssRulesetProperty::DynamicProperty(_, parser, tokens, _) => {
                     let vars = rustc_hash::FxHashMap::from_iter([$((
                         $k,
-                        crate::testing::expects_parse_ok(&$v, crate::testing::parse_content_with(&$v, crate::vars::parse_var_tokens))
+                        crate::test_utils::expects_parse_ok(&$v, crate::test_utils::parse_content_with(&$v, crate::vars::parse_var_tokens))
                     ),)*]);
 
                     let resolved_tokens = tokens.resolve_recursively(|var_name| {
@@ -2110,10 +1717,10 @@ mod tests {
     }
 
     #[test]
-    fn transition_property_simplest() {
+    fn transition_property() {
         let contents = r#"
             .rule1 {
-              transition: width 2s;
+              transition: width 3s;
             }
         "#;
 
@@ -2123,33 +1730,17 @@ mod tests {
         assert_single_class_selector!(ruleset, "rule1");
         let property = ruleset.properties.expect_one();
 
-        let CssRulesetProperty::Transitions(transitions) = property else {
-            panic!("Expected transition property");
-        };
-
-        let width_property_id = PROPERTY_REGISTRY
-            .get_property_id_by_css_name("width")
-            .unwrap();
-
-        let transition = transitions.expect_one().expect("Transition failed");
-
-        assert_eq!(
-            transition,
-            CssTransitionProperty {
-                properties: vec![width_property_id.into()],
-                options: TransitionOptions {
-                    duration: Duration::from_secs(2),
-                    ..Default::default()
-                }
-            }
-        );
+        assert!(matches!(
+            property,
+            CssRulesetProperty::TransitionProperty(AnimationProperty::Shorthand(_))
+        ));
     }
 
     #[test]
-    fn transition_property_complex() {
+    fn transition_sub_property() {
         let contents = r#"
             .rule1 {
-              transition: width 3s ease-in-out .5s;
+              transition-delay: 3s;
             }
         "#;
 
@@ -2159,34 +1750,20 @@ mod tests {
         assert_single_class_selector!(ruleset, "rule1");
         let property = ruleset.properties.expect_one();
 
-        let CssRulesetProperty::Transitions(transitions) = property else {
-            panic!("Expected transition property");
-        };
-
-        let width_property_id = PROPERTY_REGISTRY
-            .get_property_id_by_css_name("width")
-            .unwrap();
-
-        let transition = transitions.expect_one().expect("Transition failed");
-
-        assert_eq!(
-            transition,
-            CssTransitionProperty {
-                properties: vec![width_property_id.into()],
-                options: TransitionOptions {
-                    duration: Duration::from_secs(3),
-                    easing_function: EasingFunction::EaseInOut,
-                    initial_delay: Duration::from_secs_f32(0.5),
-                }
-            }
-        );
+        assert!(matches!(
+            property,
+            CssRulesetProperty::TransitionProperty(AnimationProperty::SingleProperty {
+                property_id: TransitionPropertyId::Delay,
+                ..
+            })
+        ));
     }
 
     #[test]
-    fn transition_property_two_transitions() {
+    fn transition_property_fails_on_first_error() {
         let contents = r#"
             .rule1 {
-              transition: width 2s ease-out .5s, height 4s linear;
+              transition: invalid invalid, height 4s linear;
             }
         "#;
 
@@ -2196,176 +1773,22 @@ mod tests {
         assert_single_class_selector!(ruleset, "rule1");
         let property = ruleset.properties.expect_one();
 
-        let CssRulesetProperty::Transitions(transitions) = property else {
-            panic!("Expected transition property");
+        let CssRulesetProperty::Error(css_error) = property else {
+            panic!("Expected error");
         };
 
-        let width_property_id = PROPERTY_REGISTRY
-            .get_property_id_by_css_name("width")
-            .unwrap();
-
-        let height_property_id = PROPERTY_REGISTRY
-            .get_property_id_by_css_name("height")
-            .unwrap();
-
-        let [transition_width, transition_height] = transitions.expect_n();
-
-        let transition_width = transition_width.expect("Transition width failed");
-        let transition_height = transition_height.expect("Transition height failed");
-
-        assert_eq!(
-            transition_width,
-            CssTransitionProperty {
-                properties: vec![width_property_id.into()],
-                options: TransitionOptions {
-                    duration: Duration::from_secs(2),
-                    easing_function: EasingFunction::EaseOut,
-                    initial_delay: Duration::from_secs_f32(0.5),
-                }
-            }
-        );
-
-        assert_eq!(
-            transition_height,
-            CssTransitionProperty {
-                properties: vec![height_property_id.into()],
-                options: TransitionOptions {
-                    duration: Duration::from_secs(4),
-                    easing_function: EasingFunction::Linear,
-                    ..Default::default()
-                }
-            }
-        );
-    }
-
-    #[test]
-    fn transition_property_recovers_on_error() {
-        let contents = r#"
-            .rule1 {
-              transition: width invalid-token .5s, height 4s linear;
-            }
-        "#;
-
-        let items = parse(contents);
-
-        let ruleset = items.expect_one_rule_set();
-        assert_single_class_selector!(ruleset, "rule1");
-        let property = ruleset.properties.expect_one();
-
-        let CssRulesetProperty::Transitions(transitions) = property else {
-            panic!("Expected transition property");
-        };
-
-        let height_property_id = PROPERTY_REGISTRY
-            .get_property_id_by_css_name("height")
-            .unwrap();
-
-        let [transition_width, transition_height] = transitions.expect_n();
-
-        let transition_width_error = transition_width.expect_err("Transition width did not fail");
-        let transition_height = transition_height.expect("Transition height failed");
-
-        let error_report = into_report!(transition_width_error, contents);
+        let error_report = into_report!(css_error, contents);
 
         assert_eq!(
             error_report,
-            "[10] Warning: Invalid duration
-   ,-[ test.css:3:33 ]
+            "[01] Warning: Unexpected token
+   ,-[ test.css:3:34 ]
    |
- 3 |               transition: width invalid-token .5s, height 4s linear;
-   |                                 |^^^^^^^^^^^^\x20\x20
-   |                                 `-------------- Expected a dimensional number, like 5s
+ 3 |               transition: invalid invalid, height 4s linear;
+   |                                  |^^^^^^\x20\x20
+   |                                  `-------- unexpected token: Ident(\"invalid\")
 ---'
 "
-        );
-
-        // Height was properly parsed
-        assert_eq!(
-            transition_height,
-            CssTransitionProperty {
-                properties: vec![height_property_id.into()],
-                options: TransitionOptions {
-                    duration: Duration::from_secs(4),
-                    easing_function: EasingFunction::Linear,
-                    ..Default::default()
-                }
-            }
-        );
-    }
-
-    #[test]
-    fn easing_function_linear() {
-        let contents = r#"
-            .rule1 {
-              transition: width 2s linear(0, 0.25, 1);
-            }
-        "#;
-
-        let items = parse(contents);
-
-        let ruleset = items.expect_one_rule_set();
-        let property = ruleset.properties.expect_one();
-
-        let CssRulesetProperty::Transitions(transitions) = property else {
-            panic!("Expected transition property");
-        };
-
-        let transition = transitions.expect_one().expect("Transition failed");
-
-        assert_eq!(
-            transition.options.easing_function,
-            EasingFunction::LinearPoints(vec![(0.0, 0.0), (0.5, 0.25), (1.0, 1.0)]),
-        );
-    }
-
-    #[test]
-    fn easing_function_linear_bounce() {
-        // This example has been taken from https://drafts.csswg.org/css-easing-2/#linear-easing-function-examples
-        let contents = r#"
-            .rule1 {
-              transition: width 2s linear(
-                /* Start to 1st bounce */
-                0, 0.063, 0.25, 0.563, 1 36.4%,
-                /* 1st to 2nd bounce */
-                0.812, 0.75, 0.813, 1 72.7%,
-                /* 2nd to 3rd bounce */
-                0.953, 0.938, 0.953, 1 90.9%,
-                /* 3rd bounce to end */
-                0.984, 1
-              );
-            }
-        "#;
-
-        let items = parse(contents);
-
-        let ruleset = items.expect_one_rule_set();
-        let property = ruleset.properties.expect_one();
-
-        let CssRulesetProperty::Transitions(transitions) = property else {
-            panic!("Expected transition property");
-        };
-
-        let transition = transitions.expect_one().expect("Transition failed");
-
-        assert_eq!(
-            transition.options.easing_function,
-            EasingFunction::LinearPoints(vec![
-                (0.0, 0.0),
-                (0.091, 0.063),
-                (0.182, 0.25),
-                (0.273, 0.563),
-                (0.364, 1.0),
-                (0.45475, 0.812),
-                (0.5455, 0.75),
-                (0.63625, 0.813),
-                (0.727, 1.0),
-                (0.7725, 0.953),
-                (0.81799996, 0.938),
-                (0.8635, 0.953),
-                (0.909, 1.0),
-                (0.95449996, 0.984),
-                (1.0, 1.0)
-            ]),
         );
     }
 
@@ -2406,7 +1829,7 @@ mod tests {
     }
 
     #[test]
-    fn animation_property_simplest() {
+    fn animation_property() {
         let contents = r#"
             @keyframes some-animation {
               from {
@@ -2434,23 +1857,10 @@ mod tests {
         assert_single_class_selector!(ruleset, "rule1");
         let property = ruleset.properties.expect_one();
 
-        let CssRulesetProperty::Animations(transitions) = property else {
-            panic!("Expected animation property");
-        };
-
-        let animation = transitions.expect_one().expect("Animation failed");
-
-        assert_eq!(
-            animation,
-            CssAnimation {
-                name: "some-animation".into(),
-                options: AnimationOptions {
-                    duration: Duration::from_secs(3),
-                    default_easing_function: EasingFunction::Linear,
-                    ..Default::default()
-                }
-            }
-        );
+        assert!(matches!(
+            property,
+            CssRulesetProperty::AnimationProperty(AnimationProperty::Shorthand(_))
+        ));
     }
 
     #[test]

@@ -2,113 +2,136 @@
     font-family: "FiraSans";
     src: url("fonts/FiraSans-Regular.ttf");
 }
-
-@keyframes box-animation {
-    from {
-        width: 15vw;
-        height: 15vh;
-        transform: rotate(0deg);
-    }
-
-    to {
-        width: 40vw;
-        height: 40vh;
-        transform: rotate(15deg);
-    }
+* {
+    box-sizing: border-box;
 }
 
-@keyframes red-animation {
-    from {
-        background-color: rgb(15%, 15%, 15%);
-    }
-
-    to {
-        background-color: red;
-    }
-}
-
-@keyframes green-animation {
-    from {
-        background-color: rgb(15%, 15%, 15%);
-    }
-
-    to {
-        background-color: green;
-    }
-}
-
-@keyframes blue-animation {
-    from {
-        background-color: rgb(15%, 15%, 15%);
-    }
-
-    to {
-        background-color: blue;
-    }
-}
-
-@keyframes yellow-animation {
-    from {
-        background-color: rgb(15%, 15%, 15%);
-    }
-
-    to {
-        background-color: yellow;
-    }
+:root {
+    --default-duration: 3s;
 }
 
 :root {
     width: 100%;
     height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: start;
+    justify-content: center;
+    gap: 10px;
+
+    padding: 0 5vw;
+    background-color: #d0dae3;
+
+    color: white;
+    font-size: 15px;
+
+    > * {
+        flex: 0 0 auto;
+
+        border-radius: 50px;
+        border: 3px black;
+        width: 120px;
+        height: 120px;
+        background-color: transparent;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+
+        text-align: center;
+    }
+
 }
 
-text {
-    font-family: "FiraSans";
-    font-size: 20px;
-
-    position: absolute;
-    left: 5px;
-    bottom: 5px;
-
-    z-index: 2;
+button:first-child {
+    min-width: 200px;
+    width: auto;
+    height: auto;
+    padding: 10px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: #121111;
+    background-color: #0f0f2b;
 }
 
-.box {
-    position: absolute;
-    width: 20vw;
-    height: 20vh;
-    border: 4px black;
+.rotate-on-hover {
+    border-radius: 10px;
+    background-color: rebeccapurple;
+    animation-duration: 1.7s;
+    rotate: 0;
+
+    &:hover {
+        animation-name: rotate;
+    }
 }
 
-.box:nth-child(1) {
-    left: 5vw;
-    top: 5vh;
+.rotate-twice {
+    rotate: 0;
 
-    animation: 3s ease-in-out 5 red-animation;
+    animation-name: rotate;
+    animation-duration: var(--default-duration);
+    animation-iteration-count: 2;
+    animation-direction: alternate-reverse;
+    animation-timing-function: ease-in-out;
+
+    border-radius: 10px;
+    background-color: maroon;
 }
 
-.box:nth-child(2) {
-    right: 5vw;
-    top: 5vh;
+.pause-on-hover {
+    background-color: orange;
+    animation: slide var(--default-duration) alternate infinite;
 
-    animation: 3s ease-in-out 4 alternate-reverse blue-animation;
+    &:hover {
+        animation-play-state: paused;
+    }
+}
+
+.slide-with-fill-forwards, .slide-with-fill-backwards {
+    translate: 0;
+    animation-name: slide, mark-color;
+    animation-duration: var(--default-duration);
+    animation-delay: 2.5s;
+}
+
+.slide-with-fill-forwards {
+    background-color: mediumturquoise;
+    animation-fill-mode: forwards;
+}
+
+.slide-with-fill-backwards {
+    background-color: mediumturquoise;
+    animation-fill-mode: backwards;
 }
 
 
-.box:nth-child(3) {
-    left: 5vw;
-    bottom: 5vh;
-
-    animation: 3s linear infinite alternate yellow-animation;
+@keyframes rotate {
+    from {
+        rotate: 0deg;
+    }
+    to {
+        rotate: 179deg;
+    }
 }
 
-.box:nth-child(4) {
-    right: 5vw;
-    bottom: 5vh;
-
-    animation: 3s steps(5, end) infinite alternate green-animation;
+@keyframes slide {
+    from {
+        translate: 0 0;
+    }
+    to {
+        translate: 400px 0;
+    }
 }
 
-.box.animated {
-    animation: 3s ease infinite alternate box-animation;
+@keyframes mark-color {
+    from {
+        border-color: salmon;
+        background-color: #146e67;
+    }
+    to {
+        border-color: salmon;
+        background-color: #146e67;
+    }
 }

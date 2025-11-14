@@ -160,9 +160,9 @@ impl Plugin for ReflectParsePlugin {
 }
 
 #[cfg(test)]
-pub(crate) mod testing {
+pub(crate) mod reflect_test_utils {
     use crate::reflect::{ReflectParseCssEnum, ReflectParsePlugin};
-    use crate::testing::{parse_err_property_content_with, parse_property_content_with};
+    use crate::test_utils::{parse_err_property_content_with, parse_property_content_with};
     use crate::{PropertyValueParseFn, ReflectParseCss};
     use bevy_app::App;
     use bevy_ecs::reflect::AppTypeRegistry;

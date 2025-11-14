@@ -10,7 +10,7 @@ use crate::utils::{
 use crate::{CssError, ParserExt, error_codes};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
-use bevy_flair_core::{ComponentPropertyRef, PropertyRegistry, PropertyValue, ReflectValue};
+use bevy_flair_core::{ComponentPropertyRef, CssPropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
 use bevy_image::Image;
 use bevy_math::{Rot2, Vec2};
@@ -31,7 +31,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 /// Reference to a CSS property name.
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, derive_more::Display)]
 pub struct CssRef(SmolStr);
 
 impl CssRef {
@@ -73,14 +73,16 @@ impl From<String> for CssRef {
 }
 
 impl CssRef {
-    /// Converts this reference into a static lifetime.
-    pub fn resolve(&self, property_registry: &PropertyRegistry) -> ComponentPropertyRef<'static> {
-        let id = property_registry
-            .get_property_id_by_css_name(&self.0)
+    /// Resolves this css name.
+    pub fn resolve(
+        &self,
+        css_property_registry: &CssPropertyRegistry,
+    ) -> ComponentPropertyRef<'static> {
+        css_property_registry
+            .get_property(&self.0)
             .unwrap_or_else(|| {
                 panic!("No property registered with css name '{}'", self.0);
-            });
-        id.into()
+            })
     }
 }
 
@@ -140,7 +142,7 @@ impl ShorthandProperty {
     /// This enables parsing runtime CSS variable tokens into the shorthand property.
     pub(crate) fn as_dynamic_parse_var_tokens(
         &self,
-        property_registry: &PropertyRegistry,
+        css_property_registry: &CssPropertyRegistry,
     ) -> DynamicParseVarTokens {
         use crate::error::ErrorReportGenerator;
         use bevy_flair_style::ToCss;
@@ -148,7 +150,7 @@ impl ShorthandProperty {
         use std::sync::Arc;
 
         let parse_fn = self.parse_fn;
-        let property_registry = property_registry.clone();
+        let css_property_registry = css_property_registry.clone();
 
         Arc::new(move |tokens| {
             let tokens_as_css = tokens.to_css_string();
@@ -163,7 +165,7 @@ impl ShorthandProperty {
                 .map(|v| {
                     v.into_iter()
                         .map(|(css_ref, property_value)| {
-                            let property_ref = css_ref.resolve(&property_registry);
+                            let property_ref = css_ref.resolve(&css_property_registry);
                             (property_ref, property_value)
                         })
                         .collect()
@@ -1039,24 +1041,24 @@ impl Plugin for ShorthandPropertiesPlugin {
         register_default_shorthand_properties(registry);
     }
 
-    /// Panics (in debug mode) or Warns (in release mode) about conflicts between the [`PropertyRegistry`] and [`ShorthandPropertyRegistry`].
+    /// Registers all properties in [`ShorthandPropertyRegistry`] into [`CssPropertyRegistry`].
     fn finish(&self, app: &mut App) {
-        let property_registry = app.world().resource::<PropertyRegistry>();
+        let css_property_registry = app.world().resource::<CssPropertyRegistry>();
         let shorthand_registry = app.world().resource::<ShorthandPropertyRegistry>();
 
-        for css_name in shorthand_registry.inner.css_names.keys() {
-            if property_registry
-                .get_property_id_by_css_name(css_name)
-                .is_some()
-            {
-                let msg = format!(
-                    "Shorthand property '{css_name}' is registered both in PropertyRegistry and ShorthandPropertyRegistry"
-                );
-                #[cfg(debug_assertions)]
-                panic!("{msg}");
-                #[cfg(not(debug_assertions))]
-                tracing::warn!("{msg}");
-            }
+        for (css_name, property) in shorthand_registry.inner.css_names.iter() {
+            let subproperties =
+                property
+                    .sub_properties
+                    .iter()
+                    .map(|sub_property_css| {
+                        css_property_registry.get_property(sub_property_css).unwrap_or_else(|| {
+                    panic!("Subproperty '{sub_property_css}' of '{css_name}' does not exist");
+                })
+                    })
+                    .collect::<Vec<_>>();
+
+            css_property_registry.register_shorthand(css_name.clone(), subproperties);
         }
     }
 }
@@ -1150,7 +1152,7 @@ mod tests {
                 .get_property($property_name)
                 .expect(&format!("Property '{}' not found", $property_name));
 
-            let mut result = crate::testing::parse_property_content_with($contents, |parser| property.parse(parser));
+            let mut result = crate::test_utils::parse_property_content_with($contents, |parser| property.parse(parser));
 
             result.sort_by(|(a, _), (b, _)| a.partial_cmp(&b).unwrap());
 
@@ -1164,7 +1166,7 @@ mod tests {
                 .get_property($property_name)
                 .expect(&format!("Property '{}' not found", $property_name));
 
-            let err = crate::testing::parse_err_property_content_with($contents, |parser| {
+            let err = crate::test_utils::parse_err_property_content_with($contents, |parser| {
                 property.parse(parser)
             });
 

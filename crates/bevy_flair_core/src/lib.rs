@@ -35,12 +35,13 @@ impl RegisterComponentPropertiesExt for App {
     }
 }
 
-/// Initializes [`PropertyRegistry`] in the world.
+/// Initializes [`PropertyRegistry`] and [`CssPropertyRegistry`] in the world.
 #[derive(Default)]
 pub struct PropertyRegistryPlugin;
 
 impl Plugin for PropertyRegistryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PropertyRegistry>();
+        app.init_resource::<CssPropertyRegistry>();
     }
 }

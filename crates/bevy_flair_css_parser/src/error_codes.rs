@@ -23,18 +23,6 @@ define_errors!(basic => {
     DUPLICATED_KEYFRAMES_ANIMATION(09, "Duplicated @keyframes rule"),
 });
 
-define_errors!(animations => {
-    INVALID_DURATION(10, "Invalid duration"),
-    NONE_EXISTING_ANIMATION(11, "Animation with this name does not exist"),
-    INVALID_EASING_FUNCTION_KEYWORD(12, "Invalid easing function keyword"),
-    INVALID_EASING_FUNCTION_NAME(13, "Invalid easing function name"),
-    INVALID_EASING_FUNCTION_TOKEN(14, "Unexpected easing function token"),
-    INVALID_ITERATION_COUNT(15, "Invalid iteration count"),
-    INVALID_ANIMATION_DIRECTION(16, "Invalid animation direction"),
-    INVALID_STEP_POSITION(17, "Invalid step position keyword"),
-    UNEXPECTED_KEYFRAME_TOKEN(18, "Invalid keyframe token"),
-});
-
 define_errors!(color => {
     CURRENT_COLOR_NOT_SUPPORTED(20, "'current_color' as a color is not supported"),
     UNSUPPORTED_COLOR_SPACE(21, "Unsupported color space"),
@@ -92,4 +80,21 @@ define_errors!(media_queries => {
     UNPEXPECTED_SIZE_TOKEN(101, "Unexpected token for a media size type"),
     UNPEXPECTED_COLOR_SCHEMA_TOKEN(102, "Unexpected token for color-scheme"),
     UNPEXPECTED_RESOLUTION_TOKEN(103, "Unexpected token for a resolution type"),
+});
+
+define_errors!(animations => {
+    INVALID_DURATION(110, "Invalid duration"),
+    INVALID_EASING_FUNCTION_KEYWORD(112, "Invalid easing function keyword"),
+    INVALID_EASING_FUNCTION_NAME(113, "Invalid easing function name"),
+    INVALID_EASING_FUNCTION_TOKEN(114, "Unexpected easing function token"),
+    INVALID_ITERATION_COUNT(115, "Invalid iteration count"),
+    INVALID_ANIMATION_DIRECTION(116, "Invalid animation direction"),
+    INVALID_ANIMATION_FILL_MODE(117, "Invalid animation fill mode"),
+    INVALID_ANIMATION_PLAY_STATE(118, "Invalid animation play state"),
+    INVALID_STEP_POSITION(119, "Invalid step position keyword"),
+    UNEXPECTED_KEYFRAME_TOKEN(120, "Invalid keyframe token"),
+    INVALID_ANIMATION_PROPERTY(121, "Property name not recognized"),
+    INVALID_TRANSITION_PROPERTY(122, "Property name not recognized"),
+    INVALID_ANIMATION_NAME(123, "Invalid animation name"),
+    INVALID_TRANSITION_PROPERTY_NAME(124, "Invalid transition property name"),
 });
