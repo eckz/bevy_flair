@@ -1,6 +1,6 @@
 use crate::ReflectValue;
 
-use crate::animations::EasingFunction;
+use crate::animations::AnimationPropertyKeyframe;
 use crate::animations::curves::{LinearCurve, UnevenSampleEasedCurve};
 use bevy_app::{App, Plugin};
 use bevy_color::{Color, Mix, Oklaba};
@@ -24,7 +24,7 @@ type CreatePropertyTransitionFn = fn(
     ReflectValue,         // End
 ) -> BoxedReflectCurve;
 
-type CreateKeyFramedAnimationFn = fn(&[(f32, ReflectValue, EasingFunction)]) -> BoxedReflectCurve;
+type CreateKeyFramedAnimationFn = fn(&[AnimationPropertyKeyframe]) -> BoxedReflectCurve;
 
 // Internal trait to represent interpolable values
 trait InterpolateValue {
@@ -89,7 +89,7 @@ impl ReflectAnimatable {
     /// Creates a new [`Curve<ReflectValue>`] for the given values.
     /// It's defined over the [unit interval].
     ///
-    /// [unit interval]: Interval::UNIT
+    /// [unit interval]: bevy_math::curve::Interval::UNIT
     pub fn create_property_transition_curve(
         &self,
         start: Option<ReflectValue>,
@@ -101,7 +101,7 @@ impl ReflectAnimatable {
     /// Creates a new [`Curve<ReflectValue>`] for the given keyframes.
     pub fn create_keyframes_animation_curve(
         &self,
-        keyframes: &[(f32, ReflectValue, EasingFunction)],
+        keyframes: &[AnimationPropertyKeyframe],
     ) -> BoxedReflectCurve {
         (self.create_keyframes_animation_fn)(keyframes)
     }
@@ -144,21 +144,27 @@ where
 }
 
 fn create_keyframe_animation_with<T>(
-    keyframes: &[(f32, ReflectValue, EasingFunction)],
+    keyframes: &[AnimationPropertyKeyframe],
     interpolation: impl Fn(&T, &T, f32) -> T + Send + Sync + 'static,
 ) -> BoxedReflectCurve
 where
     T: FromReflect + Clone,
 {
-    let samples = keyframes.iter().map(|(t, value, e)| {
-        (
-            *t,
+    let samples = keyframes.iter().map(
+        |AnimationPropertyKeyframe {
+             time,
+             value,
+             easing_function,
+         }| {
             (
-                downcast_value::<T>(value.clone()),
-                e.clone().into_easing_curve(),
-            ),
-        )
-    });
+                *time,
+                (
+                    downcast_value::<T>(value.clone()),
+                    easing_function.clone().into_easing_curve(),
+                ),
+            )
+        },
+    );
 
     let curve =
         UnevenSampleEasedCurve::new(samples, interpolation).expect("Invalid keyframes provided");

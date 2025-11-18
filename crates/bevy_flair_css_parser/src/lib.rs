@@ -272,8 +272,49 @@ impl Plugin for FlairCssParserPlugin {
 pub(crate) mod test_utils {
     use crate::utils::{ImportantLevel, try_parse_important_level};
     use crate::{CssError, ErrorReportGenerator};
+    use bevy_flair_style::{VarResolver, VarTokens};
     use cssparser::{ParseError, Parser, ParserInput};
     use std::backtrace::BacktraceStatus;
+    use std::sync::Arc;
+
+    pub(crate) struct NoVarsSupportedResolver;
+
+    impl VarResolver for NoVarsSupportedResolver {
+        fn get_all_names(&self) -> Vec<Arc<str>> {
+            panic!("No vars support on tests")
+        }
+
+        fn get_var_tokens(&self, _var_name: &str) -> Option<&'_ VarTokens> {
+            panic!("No vars support on tests")
+        }
+    }
+
+    pub(crate) trait ExpectExt<E>: IntoIterator<Item = E> + Sized {
+        #[inline(always)]
+        #[track_caller]
+        #[allow(unused)]
+        fn expect_empty(self) {
+            assert_eq!(self.into_iter().count(), 0, "Contents are not empty");
+        }
+
+        #[inline(always)]
+        #[track_caller]
+        fn expect_n<const N: usize>(self) -> [E; N] {
+            let vec: Vec<_> = self.into_iter().collect();
+            vec.try_into().unwrap_or_else(|v: Vec<_>| {
+                panic!("Expected {} items, but {} were found", N, v.len())
+            })
+        }
+
+        #[inline(always)]
+        #[track_caller]
+        fn expect_one(self) -> E {
+            let [one] = self.expect_n();
+            one
+        }
+    }
+
+    impl<T, E> ExpectExt<E> for T where T: IntoIterator<Item = E> + Sized {}
 
     #[inline(always)]
     #[track_caller]

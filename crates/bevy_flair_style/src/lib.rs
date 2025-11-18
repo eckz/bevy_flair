@@ -176,11 +176,17 @@ pub enum StyleSystems {
     /// Also sets vars and further marks nodes as changed when a var changes.
     CalculateStyles,
 
-    /// Sets new properties, transitions and animations for nodes that are marked for recalculation.
+    /// Sets the corresponding [`PropertyValue`]'s, depending on the styles calculated in [`StyleSystems::CalculateStyles`].
     SetPropertyValues,
 
-    /// Converts properties set in `CalculateStyle` into computed properties. Also calculates inherited properties.
+    /// Converts properties from [`PropertyValue`] into [`ComputedValue`].
     ComputeProperties,
+
+    /// Resolve pending animations. It needs to happen after [`StyleSystems::ComputeProperties`]
+    ResolveAnimations,
+
+    /// Sets [`ComputedValue`]'s generated from transitions and animations.
+    SetAnimationValues,
 
     /// Emits animation events, like `TransitionEvent`.
     EmitAnimationEvents,
@@ -358,12 +364,14 @@ impl Plugin for FlairStylePlugin {
                         StyleSystems::CalculateStyles,
                         StyleSystems::SetPropertyValues,
                         StyleSystems::ComputeProperties,
+                        StyleSystems::ResolveAnimations,
+                        StyleSystems::SetAnimationValues,
                         StyleSystems::ApplyComputedProperties.before(bevy_ui::UiSystems::Content),
                         StyleSystems::EmitRedrawEvent,
                     )
                         .chain(),
                     StyleSystems::TickAnimations.before(StyleSystems::SetPropertyValues),
-                    StyleSystems::EmitAnimationEvents.after(StyleSystems::ComputeProperties),
+                    StyleSystems::EmitAnimationEvents.after(StyleSystems::SetAnimationValues),
                 ),
             )
             .add_systems(PreStartup, |mut commands: Commands| {
@@ -418,9 +426,11 @@ impl Plugin for FlairStylePlugin {
                     (
                         systems::compute_property_values
                             .run_if(systems::compute_property_values_condition),
-                        systems::compute_just_animation_properties_values
-                            .run_if(systems::compute_just_animation_properties_values_condition)
+                        systems::set_pending_compute_property_values
+                            .run_if(not(systems::compute_property_values_condition))
                     ).in_set(StyleSystems::ComputeProperties),
+                    systems::resolve_animations.in_set(StyleSystems::ResolveAnimations),
+                    systems::set_animation_computed_values.in_set(StyleSystems::SetAnimationValues),
                     systems::emit_animation_events.in_set(StyleSystems::EmitAnimationEvents),
                     systems::emit_redraw_event.in_set(StyleSystems::EmitRedrawEvent),
                     (

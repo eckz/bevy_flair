@@ -1,18 +1,16 @@
 use crate::parser::{
-    AnimationKeyFrame, CssRuleset, CssRulesetProperty, CssStyleSheetItem, parse_css,
+    CssRuleset, CssRulesetProperty, CssStyleSheetItem, ParserAnimationKeyFrame, parse_css,
 };
 use crate::utils::ImportantLevel;
 use crate::{
     CssStyleLoaderError, CssStyleLoaderErrorMode, ErrorReportGenerator, ShorthandPropertyRegistry,
 };
+use std::sync::LazyLock;
 
-use bevy_flair_core::{
-    ComponentPropertyRef, CssPropertyRegistry, PropertiesHashMap, PropertyRegistry, PropertyValue,
-};
+use bevy_flair_core::{ComponentPropertyRef, CssPropertyRegistry, PropertyRegistry};
+use bevy_flair_style::animations::AnimationKeyframes;
 use bevy_flair_style::css_selector::CssSelector;
-use bevy_flair_style::{
-    AnimationKeyframesBuilder, StyleBuilderProperty, StyleSheet, StyleSheetBuilder,
-};
+use bevy_flair_style::{StyleBuilderProperty, StyleSheet, StyleSheetBuilder};
 use bevy_reflect::TypeRegistry;
 use rustc_hash::FxHashMap;
 use tracing::{error, info, warn};
@@ -28,6 +26,9 @@ pub(crate) struct InternalStylesheetLoader<'a> {
 
 // This is temporal until https://github.com/tokio-rs/tracing/issues/3378 is fixed
 const NO_COLOR_REPORT_CONFIG: ariadne::Config = ariadne::Config::new().with_color(false);
+
+static EMPTY_PROPERTY_REGISTRY: LazyLock<PropertyRegistry> =
+    LazyLock::new(PropertyRegistry::default);
 
 impl InternalStylesheetLoader<'_> {
     pub(crate) fn load_stylesheet(
@@ -185,64 +186,83 @@ impl InternalStylesheetLoader<'_> {
                     builder.register_font_face(font_face.family_name, font_face.source);
                 }
                 CssStyleSheetItem::AnimationKeyFrames(keyframes) => {
-                    let name = keyframes.name;
-
-                    let mut keyframes_per_property =
-                        PropertiesHashMap::<AnimationKeyframesBuilder>::default();
+                    let mut keyframes_builder = AnimationKeyframes::builder(keyframes.name);
 
                     for k in keyframes.keyframes {
                         match k {
-                            AnimationKeyFrame::Valid { times, properties } => {
+                            ParserAnimationKeyFrame::Valid { times, properties } => {
                                 for property in properties {
                                     match property {
                                         CssRulesetProperty::SingleProperty(
                                             property_id,
-                                            PropertyValue::Value(sample),
+                                            property_value,
                                             _,
                                         ) => {
-                                            for time in &times {
-                                                keyframes_per_property
-                                                    .entry(property_id)
-                                                    .or_default()
-                                                    .add_keyframe_reflect_value(
-                                                        *time,
-                                                        sample.clone(),
-                                                    );
+                                            for &time in &times {
+                                                keyframes_builder
+                                                    .add_keyframe(time)
+                                                    .with_properties([StyleBuilderProperty::new(
+                                                        property_id,
+                                                        property_value.clone(),
+                                                    )]);
                                             }
                                         }
                                         CssRulesetProperty::MultipleProperties(properties, _) => {
-                                            for (property_id, sample) in properties {
-                                                if let PropertyValue::Value(sample) = sample {
-                                                    for time in &times {
-                                                        keyframes_per_property
-                                                            .entry(property_id)
-                                                            .or_default()
-                                                            .add_keyframe_reflect_value(
-                                                                *time,
-                                                                sample.clone(),
-                                                            );
-                                                    }
-                                                }
+                                            for &time in &times {
+                                                keyframes_builder
+                                                    .add_keyframe(time)
+                                                    .with_properties(properties.iter().map(
+                                                        |(id, value)| {
+                                                            StyleBuilderProperty::new(
+                                                                *id,
+                                                                value.clone(),
+                                                            )
+                                                        },
+                                                    ));
                                             }
+                                        }
+                                        CssRulesetProperty::DynamicProperty(
+                                            css_name,
+                                            parser,
+                                            tokens,
+                                            _,
+                                        ) => {
+                                            let property = StyleBuilderProperty::Dynamic {
+                                                css_name,
+                                                parser,
+                                                tokens,
+                                            };
+                                            for &time in &times {
+                                                keyframes_builder
+                                                    .add_keyframe(time)
+                                                    .with_properties([property.clone()]);
+                                            }
+                                        }
+                                        CssRulesetProperty::AnimationProperty(_s) => {
+                                            // Easing property!!!!
+                                            todo!("")
                                         }
                                         CssRulesetProperty::Error(error) => {
                                             report_generator.add_error(error);
                                         }
-                                        _ => {}
+                                        other => {
+                                            unreachable!(
+                                                "Got {other:?} on keyframes. This is probably a bug"
+                                            );
+                                        }
                                     }
                                 }
                             }
-                            AnimationKeyFrame::Error(error) => {
+                            ParserAnimationKeyFrame::Error(error) => {
                                 report_generator.add_error(error);
                             }
                         }
                     }
 
                     builder.add_animation_keyframes(
-                        name,
-                        keyframes_per_property
-                            .into_iter()
-                            .filter_map(|(p, b)| Some((p, b.build().ok()?))),
+                        keyframes_builder
+                            .build(&EMPTY_PROPERTY_REGISTRY)
+                            .expect("No property should fail to resolve"),
                     );
                 }
                 CssStyleSheetItem::Error(error) => {

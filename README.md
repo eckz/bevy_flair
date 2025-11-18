@@ -213,7 +213,7 @@ Another good place to start are the examples in the [examples folder](https://gi
 
 | bevy | bevy_flair    |
 |------|---------------|
-| 0.17 | 0.5, 0.6      |
+| 0.17 | 0.5, 0.6, 0.7 |
 | 0.16 | 0.2, 0.3, 0.4 |
 | 0.15 | 0.1           |
 

@@ -145,7 +145,7 @@ pub enum ResolveTokensError {
 }
 
 impl ResolveTokensError {
-    pub(crate) fn enhance_error<V: VarResolver>(self, var_resolver: &V) -> String {
+    pub(crate) fn enhance_error(self, var_resolver: &dyn VarResolver) -> String {
         let extra_message = if matches!(&self, ResolveTokensError::UnknownVarName(_)) {
             let all_names = var_resolver.get_all_names();
             format!("\nAvailable variables are {all_names:#?}",)

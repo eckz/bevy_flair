@@ -6,14 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.7.0] Unreleased
-x
 - Revamps animations/transition system
   - It adds support for individual properties,
     like `animation-*` and `transition-*` (https://github.com/eckz/bevy_flair/issues/23, https://github.com/eckz/bevy_flair/issues/24).
-  - It allows the use of `var(--var)` in animation / transition properties (https://github.com/eckz/bevy_flair/issues/17).
+  - It allows the use of `var()` in animation / transition properties (https://github.com/eckz/bevy_flair/issues/17).
   - Implements `animation-fill-mode` and `animation-play-state`.
-  - This includes a lot of internal changes, some of them might be breaking,
-    but overall, implementation is more consistent with the css standard.
+  - Allows the use of `var()` inside keyframes (https://github.com/eckz/bevy_flair/issues/26).
+  - Support for `animation-timing-function` inside `@keyframes`
+  - Allows not specifying properties in keyframes, 
+    and they will be filled with either the current computed value or an interpolated value.
+  - In general is more conformant to the css standard, so if an animation works in a browser,
+    it's more probable that it works now in bevy_flair.
+  - This includes a lot of internal changes, some of them might be breaking.
 - Full support for `TextureSlicer` parsing inside `NodeImage`.
 - `BoxShadow` and `TextShadow` are interpolable.
 

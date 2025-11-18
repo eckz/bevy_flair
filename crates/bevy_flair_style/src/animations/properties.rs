@@ -7,7 +7,7 @@ use bevy_reflect::Reflect;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::error;
@@ -334,10 +334,10 @@ impl<P> AnimationProperties<P> {
     /// - When a `Shorthand` is encountered it removes previous per-animation data
     ///   for the `shorthand_reset_properties` (to mimic CSS shorthand reset semantics)
     ///   and then fills values for each animation index.
-    pub(crate) fn resolve_to_output<V: VarResolver>(
+    pub(crate) fn resolve_to_output<V: VarResolver, S: BuildHasher>(
         &self,
         var_resolver: &V,
-        output: &mut HashMap<P, SmallVec<[AnimationSpecificValue; 1]>>,
+        output: &mut HashMap<P, SmallVec<[AnimationSpecificValue; 1]>, S>,
     ) where
         P: Copy + Hash + PartialEq + Eq + std::fmt::Display + PropertyId,
     {
@@ -428,8 +428,8 @@ impl TransitionConfiguration {
 }
 
 /// Convert resolved animation property lists into a vector of [`AnimationConfiguration`].
-pub(crate) fn from_properties_to_animation_configuration(
-    animation_properties: &HashMap<AnimationPropertyId, SmallVec<[AnimationSpecificValue; 1]>>,
+pub(crate) fn from_properties_to_animation_configuration<S: BuildHasher>(
+    animation_properties: &HashMap<AnimationPropertyId, SmallVec<[AnimationSpecificValue; 1]>, S>,
 ) -> Vec<AnimationConfiguration> {
     // Tries to find the value at index. If there aren't enough properties, get the last value.
     let get_property_index =
@@ -497,8 +497,8 @@ pub(crate) fn from_properties_to_animation_configuration(
 }
 
 /// Convert resolved transition property lists into a vector of [`TransitionConfiguration`].
-pub(crate) fn from_properties_to_transition_configuration(
-    animation_properties: &HashMap<TransitionPropertyId, SmallVec<[AnimationSpecificValue; 1]>>,
+pub(crate) fn from_properties_to_transition_configuration<S: BuildHasher>(
+    animation_properties: &HashMap<TransitionPropertyId, SmallVec<[AnimationSpecificValue; 1]>, S>,
 ) -> Vec<TransitionConfiguration> {
     // Tries to find the value at index. If there aren't enough properties, get the last value.
     let get_property_index =
@@ -556,7 +556,7 @@ mod tests {
     fn as_animation_config(
         properties: AnimationProperties<AnimationPropertyId>,
     ) -> Vec<AnimationConfiguration> {
-        let mut output = HashMap::default();
+        let mut output = HashMap::new();
         properties.resolve_to_output(&NoVarsSupportedResolver, &mut output);
         from_properties_to_animation_configuration(&output)
     }
@@ -564,7 +564,7 @@ mod tests {
     fn as_transition_config(
         properties: AnimationProperties<TransitionPropertyId>,
     ) -> Vec<TransitionConfiguration> {
-        let mut output = HashMap::default();
+        let mut output = HashMap::new();
         properties.resolve_to_output(&NoVarsSupportedResolver, &mut output);
         from_properties_to_transition_configuration(&output)
     }

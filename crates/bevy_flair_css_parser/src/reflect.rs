@@ -29,14 +29,14 @@ use bevy_ui::widget::NodeImageMode;
 /// When the function fails, it should return a [`CssError`].
 pub type PropertyValueParseFn = fn(&mut cssparser::Parser) -> Result<PropertyValue, CssError>;
 
-/// [`bevy::reflect::TypeData`] for parsing a CSS type when the type is an enum.
+/// [`bevy_reflect::TypeData`] for parsing a CSS type when the type is an enum.
 /// It's automatically implemented to all [`Enum`] types.
 ///
-/// [`Enum`]: bevy::reflect::Enum
+/// [`Enum`]: bevy_reflect::Enum
 #[derive(Debug, Copy, Clone)]
 pub struct ReflectParseCssEnum(pub PropertyValueParseFn);
 
-/// [`bevy::reflect::TypeData`] for parsing a CSS type.
+/// [`bevy_reflect::TypeData`] for parsing a CSS type.
 ///
 /// It's implemented for the main Bevy UI types.
 #[derive(Debug, Copy, Clone)]

@@ -1,5 +1,5 @@
 use crate::animations::reflect::BoxedReflectCurve;
-use crate::animations::{EasingFunction, ReflectAnimatable};
+use crate::animations::{AnimationPropertyKeyframe, ReflectAnimatable};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Curve;
 use bevy_reflect::prelude::*;
@@ -186,6 +186,10 @@ impl CurrentAnimationDirection {
     }
 }
 
+// TODO: Right now Animation is meant to be used by a single property,
+//       but it would be more convenient if it could be used for multiple properties
+//       at the same time
+
 /// Represents a single keyframes animation.
 #[derive(Clone, Reflect)]
 #[reflect(from_reflect = false)]
@@ -255,15 +259,15 @@ impl Animation {
     ///
     ///  let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
     ///  let keyframes = &[
-    ///           (0.0, ReflectValue::Float(0.0), EasingFunction::Linear),
-    ///           (1.0, ReflectValue::Float(100.0), EasingFunction::Linear),
+    ///           AnimationPropertyKeyframe::new(0.0, ReflectValue::Float(0.0), EasingFunction::Linear),
+    ///           AnimationPropertyKeyframe::new(1.0, ReflectValue::Float(100.0), EasingFunction::Linear),
     ///  ];
     /// let animation = Animation::new("my_animation".into(), keyframes, &AnimationOptions::default(), &reflect_animatable_f32);
     /// ```
     ///
     pub fn new(
         name: Arc<str>,
-        keyframes: &[(f32, ReflectValue, EasingFunction)],
+        keyframes: &[AnimationPropertyKeyframe],
         options: &AnimationOptions,
         reflect: &ReflectAnimatable,
     ) -> Self {
@@ -542,6 +546,7 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::animations::EasingFunction;
     use bevy_reflect::FromType;
     use std::sync::LazyLock;
 
@@ -551,9 +556,9 @@ mod tests {
 
     pub const TWO_ITERATIONS: IterationCount = IterationCount::Count(2);
 
-    const TEST_KEYFRAMES: &[(f32, ReflectValue, EasingFunction)] = &[
-        (0.0f32, ReflectValue::Float(0.0), EasingFunction::Linear),
-        (1.0f32, ReflectValue::Float(100.0), EasingFunction::Linear),
+    const TEST_KEYFRAMES: &[AnimationPropertyKeyframe] = &[
+        AnimationPropertyKeyframe::new(0.0f32, ReflectValue::Float(0.0), EasingFunction::Linear),
+        AnimationPropertyKeyframe::new(1.0f32, ReflectValue::Float(100.0), EasingFunction::Linear),
     ];
 
     const DEFAULT_ANIMATION_OPTIONS: AnimationOptions = AnimationOptions {

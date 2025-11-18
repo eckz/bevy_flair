@@ -1,4 +1,7 @@
 mod animations;
+mod font_face;
+mod keyframes;
+mod media_selectors;
 
 use bevy_flair_style::css_selector::CssSelector;
 use std::cell::RefCell;
@@ -9,14 +12,11 @@ use crate::error::CssError;
 use crate::reflect::ReflectParseCssEnum;
 use crate::utils::{ImportantLevel, try_parse_important_level};
 use crate::vars::parse_var_tokens;
-use crate::{CssParseResult, LocatedStr, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
+use crate::{CssParseResult, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
 use crate::{ReflectParseCss, error_codes};
 use bevy_flair_core::{ComponentPropertyId, CssPropertyRegistry, PropertyRegistry, PropertyValue};
 use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, TransitionPropertyId};
-use bevy_flair_style::{
-    ColorScheme, DynamicParseVarTokens, MediaRangeSelector, MediaSelector, MediaSelectors,
-    StyleSheet, VarTokens,
-};
+use bevy_flair_style::{DynamicParseVarTokens, MediaSelectors, StyleSheet, VarTokens};
 
 use bevy_reflect::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -25,6 +25,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 pub use animations::*;
+
+use crate::parser::media_selectors::parse_media_selectors;
+pub(crate) use font_face::*;
+pub(crate) use keyframes::*;
 
 #[derive(Clone, derive_more::Debug)]
 pub enum CssRulesetProperty {
@@ -64,231 +68,31 @@ pub struct CssRuleset {
     pub properties: Vec<CssRulesetProperty>,
 }
 
-#[derive(Clone, Debug)]
-pub enum FontFaceProperty {
-    FamilyName(String),
-    Source(String),
-    Error(CssError),
-}
-
-impl From<CssError> for FontFaceProperty {
-    fn from(error: CssError) -> Self {
-        FontFaceProperty::Error(error)
-    }
-}
-
-impl FontFaceProperty {
-    fn into_parse_result(self) -> Result<FontFaceProperty, ParseError<'static, CssError>> {
-        match self {
-            FontFaceProperty::Error(err) => Err(err.into_parse_error()),
-            other => Ok(other),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct FontFace {
-    pub family_name: String,
-    pub source: String,
-    pub errors: Vec<CssError>,
-}
-
-impl PartialEq for FontFace {
-    fn eq(&self, other: &Self) -> bool {
-        self.family_name == other.family_name && self.source == other.source
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum AnimationKeyFrame {
-    Valid {
-        times: Vec<f32>,
-        properties: Vec<CssRulesetProperty>,
-    },
-    Error(CssError),
-}
-
-impl From<CssError> for AnimationKeyFrame {
-    fn from(error: CssError) -> Self {
-        AnimationKeyFrame::Error(error)
-    }
-}
-
-impl AnimationKeyFrame {
-    #[cfg(test)]
-    pub fn unwrap(self) -> (Vec<f32>, Vec<CssRulesetProperty>) {
-        match self {
-            AnimationKeyFrame::Valid { times, properties } => (times, properties),
-            AnimationKeyFrame::Error(error) => {
-                panic!("Error while unwrap: {}", error.into_context_less_report());
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct AnimationKeyFrames {
-    pub name: String,
-    pub keyframes: Vec<AnimationKeyFrame>,
-}
-
 #[derive(Debug)]
-pub enum CssStyleSheetItem {
+pub(crate) enum CssStyleSheetItem {
     EmbedStylesheet(StyleSheet, Option<String>),
     Inner(Vec<CssStyleSheetItem>),
     RuleSet(CssRuleset),
     FontFace(FontFace),
-    AnimationKeyFrames(AnimationKeyFrames),
+    AnimationKeyFrames(ParserAnimationKeyFrames),
     LayersDefinition(Vec<String>),
     Error(CssError),
 }
 
-// Parses media selectors like `(min-width: 30px) and (max-width: 50px)`
-fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError> {
-    fn parse_size(parser: &mut Parser) -> Result<u32, CssError> {
-        let next = parser.located_next()?;
-        Ok(match &*next {
-            Token::Number {
-                int_value: Some(int_value),
-                ..
-            } if *int_value >= 0 => *int_value as u32,
-            Token::Dimension {
-                int_value: Some(int_value),
-                unit,
-                ..
-            } if *int_value >= 0 => {
-                match_ignore_ascii_case! { unit.as_ref(),
-                    "px" => *int_value as u32,
-                    _ => {
-                        return Err(CssError::new_located(&next,  error_codes::media_queries::UNPEXPECTED_SIZE_TOKEN, format!("Dimension '{unit}' is not recognized. Only valid dimension is 'px'")));
-                    }
-                }
-            }
-            _ => {
-                return Err(CssError::new_located(
-                    &next,
-                    error_codes::media_queries::UNPEXPECTED_SIZE_TOKEN,
-                    "This is not valid size token. 300px is a valid size token",
-                ));
-            }
-        })
+impl From<CssError> for CssStyleSheetItem {
+    fn from(error: CssError) -> Self {
+        CssStyleSheetItem::Error(error)
     }
+}
 
-    fn parse_resolution(parser: &mut Parser) -> Result<f32, CssError> {
-        let next = parser.located_next()?;
-        Ok(match &*next {
-            Token::Dimension { value, unit, .. } => {
-                match_ignore_ascii_case! { unit.as_ref(),
-                    "dppx" => *value,
-                    "x" => *value,
-                    _ => {
-                        return Err(CssError::new_located(
-                            &next,
-                            error_codes::media_queries::UNPEXPECTED_RESOLUTION_TOKEN,
-                            format!("Dimension '{unit}' is not recognized. Valid dimensions are  'dppx' | 'x'")
-                        ));
-                    }
-                }
-            }
-            _ => {
-                return Err(CssError::new_located(
-                    &next,
-                    error_codes::media_queries::UNPEXPECTED_RESOLUTION_TOKEN,
-                    "This is not valid size token. 300px is a valid size token",
-                ));
-            }
-        })
-    }
-
-    fn parse_ratio(parser: &mut Parser) -> Result<f32, CssError> {
-        let number = parser.expect_number()?;
-        if let Ok(divisor) = parser.try_parse(|parser| {
-            parser.expect_delim('/')?;
-            parser.expect_number()
-        }) {
-            Ok(number / divisor)
-        } else {
-            Ok(number)
-        }
-    }
-
-    fn parse_color_scheme(parser: &mut Parser) -> Result<ColorScheme, CssError> {
-        let ident = parser.expect_located_ident()?;
-        Ok(match_ignore_ascii_case! { &*ident,
-            "light" => ColorScheme::Light,
-            "dark" => ColorScheme::Dark,
-            _ => {
-                return Err(CssError::new_located(
-                    &ident,
-                    error_codes::media_queries::UNPEXPECTED_COLOR_SCHEMA_TOKEN,
-                    format!("Identifier '{ident}' is not recognized. Only valid color schemes are 'light' or 'dark'")
-                ));
-            }
-        })
-    }
-
-    // Parses a single media selectors like `min-width: 300px` or `prefers-color-scheme: dark`.
-    fn parse_selector_range<T>(
-        media_property: &LocatedStr,
-        parser: &mut Parser,
-        value_inner_parser: impl Fn(&mut Parser) -> Result<T, CssError>,
-    ) -> Result<MediaRangeSelector<T>, CssError> {
-        Ok(match media_property {
-            p if p[..3].eq_ignore_ascii_case("min") => {
-                MediaRangeSelector::GreaterOrEqual(value_inner_parser(parser)?)
-            }
-            p if p[..3].eq_ignore_ascii_case("max") => {
-                MediaRangeSelector::LessOrEqual(value_inner_parser(parser)?)
-            }
-            _ => MediaRangeSelector::Exact(value_inner_parser(parser)?),
-        })
-    }
-
-    // Parses a single media selectors like `min-width: 300px` or `prefers-color-scheme: dark`.
-    fn parse_media_selector_atom(parser: &mut Parser) -> Result<MediaSelector, CssError> {
-        let media_property = parser.expect_located_ident()?;
-        parser.expect_colon()?;
-        Ok(match_ignore_ascii_case! { &*media_property,
-            "prefers-color-scheme" => {
-                MediaSelector::ColorScheme(parse_color_scheme(parser)?)
-            },
-            "width" | "min-width" | "max-width" => {
-                MediaSelector::ViewportWidth(parse_selector_range(&media_property, parser, parse_size)?)
-            },
-            "height" | "min-height" | "max-height"=> {
-                MediaSelector::ViewportHeight(parse_selector_range(&media_property, parser, parse_size)?)
-            },
-            "aspect-ratio" | "min-aspect-ratio" | "max-aspect-ratio" => {
-                MediaSelector::AspectRatio(parse_selector_range(&media_property, parser, parse_ratio)?)
-            },
-            "resolution" | "min-resolution" | "max-resolution" => {
-                MediaSelector::Resolution(parse_selector_range(&media_property, parser, parse_resolution)?)
-            },
-            _ => {
-                return Err(CssError::new_located(
-                    &media_property,
-                    error_codes::media_queries::UNRECOGNIZED_PROPERTY,
-                    format!("Property {media_property} is not recognized. Valid properties are 'prefers-color-scheme' | '{{min-|max-}}width' | '{{min-|max-}}-height' | '{{min-|max-}}-resolution | '{{min-|max-}}-aspect-ratio'"),
-                ));
-            }
-        })
-    }
-
-    parser.expect_parenthesis_block()?;
-    let first_selector = parser.parse_nested_block_with(parse_media_selector_atom)?;
-
-    let mut selectors = vec![first_selector];
-
-    while let Ok(media_selector) = parser.try_parse(|parser| {
-        parser.expect_ident_matching("and")?;
-        parser.expect_parenthesis_block()?;
-
-        parser.parse_nested_block_with(parse_media_selector_atom)
-    }) {
-        selectors.push(media_selector);
-    }
-
-    Ok(MediaSelectors::from_iter(selectors))
+fn consume_as_var_tokens<'i>(
+    parser: &mut Parser<'i, '_>,
+) -> Result<(VarTokens, ImportantLevel), ParseError<'i, CssError>> {
+    parser.parse_entirely(|parser| {
+        let var_tokens = parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
+        let important_level = try_parse_important_level(parser);
+        Ok((var_tokens, important_level))
+    })
 }
 
 #[derive(Clone)]
@@ -335,14 +139,11 @@ impl CssPropertyParser<'_> {
     pub(crate) fn parse_ruleset_property(
         &self,
         property_name: &str,
-        parse_vars: bool,
         parser: &mut Parser,
     ) -> CssRulesetProperty {
         if let Some(shorthand_property) = self.get_shorthand_css(property_name) {
             let initial_state = parser.state();
-            if parse_vars {
-                parser.look_for_var_or_env_functions();
-            }
+            parser.look_for_var_or_env_functions();
 
             let result = parser.parse_entirely(|parser| {
                 let properties = shorthand_property
@@ -371,16 +172,9 @@ impl CssPropertyParser<'_> {
                         .collect(),
                     important_level,
                 ),
-                Err(_) if parse_vars && seen_var_or_env_functions => {
+                Err(_) if seen_var_or_env_functions => {
                     parser.reset(&initial_state);
-
-                    let result = parser.parse_entirely(|parser| {
-                        let var_tokens =
-                            parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
-                        let important_level = try_parse_important_level(parser);
-                        Ok((var_tokens, important_level))
-                    });
-
+                    let result = consume_as_var_tokens(parser);
                     match result {
                         Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
                             shorthand_property.css_name.as_ref().into(),
@@ -415,9 +209,7 @@ impl CssPropertyParser<'_> {
             ));
         };
         let initial_state = parser.state();
-        if parse_vars {
-            parser.look_for_var_or_env_functions();
-        }
+        parser.look_for_var_or_env_functions();
 
         let parse_fn = reflect_parse_css.parse_fn();
         let result = parser.parse_entirely(|parser| {
@@ -432,16 +224,9 @@ impl CssPropertyParser<'_> {
             Ok((value, important_level)) => {
                 CssRulesetProperty::SingleProperty(property_id, value, important_level)
             }
-            Err(_) if parse_vars && seen_var_or_env_functions => {
+            Err(_) if seen_var_or_env_functions => {
                 parser.reset(&initial_state);
-
-                let result = parser.parse_entirely(|parser| {
-                    let var_tokens =
-                        parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
-                    let important_level = try_parse_important_level(parser);
-                    Ok((var_tokens, important_level))
-                });
-
+                let result = consume_as_var_tokens(parser);
                 match result {
                     Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
                         property_name.into(),
@@ -454,36 +239,6 @@ impl CssPropertyParser<'_> {
             }
             Err(err) => CssRulesetProperty::Error(CssError::from(err)),
         }
-    }
-
-    fn parse_font_face_property(
-        &self,
-        property_name: CowRcStr,
-        parser: &mut Parser,
-    ) -> FontFaceProperty {
-        fn parse_font_family(parser: &mut Parser) -> Result<FontFaceProperty, CssError> {
-            let font_family_name = parser.expect_string()?;
-            Ok(FontFaceProperty::FamilyName(font_family_name.to_string()))
-        }
-
-        fn parse_source(parser: &mut Parser) -> Result<FontFaceProperty, CssError> {
-            let source = parser.expect_url_or_string()?;
-            Ok(FontFaceProperty::Source(source.to_string()))
-        }
-
-        {
-            match_ignore_ascii_case! { &property_name,
-                "font-family" => {
-                    parse_font_family(parser)
-                },
-                "src" => {
-                    parse_source(parser)
-                },
-                _ => {
-                    Err(CssError::new_unlocated(error_codes::basic::UNEXPECTED_FONT_FACE_PROPERTY, "This property is not recognized. Only 'font-family' and 'src' can be used"))
-                }
-            }
-        }.unwrap_or_else(FontFaceProperty::Error)
     }
 }
 
@@ -503,6 +258,15 @@ where
         .collect()
 }
 
+// Should it parse 'animation-*' property
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ParseAnimationProperties {
+    // 'animation' and 'animation-*' properties
+    All,
+    // Only 'animation-timing-function'
+    OnlyTimingFunction,
+}
+
 /// Ruleset declaration parser.
 /// Parses single property declaration like
 /// ```css
@@ -510,14 +274,12 @@ where
 /// ```
 struct CssRulesetBodyParser<'a, 'i> {
     inner: CssParserContext<'a, 'i>,
-    // Parse 'transition' property
+    // Parse 'transition' and 'transition-*' properties
     parse_transition: bool,
-    // Parse 'animation' property
-    parse_animation: bool,
+    // Which 'animation' properties to parse
+    parse_animation: ParseAnimationProperties,
     // Parse nested parser
     parse_nested: bool,
-    // Parse properties with `var(--some-var)`
-    parse_dynamic: bool,
 }
 
 impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
@@ -555,9 +317,8 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
             AtRuleType::MediaSelector(media_selectors) => {
                 let mut ruleset_body_parser = CssRulesetBodyParser {
                     parse_transition: true,
-                    parse_animation: true,
+                    parse_animation: ParseAnimationProperties::All,
                     parse_nested: true,
-                    parse_dynamic: true,
                     inner: self.inner.clone(),
                 };
                 let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -578,9 +339,8 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
 
                 let mut ruleset_body_parser = CssRulesetBodyParser {
                     parse_transition: true,
-                    parse_animation: true,
+                    parse_animation: ParseAnimationProperties::All,
                     parse_nested: true,
-                    parse_dynamic: true,
                     inner: self.inner.clone(),
                 };
                 let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -625,9 +385,8 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
     ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
             parse_transition: true,
-            parse_animation: true,
+            parse_animation: ParseAnimationProperties::All,
             parse_nested: true,
-            parse_dynamic: true,
             inner: self.inner.clone(),
         };
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -678,7 +437,11 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
                 }
                 Err(err) => CssRulesetProperty::Error(err),
             })
-        } else if self.parse_animation && prefix_eq_ignore_ascii_case(&property_name, "animation") {
+        } else if self.parse_animation == ParseAnimationProperties::All
+            && prefix_eq_ignore_ascii_case(&property_name, "animation")
+            || self.parse_animation == ParseAnimationProperties::OnlyTimingFunction
+                && property_name.eq_ignore_ascii_case("animation-timing-function")
+        {
             let result = parse_animation_property(&property_name, input);
             Ok(match result {
                 Ok(animation_property) => CssRulesetProperty::AnimationProperty(animation_property),
@@ -687,7 +450,7 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
         } else {
             self.inner
                 .property_parser
-                .parse_ruleset_property(&property_name, self.parse_dynamic, input)
+                .parse_ruleset_property(&property_name, input)
                 .into_parse_result()
         }
     }
@@ -700,131 +463,6 @@ impl<'i> RuleBodyItemParser<'i, CssRulesetProperty, CssError> for CssRulesetBody
 
     fn parse_qualified(&self) -> bool {
         self.parse_nested
-    }
-}
-
-/// Font-face declaration parser
-struct CssFontFaceBodyParser<'a, 'i> {
-    inner: CssParserContext<'a, 'i>,
-}
-
-impl<'i> AtRuleParser<'i> for CssFontFaceBodyParser<'_, 'i> {
-    type Prelude = ();
-    type AtRule = FontFaceProperty;
-    type Error = CssError;
-}
-
-impl<'i> QualifiedRuleParser<'i> for CssFontFaceBodyParser<'_, 'i> {
-    type Prelude = ();
-    type QualifiedRule = FontFaceProperty;
-    type Error = CssError;
-}
-
-impl<'i> DeclarationParser<'i> for CssFontFaceBodyParser<'_, 'i> {
-    type Declaration = FontFaceProperty;
-    type Error = CssError;
-
-    fn parse_value<'t>(
-        &mut self,
-        name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
-        _declaration_start: &ParserState,
-    ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
-        self.inner
-            .property_parser
-            .parse_font_face_property(name, input)
-            .into_parse_result()
-    }
-}
-
-impl<'i> RuleBodyItemParser<'i, FontFaceProperty, CssError> for CssFontFaceBodyParser<'_, 'i> {
-    fn parse_declarations(&self) -> bool {
-        true
-    }
-
-    fn parse_qualified(&self) -> bool {
-        false
-    }
-}
-
-/// Keyframes parser
-struct CssKeyframesBodyParser<'a, 'i> {
-    inner: CssParserContext<'a, 'i>,
-}
-
-impl<'i> AtRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
-    type Prelude = ();
-    type AtRule = AnimationKeyFrame;
-    type Error = CssError;
-}
-
-fn parse_keyframe(parser: &mut Parser<'_, '_>) -> Result<f32, CssError> {
-    let next = parser.located_next()?;
-
-    Ok(match &*next {
-        Token::Ident(ident) if ident.eq_ignore_ascii_case("from") => 0.0,
-        Token::Ident(ident) if ident.eq_ignore_ascii_case("to") => 1.0,
-        Token::Percentage { unit_value, .. } if unit_value.clamp(0.0, 1.0) == *unit_value => {
-            *unit_value
-        }
-        Token::Number { value, .. } if value.clamp(0.0, 1.0) == *value => *value,
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::animations::UNEXPECTED_KEYFRAME_TOKEN,
-                "Is not valid as keyframe. 'from', 'to', 20% are valid examples",
-            ));
-        }
-    })
-}
-
-impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
-    type Prelude = Vec<f32>;
-    type QualifiedRule = AnimationKeyFrame;
-    type Error = CssError;
-
-    fn parse_prelude<'t>(
-        &mut self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::Prelude, ParseError<'i, Self::Error>> {
-        input.parse_comma_separated(|parser| {
-            parse_keyframe(parser).map_err(|err| err.into_parse_error())
-        })
-    }
-
-    fn parse_block<'t>(
-        &mut self,
-        times: Self::Prelude,
-        _: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
-        let mut ruleset_body_parser = CssRulesetBodyParser {
-            parse_transition: false,
-            parse_animation: false,
-            parse_nested: false,
-            parse_dynamic: false,
-            inner: self.inner.clone(),
-        };
-
-        let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
-        let properties = collect_parser(body_parser);
-
-        Ok(AnimationKeyFrame::Valid { times, properties })
-    }
-}
-
-impl<'i> DeclarationParser<'i> for CssKeyframesBodyParser<'_, 'i> {
-    type Declaration = AnimationKeyFrame;
-    type Error = CssError;
-}
-
-impl<'i> RuleBodyItemParser<'i, AnimationKeyFrame, CssError> for CssKeyframesBodyParser<'_, 'i> {
-    fn parse_declarations(&self) -> bool {
-        false
-    }
-
-    fn parse_qualified(&self) -> bool {
-        true
     }
 }
 
@@ -951,70 +589,9 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         input: &mut Parser<'i, 't>,
     ) -> Result<CssStyleSheetItem, ParseError<'i, CssError>> {
         Ok(match at_rule_type {
-            AtRuleType::FontFace => {
-                let mut font_face_body_parser = CssFontFaceBodyParser {
-                    inner: self.inner.clone(),
-                };
-                let body_parser = RuleBodyParser::new(input, &mut font_face_body_parser);
-                let properties = collect_parser(body_parser);
+            AtRuleType::FontFace => parse_font_face_body(input),
+            AtRuleType::KeyFrames(name) => parse_keyframes_body(name, self.inner.clone(), input),
 
-                let mut errors = Vec::new();
-                let mut family_name = None;
-                let mut source = None;
-
-                for property in properties {
-                    match property {
-                        FontFaceProperty::FamilyName(family) => {
-                            family_name = Some(family);
-                        }
-                        FontFaceProperty::Source(s) => {
-                            source = Some(s);
-                        }
-                        FontFaceProperty::Error(error) => {
-                            errors.push(error);
-                        }
-                    }
-                }
-
-                if let (Some(family_name), Some(source)) = (family_name, source) {
-                    CssStyleSheetItem::FontFace(FontFace {
-                        family_name,
-                        source,
-                        errors,
-                    })
-                } else {
-                    CssStyleSheetItem::Error(CssError::new_unlocated(
-                        error_codes::basic::INCOMPLETE_FONT_FACE_RULE,
-                        "A font face requires 'font-family' and 'src' provided",
-                    ))
-                }
-            }
-            AtRuleType::KeyFrames(name) => {
-                let mut keyframe_body_parser = CssKeyframesBodyParser {
-                    inner: self.inner.clone(),
-                };
-                let body_parser = RuleBodyParser::new(input, &mut keyframe_body_parser);
-                let keyframes = collect_parser(body_parser);
-
-                // TODO: Fail if keyframes.length() < 2?
-
-                let mut declared_animations = self.inner.declared_animations.borrow_mut();
-
-                if declared_animations.contains(&name) {
-                    return Err(CssError::new_unlocated(
-                        error_codes::basic::DUPLICATED_KEYFRAMES_ANIMATION,
-                        format!("Animation with name '{name}' was already defined"),
-                    )
-                    .into_parse_error());
-                };
-
-                declared_animations.insert(name.clone());
-
-                CssStyleSheetItem::AnimationKeyFrames(AnimationKeyFrames {
-                    name: name.to_string(),
-                    keyframes,
-                })
-            }
             AtRuleType::MediaSelector(media_selectors) => {
                 let mut new_context = self.inner.clone();
                 new_context.media_selectors =
@@ -1081,9 +658,8 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
     ) -> Result<CssStyleSheetItem, ParseError<'i, CssError>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
             parse_transition: true,
-            parse_animation: true,
+            parse_animation: ParseAnimationProperties::All,
             parse_nested: true,
-            parse_dynamic: true,
             inner: self.inner.clone(),
         };
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
@@ -1144,6 +720,7 @@ mod tests {
     use crate::utils::parse_property_value_with;
 
     use crate::CssRef;
+    use crate::test_utils::ExpectExt;
     use bevy_ecs::component::Component;
     use bevy_flair_core::*;
     use bevy_flair_style::{ToCss, VarOrToken, VarToken};
@@ -1230,10 +807,11 @@ mod tests {
         registry
     }
 
-    static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(property_registry);
-    static CSS_PROPERTY_REGISTRY: LazyLock<CssPropertyRegistry> =
+    pub(super) static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> =
+        LazyLock::new(property_registry);
+    pub(super) static CSS_PROPERTY_REGISTRY: LazyLock<CssPropertyRegistry> =
         LazyLock::new(css_property_registry);
-    static SHORTHAND_PROPERTY_REGISTRY: LazyLock<ShorthandPropertyRegistry> =
+    pub(super) static SHORTHAND_PROPERTY_REGISTRY: LazyLock<ShorthandPropertyRegistry> =
         LazyLock::new(shorthand_property_registry);
 
     macro_rules! into_report {
@@ -1265,7 +843,7 @@ mod tests {
         ])
     });
 
-    fn parse(contents: &str) -> Vec<CssStyleSheetItem> {
+    pub(super) fn parse(contents: &str) -> Vec<CssStyleSheetItem> {
         let mut items = Vec::new();
         let type_registry = type_registry();
 
@@ -1291,34 +869,7 @@ mod tests {
         items
     }
 
-    trait ExpectExt<E>: IntoIterator<Item = E> + Sized {
-        #[inline(always)]
-        #[track_caller]
-        #[allow(unused)]
-        fn expect_empty(self) {
-            assert_eq!(self.into_iter().count(), 0, "Contents are not empty");
-        }
-
-        #[inline(always)]
-        #[track_caller]
-        fn expect_n<const N: usize>(self) -> [E; N] {
-            let vec: Vec<_> = self.into_iter().collect();
-            vec.try_into().unwrap_or_else(|v: Vec<_>| {
-                panic!("Expected {} items, but {} were found", N, v.len())
-            })
-        }
-
-        #[inline(always)]
-        #[track_caller]
-        fn expect_one(self) -> E {
-            let [one] = self.expect_n();
-            one
-        }
-    }
-
-    impl<T, E> ExpectExt<E> for T where T: IntoIterator<Item = E> + Sized {}
-
-    trait ExpectItemExt: ExpectExt<CssStyleSheetItem> {
+    pub(super) trait ExpectCssStyleSheetItemItemExt: ExpectExt<CssStyleSheetItem> {
         #[inline(always)]
         #[track_caller]
         fn flatten_items(self) -> Vec<CssStyleSheetItem> {
@@ -1362,7 +913,7 @@ mod tests {
 
         #[inline(always)]
         #[track_caller]
-        fn expect_one_animation_keyframes(self) -> AnimationKeyFrames {
+        fn expect_one_animation_keyframes(self) -> ParserAnimationKeyFrames {
             let one = self.expect_one();
             match one {
                 CssStyleSheetItem::AnimationKeyFrames(akf) => akf,
@@ -1371,7 +922,7 @@ mod tests {
         }
     }
 
-    impl ExpectItemExt for Vec<CssStyleSheetItem> {}
+    impl ExpectCssStyleSheetItemItemExt for Vec<CssStyleSheetItem> {}
 
     macro_rules! expect_single_selector {
         ($ruleset:expr) => {{
@@ -1416,7 +967,8 @@ mod tests {
     }
 
     macro_rules! expect_property_name {
-        ($property:expr, $property_name:literal) => {
+        ($property:expr, $property_name:literal) => {{
+            use $crate::parser::CssRulesetProperty;
             match $property {
                 CssRulesetProperty::SingleProperty(id, value, important_level) => {
                     assert_eq!(
@@ -1434,13 +986,13 @@ mod tests {
                     panic!("Not valid single property nor error. Got: {other:?}");
                 }
             }
-        };
+        }};
     }
 
     macro_rules! property_id {
         ($property_name:literal) => {
-            CSS_PROPERTY_REGISTRY
-                .resolve_property($property_name, &PROPERTY_REGISTRY)
+            $crate::parser::tests::CSS_PROPERTY_REGISTRY
+                .resolve_property($property_name, &$crate::parser::tests::PROPERTY_REGISTRY)
                 .expect("Invalid property_name provided")
         };
     }
@@ -1482,24 +1034,33 @@ mod tests {
 
     macro_rules! assert_single_property {
         ($properties:expr, $property_name:literal, inherit) => {{
+            use $crate::test_utils::ExpectExt;
             let property = $properties.expect_one();
             let (value, _) = expect_property_name!(property, $property_name);
-            assert_eq!(value, PropertyValue::Inherit);
+            assert_eq!(value, bevy_flair_core::PropertyValue::Inherit);
         }};
         ($properties:expr, $property_name:literal, initial) => {{
             let property = $properties.expect_one();
             let (value, _) = expect_property_name!(property, $property_name);
-            assert_eq!(value, PropertyValue::Initial);
+            assert_eq!(value, bevy_flair_core::PropertyValue::Initial);
         }};
         ($properties:expr, $property_name:literal, $expected:literal) => {{
             let property = $properties.expect_one();
             let (value, _) = expect_property_name!(property, $property_name);
             assert_eq!(
                 value,
-                PropertyValue::Value(ReflectValue::new($expected as i32))
+                bevy_flair_core::PropertyValue::Value(bevy_flair_core::ReflectValue::new(
+                    $expected as i32
+                ))
             );
         }};
     }
+
+    pub(super) use assert_selector_is_class_selector;
+    pub(super) use assert_single_property;
+    pub(super) use expect_property_name;
+    pub(super) use expect_single_selector;
+    pub(super) use property_id;
 
     #[test]
     fn empty_input() {
@@ -1793,53 +1354,8 @@ mod tests {
     }
 
     #[test]
-    fn keyframes() {
-        let contents = indoc! {r#"
-            @keyframes slide-in {
-              from {
-                height: 1;
-              }
-              50% {
-                height: 2
-              }
-              to {
-                height: 3;
-              }
-            }
-         "#};
-
-        let items = parse(contents);
-        let keyframes = items.expect_one_animation_keyframes();
-
-        assert_eq!(keyframes.name, "slide-in");
-
-        let [from, fifty, to] = keyframes.keyframes.expect_n();
-
-        assert!(matches!(from, AnimationKeyFrame::Valid { ref times, .. } if times == &[0.0]));
-        assert!(matches!(fifty, AnimationKeyFrame::Valid { ref times, .. } if times == &[0.5]));
-        assert!(matches!(to, AnimationKeyFrame::Valid { ref times, .. } if times == &[1.0]));
-
-        let (_, from_properties) = from.unwrap();
-        let (_, fifty_properties) = fifty.unwrap();
-        let (_, to_properties) = to.unwrap();
-
-        assert_single_property!(from_properties, "height", 1);
-        assert_single_property!(fifty_properties, "height", 2);
-        assert_single_property!(to_properties, "height", 3);
-    }
-
-    #[test]
     fn animation_property() {
         let contents = r#"
-            @keyframes some-animation {
-              from {
-                height: 1;
-              }
-              to {
-                height: 2;
-              }
-            }
-
             .rule1 {
               animation: 3s linear some-animation;
             }
@@ -1847,7 +1363,7 @@ mod tests {
 
         let items = parse(contents);
 
-        let [_, ruleset] = items.expect_n();
+        let ruleset = items.expect_one();
 
         let ruleset = match ruleset {
             CssStyleSheetItem::RuleSet(ruleset) => ruleset,
@@ -2090,31 +1606,6 @@ mod tests {
     }
 
     #[test]
-    fn font_face() {
-        let contents = indoc! {r#"
-         @font-face {
-           font-family: "Poppings";
-           src:
-             url("Poppings-Regular.ttf");
-         }
-         "#};
-
-        let items = parse(contents);
-        let font_face = items.expect_one_font_face();
-
-        assert!(font_face.errors.is_empty());
-
-        assert_eq!(
-            font_face,
-            FontFace {
-                family_name: "Poppings".into(),
-                source: "Poppings-Regular.ttf".into(),
-                errors: Vec::new()
-            }
-        );
-    }
-
-    #[test]
     fn imports() {
         let contents = indoc! {r#"
              @import "dependency1.css";
@@ -2143,147 +1634,6 @@ mod tests {
         );
         assert!(
             matches!(import2, CssStyleSheetItem::EmbedStylesheet(_, Some(layer)) if layer == "some-layer")
-        );
-    }
-
-    #[test]
-    fn media_query_width() {
-        let contents = indoc! {r#"
-             @media (width: 360px) {
-                .rule { width: 3 }
-             }
-         "#};
-
-        let items = parse(contents);
-        let ruleset = items.expect_one_rule_set();
-        let selector = expect_single_selector!(ruleset);
-
-        let media_selectors = selector.get_media_selectors();
-
-        assert_eq!(media_selectors.len(), 1);
-        assert_eq!(
-            media_selectors[0],
-            MediaSelector::ViewportWidth(MediaRangeSelector::Exact(360))
-        );
-
-        assert_selector_is_class_selector!(selector, "rule");
-    }
-
-    #[test]
-    fn media_query_min_width() {
-        let contents = indoc! {r#"
-             @media (min-width: 500px) {
-                .rule { width: 3 }
-             }
-         "#};
-
-        let items = parse(contents);
-        let ruleset = items.expect_one_rule_set();
-        let selector = expect_single_selector!(ruleset);
-
-        let media_selectors = selector.get_media_selectors();
-
-        assert_eq!(media_selectors.len(), 1);
-        assert_eq!(
-            media_selectors[0],
-            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500))
-        );
-
-        assert_selector_is_class_selector!(selector, "rule");
-    }
-
-    #[test]
-    fn media_query_complex() {
-        let contents = indoc! {r#"
-             @media (prefers-color-scheme: dark) and (min-resolution: 1.5x) and (min-aspect-ratio: 3/4) {
-                @media (max-width: 1000px) {
-                    .rule { width: 3 }
-                }
-             }
-         "#};
-
-        let items = parse(contents);
-        let ruleset = items.expect_one_rule_set();
-        let selector = expect_single_selector!(ruleset);
-
-        let media_selectors = selector.get_media_selectors();
-
-        assert_eq!(
-            &**media_selectors,
-            &[
-                MediaSelector::ColorScheme(ColorScheme::Dark),
-                MediaSelector::Resolution(MediaRangeSelector::GreaterOrEqual(1.5)),
-                MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(3.0 / 4.0)),
-                MediaSelector::ViewportWidth(MediaRangeSelector::LessOrEqual(1000)),
-            ]
-        );
-
-        assert_selector_is_class_selector!(selector, "rule");
-    }
-
-    #[test]
-    fn media_query_min_max_nested() {
-        let contents = indoc! {r#"
-             @media (min-width: 500px) {
-                @media (max-width: 1000px) {
-                    .rule { width: 3 }
-                }
-             }
-         "#};
-
-        let items = parse(contents);
-        let ruleset = items.expect_one_rule_set();
-        let selector = expect_single_selector!(ruleset);
-
-        let media_selectors = selector.get_media_selectors();
-
-        assert_eq!(
-            &**media_selectors,
-            &[
-                MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
-                MediaSelector::ViewportWidth(MediaRangeSelector::LessOrEqual(1000))
-            ]
-        );
-
-        assert_selector_is_class_selector!(selector, "rule");
-    }
-
-    #[test]
-    fn media_query_inside_rule() {
-        let contents = indoc! {r#"
-             .rule {
-                @media (max-width: 1000px) {
-                    width: 3
-                }
-             }
-         "#};
-
-        let items = parse(contents);
-        let ruleset = items.expect_one_rule_set();
-        let selector = expect_single_selector!(ruleset);
-
-        assert_selector_is_class_selector!(selector, "rule");
-
-        let mut properties = ruleset.properties;
-        assert_eq!(properties.len(), 1);
-
-        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(0) else {
-            panic!("Expected nested ruleset")
-        };
-
-        let nested_selector = nested_ruleset
-            .selectors
-            .expect("Error while parsing nested selector");
-        assert_eq!(nested_selector.len(), 1);
-        assert_eq!(nested_selector[0].to_css_string(), "&");
-
-        let media_selectors = nested_selector[0].get_media_selectors();
-
-        assert_eq!(
-            &**media_selectors,
-            &[MediaSelector::ViewportWidth(
-                MediaRangeSelector::LessOrEqual(1000)
-            )]
         );
     }
 

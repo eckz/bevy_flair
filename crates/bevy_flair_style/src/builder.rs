@@ -1,8 +1,9 @@
 use crate::animations::{
-    AnimationProperties, AnimationProperty, AnimationPropertyId, TransitionPropertyId,
+    AnimationKeyframes, AnimationProperties, AnimationProperty, AnimationPropertyId,
+    TransitionPropertyId,
 };
 use crate::{
-    AnimationKeyframes, DynamicParseVarTokens, VarName, VarTokens,
+    DynamicParseVarTokens, VarName, VarTokens,
     style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
 };
 
@@ -168,6 +169,7 @@ impl<A> AssetPathPlaceHolder<A> {
 ///
 /// This enum allows the styling system to support both statically defined properties and dynamically
 /// parsed properties using variables.
+#[derive(Clone)]
 pub enum StyleBuilderProperty {
     /// A statically typed style property.
     Specific {
@@ -185,6 +187,44 @@ pub enum StyleBuilderProperty {
         /// The raw var tokens representing the property value.
         tokens: VarTokens,
     },
+}
+
+impl StyleBuilderProperty {
+    /// Creates a new `StyleBuilderProperty::Specific` with the given property reference and value.
+    pub fn new(
+        property_ref: impl Into<ComponentPropertyRef<'static>>,
+        value: PropertyValue,
+    ) -> Self {
+        Self::Specific {
+            property_ref: property_ref.into(),
+            value,
+        }
+    }
+
+    /// Resolves the `StyleBuilderProperty` into a `RulesetProperty` using the provided `PropertyRegistry`.
+    pub(crate) fn resolve(
+        self,
+        property_registry: &PropertyRegistry,
+    ) -> Result<RulesetProperty, CanonicalNameNotFoundError> {
+        Ok(match self {
+            StyleBuilderProperty::Specific {
+                property_ref,
+                value,
+            } => RulesetProperty::Specific {
+                property_id: property_registry.resolve(&property_ref)?,
+                value,
+            },
+            StyleBuilderProperty::Dynamic {
+                css_name,
+                parser,
+                tokens,
+            } => RulesetProperty::Dynamic {
+                css_name,
+                parser,
+                tokens,
+            },
+        })
+    }
 }
 
 impl From<RulesetProperty> for StyleBuilderProperty {
@@ -376,26 +416,7 @@ impl BuilderRuleset {
         ) -> Result<Vec<RulesetProperty>, CanonicalNameNotFoundError> {
             properties
                 .into_iter()
-                .map(|property| {
-                    Ok(match property {
-                        StyleBuilderProperty::Specific {
-                            property_ref,
-                            value,
-                        } => RulesetProperty::Specific {
-                            property_id: property_registry.resolve(&property_ref)?,
-                            value,
-                        },
-                        StyleBuilderProperty::Dynamic {
-                            css_name,
-                            parser,
-                            tokens,
-                        } => RulesetProperty::Dynamic {
-                            css_name,
-                            parser,
-                            tokens,
-                        },
-                    })
-                })
+                .map(|property| property.resolve(property_registry))
                 .collect()
         }
 
@@ -417,8 +438,7 @@ pub struct StyleSheetBuilder {
     layers_hierarchy: LayersHierarchy,
     font_faces: Vec<StyleFontFace>,
     rulesets: Vec<BuilderRuleset>,
-    animation_keyframes:
-        FxHashMap<Arc<str>, Vec<(ComponentPropertyRef<'static>, AnimationKeyframes)>>,
+    animation_keyframes: Vec<AnimationKeyframes>,
     css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
 }
 
@@ -463,27 +483,14 @@ impl StyleSheetBuilder {
         }
 
         self.animation_keyframes
-            .extend(
-                other
-                    .animation_keyframes
-                    .into_iter()
-                    .map(|(name, animation_keyframes)| {
-                        (
-                            name,
-                            animation_keyframes
-                                .into_iter()
-                                .map(|(id, frames)| (ComponentPropertyRef::Id(id), frames))
-                                .collect(),
-                        )
-                    }),
-            );
+            .extend(other.animation_keyframes.into_values());
 
         self.font_faces.extend(other.font_faces)
     }
 
     fn validate_all_properties(
         property_registry: &PropertyRegistry,
-        animation_keyframes: &FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
+        // animation_keyframes: &FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
         rulesets: &[Ruleset],
     ) -> Result<(), StyleSheetBuilderError> {
         struct InvalidPropertyError {
@@ -540,26 +547,27 @@ impl StyleSheetBuilder {
             }
         }
 
-        for (animation_name, properties) in animation_keyframes.iter() {
-            for (property_id, keyframes) in properties {
-                for (_, value, _) in keyframes {
-                    validate_value(property_registry, *property_id, value).map_err(
-                        |InvalidPropertyError {
-                             property,
-                             expected_value_type_path,
-                             found_value_type_path,
-                         }| {
-                            StyleSheetBuilderError::InvalidPropertyInAnimationKeyframes {
-                                animation_name: animation_name.clone(),
-                                property,
-                                expected_value_type_path,
-                                found_value_type_path,
-                            }
-                        },
-                    )?
-                }
-            }
-        }
+        // TODO???
+        // for (animation_name, properties) in animation_keyframes.iter() {
+        // for (property_id, keyframes) in properties {
+        // for (_, value, _) in keyframes {
+        //     validate_value(property_registry, *property_id, value).map_err(
+        //         |InvalidPropertyError {
+        //              property,
+        //              expected_value_type_path,
+        //              found_value_type_path,
+        //          }| {
+        //             StyleSheetBuilderError::InvalidPropertyInAnimationKeyframes {
+        //                 animation_name: animation_name.clone(),
+        //                 property,
+        //                 expected_value_type_path,
+        //                 found_value_type_path,
+        //             }
+        //         },
+        //     )?
+        // }
+        //     }
+        // }
 
         Ok(())
     }
@@ -588,20 +596,9 @@ impl StyleSheetBuilder {
         Ok(())
     }
 
-    /// Add configuration for a specific animation by providing the animation keyframes
-    pub fn add_animation_keyframes<'a, I, P>(&mut self, name: impl Into<Arc<str>>, properties: I)
-    where
-        P: Into<ComponentPropertyRef<'a>>,
-        I: IntoIterator<Item = (P, AnimationKeyframes)>,
-    {
-        self.animation_keyframes
-            .entry(name.into())
-            .or_default()
-            .extend(
-                properties
-                    .into_iter()
-                    .map(|(p, keyframes)| (p.into().into_static(), keyframes)),
-            );
+    /// Adds animation keyframes to the style sheet.
+    pub fn add_animation_keyframes(&mut self, animation_keyframes: AnimationKeyframes) {
+        self.animation_keyframes.push(animation_keyframes);
     }
 
     /// Creates a new ruleset and returns a [`RulesetBuilder`] to build such ruleset.
@@ -746,22 +743,28 @@ impl StyleSheetBuilder {
             .map(|ruleset| ruleset.resolve(property_registry))
             .collect::<Result<Vec<_>, _>>()?;
 
+        // let animation_keyframes = self
+        //     .animation_keyframes
+        //     .into_iter()
+        //     .map(|(animation_name, properties)| {
+        //         let properties = properties
+        //             .into_iter()
+        //             .map(|(property_ref, keyframes)| {
+        //                 Ok((property_registry.resolve(&property_ref)?, keyframes))
+        //             })
+        //             .collect::<Result<Vec<_>, _>>()?;
+        //
+        //         Ok((animation_name, properties))
+        //     })
+        //     .collect::<Result<FxHashMap<_, _>, CanonicalNameNotFoundError>>()?;
+
         let animation_keyframes = self
             .animation_keyframes
             .into_iter()
-            .map(|(animation_name, properties)| {
-                let properties = properties
-                    .into_iter()
-                    .map(|(property_ref, keyframes)| {
-                        Ok((property_registry.resolve(&property_ref)?, keyframes))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+            .map(|keyframes| (keyframes.name().clone(), keyframes))
+            .collect();
 
-                Ok((animation_name, properties))
-            })
-            .collect::<Result<FxHashMap<_, _>, CanonicalNameNotFoundError>>()?;
-
-        Self::validate_all_properties(property_registry, &animation_keyframes, &rulesets)?;
+        Self::validate_all_properties(property_registry, &rulesets)?;
 
         Ok(StyleSheet {
             font_faces,

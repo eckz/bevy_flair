@@ -120,6 +120,14 @@ impl ComputedValue {
         }
     }
 
+    /// Converts this `ComputedValue` into an `Option`.
+    pub fn into_option(self) -> Option<ReflectValue> {
+        match self {
+            ComputedValue::Value(v) => Some(v),
+            ComputedValue::None => None,
+        }
+    }
+
     /// Expects that a value is defined
     pub fn expect(self, msg: &str) -> ReflectValue {
         match self {

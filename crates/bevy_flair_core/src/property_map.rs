@@ -111,6 +111,13 @@ impl<T> Index<ComponentPropertyId> for PropertyMap<T> {
     }
 }
 
+impl<'a, T> Index<&'a ComponentPropertyId> for PropertyMap<T> {
+    type Output = T;
+    fn index(&self, index: &'a ComponentPropertyId) -> &Self::Output {
+        &self[*index]
+    }
+}
+
 impl<T> Index<Range<ComponentPropertyId>> for PropertyMap<T> {
     type Output = [T];
     fn index(&self, index: Range<ComponentPropertyId>) -> &Self::Output {

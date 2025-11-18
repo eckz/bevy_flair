@@ -1,15 +1,15 @@
 //! Contains all components used by the style system.
 
 use crate::animations::{
-    Animation, AnimationPlayState, AnimationState, ReflectAnimatable, Transition,
-    TransitionOptions, TransitionState,
+    Animation, AnimationConfiguration, AnimationPlayState, AnimationState, ReflectAnimatable,
+    ResolvedAnimationKeyframes, Transition, TransitionOptions, TransitionState,
 };
 use std::borrow::Cow;
 
 use crate::{
     AnimationEvent, AnimationEventType, AttributeKey, AttributeValue, ClassName, ColorScheme,
-    DynamicParseVarTokens, IdName, NodePseudoState, NodePseudoStateSelector, ResolvedAnimation,
-    StyleSheet, TransitionEvent, TransitionEventType, VarTokens,
+    DynamicParseVarTokens, IdName, NodePseudoState, NodePseudoStateSelector, StyleSheet,
+    TransitionEvent, TransitionEventType, VarTokens,
 };
 
 use bevy_ecs::prelude::*;
@@ -20,9 +20,7 @@ use bevy_flair_core::{
 use bevy_reflect::prelude::*;
 use bitflags::bitflags;
 
-use crate::style_sheet::{
-    RulesetProperty, StyleSheetRulesetId, VarResolver, ruleset_property_to_output,
-};
+use crate::style_sheet::{RulesetProperty, StyleSheetRulesetId, VarResolver};
 use bevy_asset::{AssetId, Handle};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::system::SystemParam;
@@ -236,7 +234,6 @@ impl<T: bitflags::Flags<Bits = usize>> AtomicFlags<T> {
 }
 
 #[derive(Debug, Default, Component)]
-// #[reflect(Debug, Default, Component)]
 pub(crate) struct NodeStyleSelectorFlags {
     pub(crate) css_selector_flags: AtomicFlags<selectors::matching::ElementSelectorFlags>,
     pub(crate) recalculate_on_change_flags: AtomicFlags<RecalculateOnChangeFlags>,
@@ -452,7 +449,9 @@ pub struct NodeProperties {
     transitions: PropertiesHashMap<Transition>,
     pending_transition_events: Vec<TransitionEvent>,
 
-    animations: PropertiesHashMap<Vec<Animation>>,
+    pub(crate) current_animation_configs: Vec<AnimationConfiguration>,
+    pub(crate) pending_animation_configs: Option<Vec<AnimationConfiguration>>,
+    animations: FxHashMap<Arc<str>, Vec<(ComponentPropertyId, Animation)>>,
     pending_animation_events: Vec<AnimationEvent>,
 }
 
@@ -545,9 +544,7 @@ impl NodeProperties {
             self.property_values = pending_property_values;
         }
         self.pending_computed_values = pending_computed_values;
-        self.pending_computed_animation_values = empty_computed_properties.0.clone();
         self.create_transitions(type_registry, property_registry);
-        self.apply_transitions_and_animations();
     }
 
     pub(crate) fn compute_pending_property_values_with_parent(
@@ -604,9 +601,7 @@ impl NodeProperties {
         }
 
         self.pending_computed_values = pending_computed_values;
-        self.pending_computed_animation_values = empty_computed_properties.0.clone();
         self.create_transitions(type_registry, property_registry);
-        self.apply_transitions_and_animations();
     }
 
     // Checks the difference between pending_computed_values and computed_values
@@ -695,18 +690,15 @@ impl NodeProperties {
         }
     }
 
-    // Similar effect as compute_pending_property_values but when it's known there are not property values changes
-    pub(crate) fn compute_just_animation_properties_values(
+    // Sets `self.pending_computed_animation_values`
+    pub(crate) fn set_animation_computed_values(
         &mut self,
         empty_computed_properties: &EmptyComputedProperties,
     ) {
-        #[cfg(debug_assertions)]
-        self.compute_values_debug_assertions(
-            "compute_just_animation_properties_values",
-            empty_computed_properties,
+        debug_assert!(
+            self.pending_computed_animation_values.is_empty(),
+            "`set_animation_computed_values` expects `pending_computed_animation_values` to be empty"
         );
-
-        self.pending_computed_values = self.computed_values.clone();
         self.pending_computed_animation_values = empty_computed_properties.0.clone();
         self.apply_transitions_and_animations();
     }
@@ -732,17 +724,11 @@ impl NodeProperties {
             }
         }
 
-        for (property_id, value) in
-            self.animations
-                .iter()
-                .filter_map(|(&property_id, animations)| {
-                    animations
-                        .iter()
-                        // Find the first one that emits a value
-                        .find_map(|animation| animation.sample_value())
-                        .map(|value| (property_id, value))
-                })
-        {
+        for (property_id, value) in self.animations.values().flat_map(|animations| {
+            animations.iter().filter_map(|(property_id, animation)| {
+                Some((*property_id, animation.sample_value()?))
+            })
+        }) {
             self.pending_computed_animation_values[property_id] = value.into();
         }
     }
@@ -877,86 +863,87 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
 
     pub(crate) fn set_animations(
         &mut self,
-        new_animations: Vec<ResolvedAnimation>,
+        new_animation_configs: Vec<AnimationConfiguration>,
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
+        mut resolve_animation: impl FnMut(&AnimationConfiguration) -> Option<ResolvedAnimationKeyframes>,
     ) {
-        let previous_animations_map = &self
-            .animations
+        let new_animations_set = new_animation_configs
             .iter()
-            .flat_map(|(property_id, animations)| {
-                animations.iter().map(|a| (*property_id, a.name.clone()))
-            })
+            .map(|a| a.name.clone())
             .collect::<FxHashSet<_>>();
 
-        let new_animations_map: FxHashMap<_, _> = new_animations
-            .into_iter()
-            .map(|a| ((a.property_id, a.name.clone()), a))
-            .collect();
-
         // Cancel animations that don't exist anymore
-        for (property_id, name) in previous_animations_map.iter() {
-            if new_animations_map.contains_key(&(*property_id, name.clone())) {
+        for (name, animations) in &mut self.animations {
+            if new_animations_set.contains(name) {
                 continue;
             }
-            let animations = self.animations.entry(*property_id).or_default();
 
-            for animation in animations {
-                if &animation.name == name {
-                    trace!("Cancelling animation: {animation:?}");
-                    animation.cancel();
-
-                    self.pending_animation_events.push(AnimationEvent {
-                        entity: Entity::PLACEHOLDER,
-                        property_id: *property_id,
-                        name: animation.name.clone(),
-                        event_type: AnimationEventType::Canceled,
-                    });
-                }
+            trace!("Cancelling animation: {name:?}");
+            for (property_id, animation) in animations {
+                animation.cancel();
+                self.pending_animation_events.push(AnimationEvent {
+                    entity: Entity::PLACEHOLDER,
+                    property_id: *property_id,
+                    name: animation.name.clone(),
+                    event_type: AnimationEventType::Canceled,
+                });
             }
         }
 
-        // Add new animations
-        for ((property_id, name), resolved_animation) in new_animations_map {
-            let animations = self.animations.entry(property_id).or_default();
+        // Add new animations and update existing ones
+        for animation_config in &new_animation_configs {
+            let animations = self
+                .animations
+                .entry(animation_config.name.clone())
+                .or_default();
 
-            let Some(reflect_animatable) =
-                get_reflect_animatable(property_id, type_registry, property_registry)
-            else {
-                continue;
-            };
-
-            let mut existing_animation = None;
-
-            // Pause all other animations for this property and try to find the animation with the same name
-            for animation in animations.iter_mut() {
-                if animation.name == name {
-                    existing_animation = Some(animation);
-                }
+            if animations
+                .iter()
+                .all(|(_, a)| a.state == AnimationState::Canceled)
+            {
+                animations.clear();
             }
 
-            match existing_animation {
-                Some(existing_animation)
-                    if existing_animation.state != AnimationState::Canceled =>
-                {
-                    existing_animation.update_options(&resolved_animation.options);
-                }
-                _ => {
+            if animations.is_empty() {
+                // We need to create a new animation
+                let Some(resolved_animation) = resolve_animation(animation_config) else {
+                    continue;
+                };
+
+                for (property_id, keyframes) in resolved_animation.into_iter() {
+                    let Some(reflect_animatable) =
+                        get_reflect_animatable(property_id, type_registry, property_registry)
+                    else {
+                        // TODO: Warning?
+                        continue;
+                    };
+
                     let new_animation = Animation::new(
-                        name,
-                        &resolved_animation.keyframes,
-                        &resolved_animation.options,
+                        animation_config.name.clone(),
+                        &keyframes,
+                        &animation_config.options,
                         reflect_animatable,
                     );
-                    let property = &property_registry[property_id];
-                    trace!("New animation for {property}: {new_animation:?}");
-                    animations.push(new_animation);
+
+                    // TODO: Use debug_helper?
+                    trace!("New animation for {property_id:?}: {new_animation:?}");
+                    animations.push((property_id, new_animation));
+                }
+            } else {
+                // This animation has active properties, we just need to update its configuration
+
+                for (_, animation) in animations {
+                    animation.update_options(&animation_config.options);
                 }
             }
         }
+        self.current_animation_configs = new_animation_configs;
     }
 
     pub(crate) fn reset(&mut self, empty_computed_properties: &EmptyComputedProperties) {
+        // This should clear everything except `auto_inserted_components`
+
         self.pending_property_values = PropertyMap::default();
         self.property_values = PropertyMap::default();
 
@@ -969,6 +956,8 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
         self.transitions.clear();
         self.pending_transition_events.clear();
 
+        self.current_animation_configs.clear();
+        self.pending_animation_configs = None;
         self.animations.clear();
         self.pending_animation_events.clear();
     }
@@ -983,8 +972,10 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
             || self
                 .animations
                 .values()
-                .flat_map(|a| a.iter())
-                .any(|a| a.can_be_ticked() && a.get_play_state() == AnimationPlayState::Running)
+                .flat_map(|animations| animations.iter())
+                .any(|(_, a)| {
+                    a.can_be_ticked() && a.get_play_state() == AnimationPlayState::Running
+                })
     }
 
     pub(crate) fn tick_animations(&mut self, delta: Duration) {
@@ -1011,8 +1002,9 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
             }
         }
 
-        for (&property_id, animations) in self.animations.iter_mut() {
-            for animation in animations.iter_mut() {
+        for animations in self.animations.values_mut() {
+            for (property_id, animation) in animations.iter_mut() {
+                let property_id = *property_id;
                 if !animation.can_be_ticked() {
                     return;
                 }
@@ -1051,9 +1043,11 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
             )
         });
 
-        for animations in self.animations.values_mut() {
-            animations.retain(|a| a.state != AnimationState::Canceled);
-        }
+        self.animations.retain(|_, animations| {
+            animations
+                .iter()
+                .all(|(_, a)| a.state != AnimationState::Canceled)
+        });
     }
 
     pub(crate) fn has_pending_events(&self) -> bool {
@@ -1101,7 +1095,9 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
     pub fn active_animations(&self) -> impl Iterator<Item = &Animation> {
         self.animations
             .values()
-            .flat_map(|t| t.iter().filter(|a| a.is_active()))
+            .flat_map(|t| t.iter())
+            .map(|(_, a)| a)
+            .filter(|a| a.is_active())
     }
 
     #[cfg(debug_assertions)]
@@ -1161,15 +1157,25 @@ impl<'w> PropertyIdDebugHelperParam<'w> {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct PropertyIdDebugHelper<'a> {
+    property_registry: Cow<'a, PropertyRegistry>,
+    css_property_registry: Cow<'a, CssPropertyRegistry>,
+}
+
 impl<'a, 'w> From<&'a PropertyIdDebugHelperParam<'w>> for PropertyIdDebugHelper<'a> {
     fn from(value: &'a PropertyIdDebugHelperParam<'w>) -> Self {
         value.as_helper()
     }
 }
 
-pub(crate) struct PropertyIdDebugHelper<'a> {
-    property_registry: Cow<'a, PropertyRegistry>,
-    css_property_registry: Cow<'a, CssPropertyRegistry>,
+impl<'a> From<&'a PropertyRegistry> for PropertyIdDebugHelper<'a> {
+    fn from(value: &'a PropertyRegistry) -> Self {
+        Self {
+            property_registry: Cow::Borrowed(value),
+            css_property_registry: Cow::Owned(CssPropertyRegistry::default()),
+        }
+    }
 }
 
 impl PropertyIdDebugHelper<'_> {
@@ -1269,7 +1275,7 @@ mod debug_only {
 /// ```
 /// Somehow similar to the [`localName`] property in HTML.
 ///
-/// [`localName`](https://developer.mozilla.org/en-US/docs/Web/API/Element/localName)
+/// [`localName`]: <https://developer.mozilla.org/en-US/docs/Web/API/Element/localName>
 #[derive(Clone, Debug, Default, PartialEq, Component, Reflect)]
 #[reflect(Debug, Default, Component)]
 #[component(immutable, on_insert = on_insert_type_name)]
@@ -1359,7 +1365,7 @@ fn on_insert_pseudo_elements_support(mut world: DeferredWorld, context: HookCont
 /// Contains all classes that belong to the current entity.
 /// Similar to the [`classList`] property in HTML.
 ///
-/// [`classList`](https://developer.mozilla.org/en-US/docs/Web/API/Element/classList)
+/// [`classList`]: <https://developer.mozilla.org/en-US/docs/Web/API/Element/classList>
 #[derive(Clone, Debug, Default, PartialEq, Component, Reflect)]
 #[reflect(Debug, Default, Component)]
 pub struct ClassList(pub(crate) Vec<ClassName>);
@@ -1473,8 +1479,8 @@ impl std::fmt::Display for ClassList {
 /// Contains all attributes that belong to the current entity.
 /// Similar to using [`getAttribute`] and [`setAttribute`] on an element.
 ///
-/// [`getAttribute`](https://developer.mozilla.org/en-US/docs/Web/API/Element/getAttribute)
-/// [`setAttribute`](https://developer.mozilla.org/en-US/docs/Web/API/Element/setAttribute)
+/// [`getAttribute`]: <https://developer.mozilla.org/en-US/docs/Web/API/Element/getAttribute>
+/// [`setAttribute`]: <https://developer.mozilla.org/en-US/docs/Web/API/Element/setAttribute>
 #[derive(Clone, Debug, Default, PartialEq, Component, Reflect)]
 #[reflect(Debug, Default, Component)]
 pub struct AttributeList(pub(crate) std::collections::HashMap<AttributeKey, AttributeValue>);
@@ -1580,7 +1586,9 @@ impl RawInlineStyle {
             .iter()
             .flat_map(|(_, properties)| properties.iter())
         {
-            ruleset_property_to_output(property, property_registry, var_resolver, output);
+            property.resolve(property_registry, var_resolver, |property_id, value| {
+                output.set_if_neq(property_id, value);
+            });
         }
     }
 
@@ -1626,7 +1634,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::animations::{AnimationOptions, EasingFunction};
+    use crate::animations::{AnimationOptions, AnimationPropertyKeyframe, EasingFunction};
     use bevy_flair_core::{PropertyCanonicalName, PropertyValue, impl_component_properties};
     use bevy_reflect::TypeRegistry;
     use std::sync::LazyLock;
@@ -1776,21 +1784,25 @@ mod tests {
         ($properties:expr) => {{
             set_property_values!($properties);
             $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
+            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
             $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
+            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, $parent:expr) => {{
             set_property_values!($properties);
             $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
+            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, $parent:expr, { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
             $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
+            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
             assert!($properties.pending_property_values.is_empty());
         }};
     }
@@ -1828,6 +1840,7 @@ mod tests {
             &EMPTY_COMPUTED_PROPERTIES,
             &INITIAL_VALUES,
         );
+        properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
         assert!(properties.pending_property_values.is_empty());
 
         assert_eq!(apply_computed_values!(properties), vec![]);
@@ -1858,6 +1871,7 @@ mod tests {
             &EMPTY_COMPUTED_PROPERTIES,
             &INITIAL_VALUES,
         );
+        properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
         assert!(properties.pending_property_values.is_empty());
 
         assert_eq!(apply_computed_values!(properties), vec![]);
@@ -2512,32 +2526,53 @@ mod tests {
         );
     }
 
-    static TEST_KEYFRAMES: LazyLock<Vec<(f32, ReflectValue, EasingFunction)>> =
-        LazyLock::new(|| {
-            vec![
-                (0.0, ReflectValue::Float(0.0), EasingFunction::default()),
-                (1.0, ReflectValue::Float(1.0), EasingFunction::default()),
-            ]
-        });
+    static TEST_KEYFRAMES: LazyLock<Vec<AnimationPropertyKeyframe>> = LazyLock::new(|| {
+        vec![
+            AnimationPropertyKeyframe::new(
+                0.0,
+                ReflectValue::Float(0.0),
+                EasingFunction::default(),
+            ),
+            AnimationPropertyKeyframe::new(
+                1.0,
+                ReflectValue::Float(1.0),
+                EasingFunction::default(),
+            ),
+        ]
+    });
 
     const DEFAULT_ANIMATION_OPTIONS: AnimationOptions = AnimationOptions {
         duration: Duration::from_secs(1),
         ..AnimationOptions::DEFAULT
     };
 
+    fn mock_resolve_animation(
+        _config: &AnimationConfiguration,
+    ) -> Option<ResolvedAnimationKeyframes> {
+        Some(
+            [(property_id!(PROPERTY_1), TEST_KEYFRAMES.clone())]
+                .into_iter()
+                .collect(),
+        )
+    }
+
     #[test]
     fn properties_change_animations_cancels_animations() {
         let mut properties = default_node_properties();
 
         // Create an animation for PROPERTY_1.
-        let animation = ResolvedAnimation {
-            property_id: property_id!(PROPERTY_1),
+        let animation = AnimationConfiguration {
             name: "animation".into(),
-            keyframes: TEST_KEYFRAMES.clone(),
             options: DEFAULT_ANIMATION_OPTIONS,
+            ..Default::default()
         };
 
-        properties.set_animations(vec![animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.set_animations(
+            vec![animation.clone()],
+            &TYPE_REGISTRY,
+            &PROPERTY_REGISTRY,
+            mock_resolve_animation,
+        );
 
         assert!(!properties.has_active_animations_or_transitions());
         assert_eq!(properties.active_animations().count(), 0);
@@ -2559,7 +2594,12 @@ mod tests {
         );
 
         // Now remove all animations -> existing running animation should be canceled.
-        properties.set_animations(vec![], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.set_animations(
+            vec![],
+            &TYPE_REGISTRY,
+            &PROPERTY_REGISTRY,
+            mock_resolve_animation,
+        );
 
         // There should be a cancel animation event emitted
         assert_eq!(
@@ -2577,14 +2617,18 @@ mod tests {
     fn properties_animations_are_not_restarted() {
         let mut properties = default_node_properties();
 
-        let animation = ResolvedAnimation {
-            property_id: property_id!(PROPERTY_1),
+        let animation = AnimationConfiguration {
             name: "animation".into(),
-            keyframes: TEST_KEYFRAMES.clone(),
             options: DEFAULT_ANIMATION_OPTIONS,
+            ..Default::default()
         };
 
-        properties.set_animations(vec![animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.set_animations(
+            vec![animation.clone()],
+            &TYPE_REGISTRY,
+            &PROPERTY_REGISTRY,
+            mock_resolve_animation,
+        );
         properties.tick_animations(Duration::ZERO);
 
         assert_eq!(
@@ -2611,7 +2655,12 @@ mod tests {
 
         properties.clear_finished_and_canceled_animations();
         // Same animation should not restart the animation
-        properties.set_animations(vec![animation.clone()], &TYPE_REGISTRY, &PROPERTY_REGISTRY);
+        properties.set_animations(
+            vec![animation.clone()],
+            &TYPE_REGISTRY,
+            &PROPERTY_REGISTRY,
+            mock_resolve_animation,
+        );
         properties.tick_animations(Duration::ZERO);
 
         assert_eq!(mem::take(&mut properties.pending_animation_events), vec![]);
@@ -2621,19 +2670,20 @@ mod tests {
     fn properties_consecutive_animations_on_same_property() {
         let mut properties = default_node_properties();
 
-        let initial_animation = ResolvedAnimation {
-            property_id: property_id!(PROPERTY_1),
+        let initial_animation = AnimationConfiguration {
             name: "initial_animation".into(),
-            keyframes: TEST_KEYFRAMES.clone(),
             options: AnimationOptions {
                 duration: Duration::from_secs(1),
                 ..AnimationOptions::default()
             },
+            default_timing_function: EasingFunction::Linear,
         };
+
         properties.set_animations(
             vec![initial_animation.clone()],
             &TYPE_REGISTRY,
             &PROPERTY_REGISTRY,
+            mock_resolve_animation,
         );
 
         properties.tick_animations(Duration::ZERO);
@@ -2652,21 +2702,21 @@ mod tests {
         );
 
         // Add a second animation with a delay for the same property.
-        let animation_with_delay = ResolvedAnimation {
-            property_id: property_id!(PROPERTY_1),
+        let animation_with_delay = AnimationConfiguration {
             name: "animation_with_delay".into(),
-            keyframes: TEST_KEYFRAMES.clone(),
             options: AnimationOptions {
                 initial_delay: Duration::from_secs(1),
                 duration: Duration::from_secs(1),
                 ..AnimationOptions::default()
             },
+            default_timing_function: EasingFunction::default(),
         };
 
         properties.set_animations(
             vec![initial_animation.clone(), animation_with_delay.clone()],
             &TYPE_REGISTRY,
             &PROPERTY_REGISTRY,
+            mock_resolve_animation,
         );
 
         properties.tick_animations(Duration::ZERO);

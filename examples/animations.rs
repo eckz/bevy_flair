@@ -1,5 +1,6 @@
 //! Simple example on how to apply CSS animations to Bevy.
-//! You can see the same version running on the browser for comparison: https://codepen.io/eckz/pen/pvyyEdO
+//! You can see the same version running on the browser for comparison:
+//! <https://codepen.io/eckz/pen/pvyyEdO>
 use bevy::prelude::*;
 use bevy_flair::prelude::*;
 

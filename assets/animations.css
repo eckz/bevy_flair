@@ -8,6 +8,7 @@
 
 :root {
     --default-duration: 3s;
+    --slide-target: 400px;
 }
 
 :root {
@@ -90,6 +91,8 @@ button:first-child {
 }
 
 .slide-with-fill-forwards, .slide-with-fill-backwards {
+    --slide-target: 600px;
+
     translate: 0;
     animation-name: slide, mark-color;
     animation-duration: var(--default-duration);
@@ -121,7 +124,7 @@ button:first-child {
         translate: 0 0;
     }
     to {
-        translate: 400px 0;
+        translate: var(--slide-target) 0;
     }
 }
 

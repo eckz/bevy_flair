@@ -15,7 +15,8 @@ use tracing::error;
 /// Represents a collection of CSS inline style properties.
 ///
 /// Similar to the [`style`] attribute in HTML-like markup.
-/// [`style`]: https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/style
+///
+/// [`style`]: <https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/style>
 #[derive(Debug, Default, PartialEq, Component)]
 #[require(RawInlineStyle)]
 pub struct InlineStyle {
@@ -203,7 +204,7 @@ pub(crate) fn parse_inline_style(
                 parser.expect_ident()?;
                 parser.expect_colon()?;
 
-                let result = css_property_parser.parse_ruleset_property(&css_name, true, parser);
+                let result = css_property_parser.parse_ruleset_property(&css_name, parser);
                 if let CssRulesetProperty::Error(error) = result {
                     Err(error.into_parse_error())
                 } else {
@@ -275,11 +276,12 @@ mod tests {
     use super::*;
     use crate::reflect::ReflectParsePlugin;
     use crate::shorthand::ShorthandPropertiesPlugin;
+    use crate::test_utils::NoVarsSupportedResolver;
     use bevy_app::{App, Update};
     use bevy_flair_core::{
         ImplComponentPropertiesPlugin, PropertyRegistryPlugin, PropertyValue, ReflectValue,
     };
-    use bevy_flair_style::{VarResolver, VarToken, VarTokens};
+    use bevy_flair_style::{VarToken, VarTokens};
     use bevy_ui::Val;
 
     fn test_app() -> App {
@@ -295,17 +297,6 @@ mod tests {
         app.add_systems(Update, parse_inline_style);
 
         app
-    }
-    struct NoVarsSupportedResolver;
-
-    impl VarResolver for NoVarsSupportedResolver {
-        fn get_all_names(&self) -> Vec<Arc<str>> {
-            panic!("No vars support on tests")
-        }
-
-        fn get_var_tokens(&self, _var_name: &str) -> Option<&'_ VarTokens> {
-            panic!("No vars support on tests")
-        }
     }
 
     #[test]

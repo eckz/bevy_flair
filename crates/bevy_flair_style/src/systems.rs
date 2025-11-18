@@ -16,6 +16,7 @@ use std::iter;
 use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
 
+use crate::animations::{AnimationConfiguration, KeyframesResolver};
 use crate::custom_iterators::{CustomUiChildren, CustomUiRoots};
 use crate::media_selector::MediaFeaturesProvider;
 use bevy_camera::{Camera, NormalizedRenderTarget};
@@ -855,14 +856,11 @@ pub(crate) fn set_property_values(
         &mut NodeStyleMarker,
         &mut NodeProperties,
     )>,
-    app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
     css_property_registry: Res<CssPropertyRegistry>,
     mut global_change_detection: ResMut<GlobalChangeDetection>,
     mut any_property_change_parallel: Local<bevy_utils::Parallel<bool>>,
 ) {
-    let type_registry = app_type_registry.read();
-
     styled_entities_query.par_iter_mut().for_each_init(
         || any_property_change_parallel.borrow_local_mut(),
         |any_property_change,
@@ -910,21 +908,13 @@ pub(crate) fn set_property_values(
 
             properties.pending_property_values = property_values;
 
-            // Apply animations
-            let animations = style_sheet.resolve_animations(new_rules, &entity_var_resolver);
+            let animation_configs =
+                style_sheet.resolve_animation_configs(new_rules, &entity_var_resolver);
 
-            if !animations.is_empty() {
-                trace!(
-                    "Resolved animations for '{name_or_entity}': {debug_animations:?}'",
-                    debug_animations = animations
-                        .iter()
-                        .map(|a| { (&a.name, &a.options) })
-                        .collect::<Vec<_>>()
-                );
+            if animation_configs != properties.current_animation_configs {
+                debug!("New animations for '{name_or_entity}': {animation_configs:?}'");
+                properties.pending_animation_configs = Some(animation_configs);
             }
-
-            properties.set_animations(animations, &type_registry, &property_registry);
-
             marker.clear_style_recalculation();
         },
     );
@@ -935,12 +925,6 @@ pub(crate) fn set_property_values(
             *change = false;
         }
     }
-}
-
-pub(crate) fn compute_just_animation_properties_values_condition(
-    global_change_detection: Res<GlobalChangeDetection>,
-) -> bool {
-    !global_change_detection.any_property_value_changed
 }
 
 pub(crate) fn compute_property_values_condition(
@@ -966,15 +950,64 @@ fn set_needs_property_application(properties: &NodeProperties, marker: &mut Node
     }
 }
 
-// Only compute_property_values or compute_just_animation_properties_values can be executed on the same frame
+pub(crate) fn resolve_animations(
+    app_type_registry: Res<AppTypeRegistry>,
+    property_registry: Res<PropertyRegistry>,
+    var_resolver: VarResolverParam,
+    initial_property_values: Res<InitialPropertyValues>,
+    debug_helper: PropertyIdDebugHelperParam,
+    style_sheets: Res<Assets<StyleSheet>>,
+    mut node_properties_query: Query<(NameOrEntity, &mut NodeProperties, &NodeStyleData)>,
+) {
+    let type_registry = app_type_registry.read();
+    for (name_or_entity, mut node_properties, style_data) in &mut node_properties_query {
+        let Some(style_sheet) = style_sheets.get(style_data.effective_style_sheet_asset_id) else {
+            continue;
+        };
+        let Some(pending_animation_configs) = node_properties.pending_animation_configs.take()
+        else {
+            continue;
+        };
 
-pub(crate) fn compute_just_animation_properties_values(
+        trace!("Resolving {pending_animation_configs:?} for '{name_or_entity}'");
+
+        let entity_var_resolver = var_resolver.resolver_for_entity(name_or_entity.entity);
+        let keyframes_resolver = KeyframesResolver {
+            type_registry: &type_registry,
+            property_registry: &property_registry,
+            debug_helper: debug_helper.as_helper(),
+            var_resolver: &entity_var_resolver,
+            initial_values: &initial_property_values.0,
+            pending_computed_values: node_properties.pending_computed_values.clone(),
+            computed_values: node_properties.computed_values.clone(),
+        };
+
+        let resolve_animation = |config: &AnimationConfiguration| {
+            let animation_name = &config.name;
+            let Some(animation_keyframes) = style_sheet.animation_keyframes.get(animation_name)
+            else {
+                warn!("Animation '{animation_name}' does not exist");
+                return None;
+            };
+            Some(keyframes_resolver.resolve(animation_keyframes, &config.default_timing_function))
+        };
+
+        node_properties.set_animations(
+            pending_animation_configs,
+            &type_registry,
+            &property_registry,
+            resolve_animation,
+        );
+    }
+}
+
+pub(crate) fn set_animation_computed_values(
     empty_computed_properties: Res<EmptyComputedProperties>,
     mut node_properties_query: Query<(NameOrEntity, &mut NodeProperties, &mut NodeStyleMarker)>,
     #[cfg(debug_assertions)] debug_helper: PropertyIdDebugHelperParam,
 ) {
     for (_name_or_entity, mut properties, mut marker) in &mut node_properties_query {
-        properties.compute_just_animation_properties_values(&empty_computed_properties);
+        properties.set_animation_computed_values(&empty_computed_properties);
 
         #[cfg(debug_assertions)]
         if properties.pending_computed_animation_values != properties.last_computed_animation_values
@@ -987,6 +1020,16 @@ pub(crate) fn compute_just_animation_properties_values(
         }
 
         set_needs_property_application(&properties, &mut marker);
+    }
+}
+
+// When we know no property_value has changed, we need just need to initialized `pending_computed_properties`
+pub(crate) fn set_pending_compute_property_values(
+    mut node_properties_query: Query<&mut NodeProperties>,
+) {
+    for mut properties in &mut node_properties_query {
+        debug_assert!(properties.pending_computed_values.is_empty());
+        properties.pending_computed_values = properties.computed_values.clone();
     }
 }
 
@@ -1018,15 +1061,6 @@ pub(crate) fn compute_property_values(
                 .debug_pending_computed_values()
                 .into_debug(&debug_helper);
             trace!("Applying properties on '{name_or_entity}':\n{debug_properties:#?}");
-        }
-
-        if properties.pending_computed_animation_values != properties.last_computed_animation_values
-        {
-            let debug_animations = properties
-                .debug_pending_computed_animation_values()
-                .into_debug(&debug_helper);
-
-            trace!("Applying animation properties on '{name_or_entity}':\n{debug_animations:#?}");
         }
     };
     #[cfg(not(debug_assertions))]

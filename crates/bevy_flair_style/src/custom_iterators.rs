@@ -110,7 +110,7 @@ pub(crate) struct UiAncestorIter<'w, 's> {
 }
 
 impl<'w, 's> UiAncestorIter<'w, 's> {
-    /// Returns a new [`AncestorIter`].
+    /// Returns a new [`UiAncestorIter`].
     pub fn new(ui_children: &'w UiChildren<'w, 's>, entity: Entity) -> Self {
         UiAncestorIter {
             ui_children,
