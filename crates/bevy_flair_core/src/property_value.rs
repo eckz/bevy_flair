@@ -6,6 +6,7 @@ macro_rules! map_property_values {
     ($pv:expr, $on_value:expr) => {
         match $pv {
             PropertyValue::None => PropertyValue::None,
+            PropertyValue::Unset => PropertyValue::Unset,
             PropertyValue::Inherit => PropertyValue::Inherit,
             PropertyValue::Initial => PropertyValue::Initial,
             PropertyValue::Value(value) => PropertyValue::Value(($on_value)(value)),
@@ -19,6 +20,9 @@ macro_rules! map_property_values {
 pub enum PropertyValue<T = ReflectValue> {
     /// No specific value is set.
     None,
+    /// Uses the `unset` value, which depends on how the property was defined.
+    /// It's the same value as if the property was never defined
+    Unset,
     /// Inherits value from the parent.
     Inherit,
     /// Uses the `initial` value, which basically means the default value for the property.
@@ -42,11 +46,6 @@ impl<T> PropertyValue<T> {
     pub fn map<O>(self, f: impl FnOnce(T) -> O) -> PropertyValue<O> {
         map_property_values!(self, f)
     }
-
-    /// Returns true if the property value is set to inherit from the parent values or vars
-    pub fn inherits(&self) -> bool {
-        matches!(self, PropertyValue::Inherit)
-    }
 }
 
 impl<T: FromReflect> PropertyValue<T> {
@@ -57,28 +56,49 @@ impl<T: FromReflect> PropertyValue<T> {
 }
 
 impl PropertyValue {
-    /// Converts the PropertyValue value into a [`ComputedValue`] when there is a parent to inherit from.
-    pub fn compute_with_parent(
+    fn compute_internal(
         &self,
-        parent_computed_value: &ComputedValue,
+        // Set to None, when recursively resolving unset values
+        unset_value: Option<&PropertyValue>,
         initial_value: &ReflectValue,
+        parent_computed_value: Option<&ComputedValue>,
     ) -> ComputedValue {
-        match self {
-            PropertyValue::None => ComputedValue::None,
-            PropertyValue::Inherit => parent_computed_value.clone(),
-            PropertyValue::Initial => ComputedValue::Value(initial_value.clone()),
-            PropertyValue::Value(value) => ComputedValue::Value(value.clone()),
+        match (self, unset_value, parent_computed_value) {
+            (PropertyValue::None, _, _) => ComputedValue::None,
+            (PropertyValue::Unset, Some(unset_value), _) => {
+                unset_value.compute_internal(None, initial_value, parent_computed_value)
+            }
+            (PropertyValue::Unset, None, _) => {
+                unreachable!("`Unset` value cannot be `Unset` itself")
+            }
+            (PropertyValue::Inherit, _, Some(parent)) => parent.clone(),
+            (PropertyValue::Inherit, _, None) => ComputedValue::None,
+            (PropertyValue::Initial, _, _) => ComputedValue::Value(initial_value.clone()),
+            (PropertyValue::Value(value), _, _) => ComputedValue::Value(value.clone()),
         }
     }
 
+    /// Converts the PropertyValue value into a [`ComputedValue`] when there is a parent to inherit from.
+    pub fn compute_with_parent(
+        &self,
+        unset_value: &PropertyValue,
+        initial_value: &ReflectValue,
+        parent_computed_value: &ComputedValue,
+    ) -> ComputedValue {
+        self.compute_internal(
+            Some(unset_value),
+            initial_value,
+            Some(parent_computed_value),
+        )
+    }
+
     /// Converts the PropertyValue value into a [`ComputedValue`] when the is not parent to inherit.
-    pub fn compute_root_value(&self, initial_value: &ReflectValue) -> ComputedValue {
-        match self {
-            PropertyValue::None => ComputedValue::None,
-            PropertyValue::Inherit => ComputedValue::None,
-            PropertyValue::Initial => ComputedValue::Value(initial_value.clone()),
-            PropertyValue::Value(value) => ComputedValue::Value(value.clone()),
-        }
+    pub fn compute_as_root(
+        &self,
+        unset_value: &PropertyValue,
+        initial_value: &ReflectValue,
+    ) -> ComputedValue {
+        self.compute_internal(Some(unset_value), initial_value, None)
     }
 }
 
@@ -149,5 +169,80 @@ impl From<Option<ReflectValue>> for ComputedValue {
             None => ComputedValue::None,
             Some(value) => ComputedValue::Value(value),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_ref_as_mut_and_map_behaviour() {
+        let mut pv = PropertyValue::Value(10);
+        // as_ref returns PropertyValue::Value with a reference
+        let pv_ref = pv.as_ref();
+        assert_eq!(pv_ref, PropertyValue::Value(&10));
+
+        // as_mut returns PropertyValue::Value with a mutable reference we can modify
+        {
+            let mut_ref = pv.as_mut();
+            match mut_ref {
+                PropertyValue::Value(v) => *v = 20,
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(pv, PropertyValue::Value(20));
+
+        // map consumes and transforms the inner value
+        let pv2 = pv.map(|x| x * 2);
+        assert_eq!(pv2, PropertyValue::Value(40));
+    }
+
+    #[test]
+    fn compute_with_parent() {
+        let unset_value = PropertyValue::Inherit;
+        let initial_value = ReflectValue::Usize(10);
+        let parent_value = ComputedValue::Value(ReflectValue::Usize(15));
+
+        let compute_with_parent =
+            |v: PropertyValue| v.compute_with_parent(&unset_value, &initial_value, &parent_value);
+
+        assert_eq!(
+            compute_with_parent(PropertyValue::None),
+            ComputedValue::None
+        );
+        assert_eq!(compute_with_parent(PropertyValue::Inherit), parent_value);
+        assert_eq!(compute_with_parent(PropertyValue::Unset), parent_value);
+        assert_eq!(
+            compute_with_parent(PropertyValue::Initial),
+            ComputedValue::Value(initial_value.clone())
+        );
+        assert_eq!(
+            compute_with_parent(PropertyValue::Value(ReflectValue::Usize(40))),
+            ComputedValue::Value(ReflectValue::Usize(40))
+        );
+    }
+
+    #[test]
+    fn compute_as_root() {
+        let unset_value = PropertyValue::Initial;
+        let initial_value = ReflectValue::Usize(10);
+
+        let compute_as_root = |v: PropertyValue| v.compute_as_root(&unset_value, &initial_value);
+
+        assert_eq!(compute_as_root(PropertyValue::None), ComputedValue::None);
+        assert_eq!(compute_as_root(PropertyValue::Inherit), ComputedValue::None);
+        assert_eq!(
+            compute_as_root(PropertyValue::Unset),
+            ComputedValue::Value(initial_value.clone())
+        );
+        assert_eq!(
+            compute_as_root(PropertyValue::Initial),
+            ComputedValue::Value(initial_value.clone())
+        );
+        assert_eq!(
+            compute_as_root(PropertyValue::Value(ReflectValue::Usize(40))),
+            ComputedValue::Value(ReflectValue::Usize(40))
+        );
     }
 }

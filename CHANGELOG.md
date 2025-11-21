@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - This includes a lot of internal changes, some of them might be breaking.
 - Full support for `TextureSlicer` parsing inside `NodeImage`.
 - `BoxShadow` and `TextShadow` are interpolable.
+- Support for providing `unset` in any css property.
 
 ## [0.6.0] 5-Nov-2025
 

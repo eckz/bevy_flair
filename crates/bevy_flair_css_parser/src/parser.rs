@@ -1033,6 +1033,12 @@ mod tests {
     }
 
     macro_rules! assert_single_property {
+        ($properties:expr, $property_name:literal, unset) => {{
+            use $crate::test_utils::ExpectExt;
+            let property = $properties.expect_one();
+            let (value, _) = expect_property_name!(property, $property_name);
+            assert_eq!(value, bevy_flair_core::PropertyValue::Unset);
+        }};
         ($properties:expr, $property_name:literal, inherit) => {{
             use $crate::test_utils::ExpectExt;
             let property = $properties.expect_one();
@@ -1136,15 +1142,19 @@ mod tests {
         let contents = r#"
             .rule1 { height: inherit; }
             .rule2 { height: initial; }
+            .rule3 { height: unset; }
         "#;
 
         let items = parse(contents);
-        let [rule1, rule2] = items.expect_n_rule_set();
+        let [rule1, rule2, rule3] = items.expect_n_rule_set();
         assert_single_class_selector!(rule1, "rule1");
         assert_single_property!(rule1.properties, "height", inherit);
 
         assert_single_class_selector!(rule2, "rule2");
         assert_single_property!(rule2.properties, "height", initial);
+
+        assert_single_class_selector!(rule3, "rule3");
+        assert_single_property!(rule3.properties, "height", unset);
     }
 
     #[test]

@@ -345,7 +345,7 @@ where
 
 /// Parses a CSS property value that may use `calc()` expressions or global keywords.
 ///
-/// If a global keyword (such as `inherit` or `initial`, this
+/// If a global keyword (such as `unset`, `inherit` or `initial`, this
 /// returns the corresponding [`PropertyValue`]. Otherwise, it parses and evaluates
 /// the value as a calculable expression.
 pub fn parse_calc_property_value_with<T>(
@@ -404,7 +404,7 @@ mod tests {
                 }
             };
 
-        match property_value.compute_root_value(&ReflectValue::Usize(0)) {
+        match property_value.compute_as_root(&PropertyValue::None, &ReflectValue::Usize(0)) {
             ComputedValue::None => {
                 panic!("None generated")
             }

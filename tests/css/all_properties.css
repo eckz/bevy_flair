@@ -214,6 +214,59 @@
     border-image: initial;
 }
 
+
+.with-unset-values {
+    display: unset;
+    box-sizing: unset;
+    position: unset;
+    overflow: unset;
+    -bevy-scrollbar-width: unset;
+    overflow-clip-margin: unset;
+    left: unset;
+    right: unset;
+    top: unset;
+    bottom: unset;
+    width: unset;
+    height: unset;
+    min-width: unset;
+    min-height: unset;
+    max-width: unset;
+    max-height: unset;
+    aspect-ratio: unset;
+    align-items: unset;
+    justify-items: unset;
+    align-self: unset;
+    justify-self: unset;
+    align-content: unset;
+    justify-content: unset;
+    margin: unset;
+    padding: unset;
+    border-width: unset;
+    flex-direction: unset;
+    flex-wrap: unset;
+    flex: unset;
+    gap: unset;
+    grid-auto-flow: unset;
+    grid-template: unset;
+    grid-auto-rows: unset;
+    grid-auto-columns: unset;
+    grid-row: unset;
+    grid-column: unset;
+    border-color: unset;
+    background-color: unset;
+    border-radius: unset;
+    outline: unset;
+    outline-offset: unset;
+    z-index: unset;
+    box-shadow: unset;
+    transform: unset;
+    -bevy-image-color: unset;
+    -bevy-image-mode: unset;
+    -bevy-image-rect: unset;
+    background-image: unset;
+    border-image: unset;
+}
+
 text {
     color: blue;
     font-size: 3px;

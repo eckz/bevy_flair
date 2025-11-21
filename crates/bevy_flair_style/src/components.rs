@@ -399,33 +399,34 @@ impl NodeVars {
     }
 }
 
-#[derive(Clone, Deref, Resource)]
-pub(crate) struct EmptyComputedProperties(pub(crate) PropertyMap<ComputedValue>);
+#[derive(Clone, Resource)]
+pub(crate) struct StaticPropertyMaps {
+    /// A map where all values are [`ComputedValue::None`].
+    pub(crate) empty_computed: PropertyMap<ComputedValue>,
+    /// Contains property values for being resolved when using [`PropertyValue::Initial`].
+    pub(crate) initial: PropertyMap<ReflectValue>,
+    /// Default value when a property is not set.
+    pub(crate) unset: PropertyMap<PropertyValue>,
+}
 
-impl EmptyComputedProperties {
-    fn from_property_registry(property_registry: &PropertyRegistry) -> Self {
-        let map = property_registry.create_property_map(ComputedValue::None);
+impl StaticPropertyMaps {
+    pub(crate) fn from_property_registry(property_registry: &PropertyRegistry) -> Self {
+        let empty_computed = property_registry.create_property_map(ComputedValue::None);
         debug_assert!(
-            !map.is_empty(),
-            "EmptyComputedProperties cannot be created without registered properties"
+            !empty_computed.is_empty(),
+            "StaticPropertyMaps cannot be created without registered properties"
         );
-        Self(map)
+        Self {
+            empty_computed,
+            initial: property_registry.create_initial_values_map(),
+            unset: property_registry.create_unset_values_map(),
+        }
     }
 }
 
-impl FromWorld for EmptyComputedProperties {
+impl FromWorld for StaticPropertyMaps {
     fn from_world(world: &mut World) -> Self {
         Self::from_property_registry(world.resource::<PropertyRegistry>())
-    }
-}
-
-#[derive(Clone, Resource)]
-pub(crate) struct InitialPropertyValues(pub(crate) PropertyMap<ReflectValue>);
-
-impl FromWorld for InitialPropertyValues {
-    fn from_world(world: &mut World) -> Self {
-        let property_registry = world.resource::<PropertyRegistry>();
-        Self(property_registry.create_initial_values_map())
     }
 }
 
@@ -489,10 +490,10 @@ impl NodeProperties {
     fn compute_values_debug_assertions(
         &self,
         function_name: &str,
-        empty_computed_properties: &EmptyComputedProperties,
+        property_maps: &StaticPropertyMaps,
     ) {
         debug_assert!(
-            !empty_computed_properties.is_empty(),
+            !property_maps.empty_computed.is_empty(),
             "`{function_name}` expects `empty_computed_properties` to not be empty"
         );
         debug_assert!(
@@ -513,13 +514,12 @@ impl NodeProperties {
         &mut self,
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
-        empty_computed_properties: &EmptyComputedProperties,
-        initial_values: &PropertyMap<ReflectValue>,
+        static_property_maps: &StaticPropertyMaps,
     ) {
         #[cfg(debug_assertions)]
         self.compute_values_debug_assertions(
             "compute_pending_property_values_for_root",
-            empty_computed_properties,
+            static_property_maps,
         );
 
         let mut pending_computed_values;
@@ -529,17 +529,16 @@ impl NodeProperties {
             // We are the root and nothing can change even for inherited properties
             pending_computed_values = self.computed_values.clone();
         } else {
-            debug_assert!(!empty_computed_properties.is_empty());
-
-            pending_computed_values = empty_computed_properties.0.clone();
+            pending_computed_values = static_property_maps.empty_computed.clone();
             let pending_property_values = mem::take(&mut self.pending_property_values);
 
-            for (property_value, mut new_computed, initial_value) in izip!(
+            for (property_value, mut new_computed, unset_value, initial_value) in izip!(
                 pending_property_values.values(),
                 pending_computed_values.values_mut(),
-                initial_values.values(),
+                static_property_maps.unset.values(),
+                static_property_maps.initial.values(),
             ) {
-                new_computed.set_if_neq(property_value.compute_root_value(initial_value));
+                new_computed.set_if_neq(property_value.compute_as_root(unset_value, initial_value));
             }
             self.property_values = pending_property_values;
         }
@@ -552,15 +551,12 @@ impl NodeProperties {
         parent: &Self,
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
-        empty_computed_properties: &EmptyComputedProperties,
-        initial_values: &PropertyMap<ReflectValue>,
+        static_property_maps: &StaticPropertyMaps,
     ) {
-        let invalid_initial_value = ReflectValue::Usize(0);
-
         #[cfg(debug_assertions)]
         self.compute_values_debug_assertions(
             "compute_pending_property_values_with_parent",
-            empty_computed_properties,
+            static_property_maps,
         );
         debug_assert!(!parent.pending_computed_values.is_empty());
 
@@ -576,26 +572,28 @@ impl NodeProperties {
                 .ptr_eq(&parent.computed_values)
             {
                 for (property_id, property_value) in self.property_values.iter() {
-                    if property_value.inherits() {
+                    if property_value == &PropertyValue::Inherit {
                         let parent = &parent.pending_computed_values[property_id];
-                        pending_computed_values.set_if_neq(
-                            property_id,
-                            property_value.compute_with_parent(parent, &invalid_initial_value),
-                        );
+                        pending_computed_values.set_if_neq(property_id, parent.clone());
                     }
                 }
             }
         } else {
-            pending_computed_values = empty_computed_properties.0.clone();
+            pending_computed_values = static_property_maps.empty_computed.clone();
             let pending_property_values = mem::take(&mut self.pending_property_values);
 
-            for (property_value, parent, mut new_computed, initial_value) in izip!(
+            for (property_value, parent, mut new_computed, unset_value, initial_value) in izip!(
                 pending_property_values.values(),
                 parent.pending_computed_values.values(),
                 pending_computed_values.values_mut(),
-                initial_values.values(),
+                static_property_maps.unset.values(),
+                static_property_maps.initial.values(),
             ) {
-                new_computed.set_if_neq(property_value.compute_with_parent(parent, initial_value));
+                new_computed.set_if_neq(property_value.compute_with_parent(
+                    unset_value,
+                    initial_value,
+                    parent,
+                ));
             }
             self.property_values = pending_property_values;
         }
@@ -693,13 +691,13 @@ impl NodeProperties {
     // Sets `self.pending_computed_animation_values`
     pub(crate) fn set_animation_computed_values(
         &mut self,
-        empty_computed_properties: &EmptyComputedProperties,
+        static_property_maps: &StaticPropertyMaps,
     ) {
         debug_assert!(
             self.pending_computed_animation_values.is_empty(),
             "`set_animation_computed_values` expects `pending_computed_animation_values` to be empty"
         );
-        self.pending_computed_animation_values = empty_computed_properties.0.clone();
+        self.pending_computed_animation_values = static_property_maps.empty_computed.clone();
         self.apply_transitions_and_animations();
     }
 
@@ -941,16 +939,16 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
         self.current_animation_configs = new_animation_configs;
     }
 
-    pub(crate) fn reset(&mut self, empty_computed_properties: &EmptyComputedProperties) {
+    pub(crate) fn reset(&mut self, static_properties: &StaticPropertyMaps) {
         // This should clear everything except `auto_inserted_components`
 
         self.pending_property_values = PropertyMap::default();
         self.property_values = PropertyMap::default();
 
         self.pending_computed_values = PropertyMap::default();
-        self.computed_values = empty_computed_properties.0.clone();
+        self.computed_values = static_properties.empty_computed.clone();
         self.pending_computed_animation_values = PropertyMap::default();
-        self.last_computed_animation_values = empty_computed_properties.0.clone();
+        self.last_computed_animation_values = static_properties.empty_computed.clone();
 
         self.transitions_options.clear();
         self.transitions.clear();
@@ -1684,8 +1682,8 @@ mod tests {
         registry
     });
 
-    static EMPTY_COMPUTED_PROPERTIES: LazyLock<EmptyComputedProperties> =
-        LazyLock::new(|| EmptyComputedProperties::from_property_registry(&PROPERTY_REGISTRY));
+    static STATIC_PROPERTY_MAPS: LazyLock<StaticPropertyMaps> =
+        LazyLock::new(|| StaticPropertyMaps::from_property_registry(&PROPERTY_REGISTRY));
 
     static TYPE_REGISTRY: LazyLock<TypeRegistry> = LazyLock::new(|| {
         let mut type_registry = TypeRegistry::new();
@@ -1693,9 +1691,6 @@ mod tests {
         type_registry.register_type_data::<f32, ReflectAnimatable>();
         type_registry
     });
-
-    static INITIAL_VALUES: LazyLock<PropertyMap<ReflectValue>> =
-        LazyLock::new(|| PROPERTY_REGISTRY.create_initial_values_map());
 
     macro_rules! property_id {
         ($property:expr) => {
@@ -1783,26 +1778,26 @@ mod tests {
     macro_rules! set_property_values_and_compute {
         ($properties:expr) => {{
             set_property_values!($properties);
-            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
-            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
+            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS);
+            $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
-            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
-            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
+            $properties.compute_pending_property_values_for_root(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS);
+            $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, $parent:expr) => {{
             set_property_values!($properties);
-            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
-            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
+            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS);
+            $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, $parent:expr, { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
-            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY, &EMPTY_COMPUTED_PROPERTIES, &INITIAL_VALUES);
-            $properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
+            $properties.compute_pending_property_values_with_parent(&$parent, &TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS);
+            $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
     }
@@ -1825,7 +1820,7 @@ mod tests {
 
     fn default_node_properties() -> NodeProperties {
         let mut properties = NodeProperties::default();
-        properties.reset(&EMPTY_COMPUTED_PROPERTIES);
+        properties.reset(&STATIC_PROPERTY_MAPS);
         properties
     }
 
@@ -1837,10 +1832,9 @@ mod tests {
         properties.compute_pending_property_values_for_root(
             &TYPE_REGISTRY,
             &PROPERTY_REGISTRY,
-            &EMPTY_COMPUTED_PROPERTIES,
-            &INITIAL_VALUES,
+            &STATIC_PROPERTY_MAPS,
         );
-        properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
+        properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
         assert!(properties.pending_property_values.is_empty());
 
         assert_eq!(apply_computed_values!(properties), vec![]);
@@ -1868,10 +1862,9 @@ mod tests {
         properties.compute_pending_property_values_for_root(
             &TYPE_REGISTRY,
             &PROPERTY_REGISTRY,
-            &EMPTY_COMPUTED_PROPERTIES,
-            &INITIAL_VALUES,
+            &STATIC_PROPERTY_MAPS,
         );
-        properties.set_animation_computed_values(&EMPTY_COMPUTED_PROPERTIES);
+        properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
         assert!(properties.pending_property_values.is_empty());
 
         assert_eq!(apply_computed_values!(properties), vec![]);

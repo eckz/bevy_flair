@@ -1,7 +1,7 @@
 use crate::animations::{
     AnimationSpecificValue, AnimationValues, EasingFunction, ReflectAnimatable,
 };
-use crate::components::PropertyIdDebugHelper;
+use crate::components::{PropertyIdDebugHelper, StaticPropertyMaps};
 use crate::style_sheet::RulesetProperty;
 use crate::{StyleBuilderProperty, VarResolver};
 use bevy_flair_core::*;
@@ -188,7 +188,7 @@ pub(crate) struct KeyframesResolver<'a> {
     pub property_registry: &'a PropertyRegistry,
     pub debug_helper: PropertyIdDebugHelper<'a>,
     pub var_resolver: &'a dyn VarResolver,
-    pub initial_values: &'a PropertyMap<ReflectValue>,
+    pub static_property_maps: &'a StaticPropertyMaps,
 
     pub pending_computed_values: PropertyMap<ComputedValue>,
     pub computed_values: PropertyMap<ComputedValue>,
@@ -226,7 +226,7 @@ impl KeyframesResolver<'_> {
                         (
                             k,
                             /* compute_with_parent would resolve inherit, but it's not supported yet */
-                            v.compute_root_value(&self.initial_values[k]),
+                            v.compute_as_root(&self.static_property_maps.unset[k], &self.static_property_maps.initial[k]),
                         )
                     })
                     .collect::<PropertiesHashMap<_>>();
@@ -601,14 +601,14 @@ mod tests {
             .expect("Invalid property_ref");
         let debug_helper: PropertyIdDebugHelper = (&*PROPERTY_REGISTRY).into();
 
-        let initial_values = PROPERTY_REGISTRY.create_initial_values_map();
+        let static_property_maps = StaticPropertyMaps::from_property_registry(&PROPERTY_REGISTRY);
 
         let resolver = KeyframesResolver {
             type_registry: &TYPE_REGISTRY,
             property_registry: &PROPERTY_REGISTRY,
             debug_helper,
             var_resolver: &NoVarsSupportedResolver,
-            initial_values: &initial_values,
+            static_property_maps: &static_property_maps,
             pending_computed_values: computed_values.clone(),
             computed_values: computed_values.clone(),
         };

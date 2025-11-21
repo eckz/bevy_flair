@@ -29,6 +29,15 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
                 },
                 ClassList::new("with-initial-values")
             ),
+            (
+                UniqueName::new("NodeWithUnsetValues"),
+                Node {
+                    left: Val::VMax(300.0),
+                    flex_basis: Val::Vh(300.0),
+                    ..Default::default()
+                },
+                ClassList::new("with-unset-values")
+            ),
             (UniqueName::new("Text"), Text::new("Text"))
         ],
     ));
@@ -183,6 +192,27 @@ fn all_properties() {
         app.world()
             .entity(app.find_by_unique_name("NodeWithInheritedValues")),
     );
+
+    let with_unset_values_entity = app
+        .world()
+        .entity(app.find_by_unique_name("NodeWithUnsetValues"));
+
+    let (node, border_color, background_color) =
+        with_unset_values_entity.components::<(&Node, &BorderColor, &BackgroundColor)>();
+
+    assert_eq!(
+        node,
+        &Node {
+            left: Val::VMax(300.0),
+            flex_basis: Val::Vh(300.0),
+            ..Default::default()
+        }
+    );
+    assert_eq!(border_color, &BorderColor::DEFAULT);
+    assert_eq!(background_color, &BackgroundColor::DEFAULT);
+
+    assert!(!with_unset_values_entity.contains::<ImageNode>());
+    assert!(!with_unset_values_entity.contains::<BackgroundGradient>());
 
     let with_initial_values_entity = app
         .world()

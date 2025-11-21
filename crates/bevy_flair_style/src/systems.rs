@@ -1,9 +1,8 @@
 use crate::components::{
-    AttributeList, ClassList, DependsOnMediaFeaturesFlags, EmptyComputedProperties,
-    InitialPropertyValues, NodeProperties, NodeStyleActiveRules, NodeStyleData, NodeStyleMarker,
-    NodeStyleSelectorFlags, NodeStyleSheet, NodeVars, PropertyIdDebugHelper,
-    PropertyIdDebugHelperParam, PseudoElement, PseudoElementsSupport, RawInlineStyle,
-    RecalculateOnChangeFlags, Siblings, WindowMediaFeatures,
+    AttributeList, ClassList, DependsOnMediaFeaturesFlags, NodeProperties, NodeStyleActiveRules,
+    NodeStyleData, NodeStyleMarker, NodeStyleSelectorFlags, NodeStyleSheet, NodeVars,
+    PropertyIdDebugHelper, PropertyIdDebugHelperParam, PseudoElement, PseudoElementsSupport,
+    RawInlineStyle, RecalculateOnChangeFlags, Siblings, StaticPropertyMaps, WindowMediaFeatures,
 };
 use crate::{
     ColorScheme, GlobalChangeDetection, NodePseudoState, StyleSheet, VarResolver, VarTokens,
@@ -36,19 +35,15 @@ use std::sync::Arc;
 use tracing::{debug, trace, warn};
 
 pub(crate) fn reset_properties(
-    empty_computed_properties: Res<EmptyComputedProperties>,
+    static_computed_properties: Res<StaticPropertyMaps>,
     mut style_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
 ) {
-    debug_assert!(
-        !empty_computed_properties.is_empty(),
-        "EmptyComputedProperties cannot be empty"
-    );
     for (mut properties, mut marker) in &mut style_query {
         if marker.needs_reset() || properties.is_added() {
             marker.clear_reset();
             marker.set_needs_style_recalculation();
 
-            properties.reset(&empty_computed_properties)
+            properties.reset(&static_computed_properties)
         }
     }
 }
@@ -546,7 +541,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
     mut command_queue: Deferred<CommandQueue>,
     property_registry: Res<PropertyRegistry>,
     mut asset_msg_reader: MessageReader<AssetEvent<StyleSheet>>,
-    empty_computed_properties: Res<EmptyComputedProperties>,
+    static_property_maps: Res<StaticPropertyMaps>,
     mut style_query: Query<(
         EntityRefExcept<(
             NodeStyleSelectorFlags,
@@ -608,7 +603,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         }
 
         flags.reset();
-        properties.reset(&empty_computed_properties);
+        properties.reset(&static_property_maps);
         vars.clear();
         marker.set_needs_style_recalculation();
     }
@@ -954,7 +949,7 @@ pub(crate) fn resolve_animations(
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
     var_resolver: VarResolverParam,
-    initial_property_values: Res<InitialPropertyValues>,
+    static_property_maps: Res<StaticPropertyMaps>,
     debug_helper: PropertyIdDebugHelperParam,
     style_sheets: Res<Assets<StyleSheet>>,
     mut node_properties_query: Query<(NameOrEntity, &mut NodeProperties, &NodeStyleData)>,
@@ -977,7 +972,7 @@ pub(crate) fn resolve_animations(
             property_registry: &property_registry,
             debug_helper: debug_helper.as_helper(),
             var_resolver: &entity_var_resolver,
-            initial_values: &initial_property_values.0,
+            static_property_maps: &static_property_maps,
             pending_computed_values: node_properties.pending_computed_values.clone(),
             computed_values: node_properties.computed_values.clone(),
         };
@@ -1002,12 +997,12 @@ pub(crate) fn resolve_animations(
 }
 
 pub(crate) fn set_animation_computed_values(
-    empty_computed_properties: Res<EmptyComputedProperties>,
+    static_property_maps: Res<StaticPropertyMaps>,
     mut node_properties_query: Query<(NameOrEntity, &mut NodeProperties, &mut NodeStyleMarker)>,
     #[cfg(debug_assertions)] debug_helper: PropertyIdDebugHelperParam,
 ) {
     for (_name_or_entity, mut properties, mut marker) in &mut node_properties_query {
-        properties.set_animation_computed_values(&empty_computed_properties);
+        properties.set_animation_computed_values(&static_property_maps);
 
         #[cfg(debug_assertions)]
         if properties.pending_computed_animation_values != properties.last_computed_animation_values
@@ -1038,8 +1033,7 @@ pub(crate) fn compute_property_values(
     root_nodes: CustomUiRoots,
     ui_children: CustomUiChildren,
     mut node_properties_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
-    empty_computed_properties: Res<EmptyComputedProperties>,
-    initial_values: Res<InitialPropertyValues>,
+    static_property_maps: Res<StaticPropertyMaps>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
     #[cfg(debug_assertions)] name_or_entity_query: Query<NameOrEntity>,
@@ -1072,8 +1066,7 @@ pub(crate) fn compute_property_values(
         root_properties.compute_pending_property_values_for_root(
             &type_registry,
             &property_registry,
-            &empty_computed_properties,
-            &initial_values.0,
+            &static_property_maps,
         );
         set_needs_property_application(&root_properties, &mut root_marker);
         trace_new_properties(root, &root_properties);
@@ -1089,8 +1082,7 @@ pub(crate) fn compute_property_values(
                 &parent_properties,
                 &type_registry,
                 &property_registry,
-                &empty_computed_properties,
-                &initial_values.0,
+                &static_property_maps,
             );
             set_needs_property_application(&properties, &mut marker);
             trace_new_properties(entity, &properties);
@@ -1148,9 +1140,8 @@ pub(crate) fn apply_computed_properties(
         &mut NodeProperties,
         &mut NodeStyleMarker,
     )>,
-    mut empty_computed_properties_local: Local<Option<EmptyComputedProperties>>,
+    mut empty_computed_properties_local: Local<Option<PropertyMap<ComputedValue>>>,
     mut property_registry_local: Local<Option<PropertyRegistry>>,
-    debug_helper_param_state: &mut SystemState<PropertyIdDebugHelperParam>,
     mut debug_helper_local: Local<Option<PropertyIdDebugHelper>>,
     mut modified_entities: Local<EntityHashSet>,
     mut pending_changes: Local<Vec<(Entity, PropertyMap<ComputedValue>)>>,
@@ -1159,11 +1150,19 @@ pub(crate) fn apply_computed_properties(
     let property_registry =
         property_registry_local.get_or_insert_with(|| world.resource::<PropertyRegistry>().clone());
 
-    let debug_helper = debug_helper_local
-        .get_or_insert_with(|| debug_helper_param_state.get(world).as_helper().to_owned());
+    let debug_helper = debug_helper_local.get_or_insert_with(|| {
+        SystemState::<PropertyIdDebugHelperParam>::new(world)
+            .get(world)
+            .as_helper()
+            .to_owned()
+    });
 
-    let empty_computed_properties = empty_computed_properties_local
-        .get_or_insert_with(|| world.resource::<EmptyComputedProperties>().clone());
+    let empty_computed_properties = empty_computed_properties_local.get_or_insert_with(|| {
+        world
+            .resource::<StaticPropertyMaps>()
+            .empty_computed
+            .clone()
+    });
 
     modified_entities.clear();
     debug_assert!(pending_changes.is_empty());
@@ -1176,7 +1175,7 @@ pub(crate) fn apply_computed_properties(
         }
         marker.clear_needs_property_application();
         let mut entity_modified = false;
-        let mut entity_pending_changes = empty_computed_properties.0.clone();
+        let mut entity_pending_changes = empty_computed_properties.clone();
         properties.apply_computed_properties(
             |property_id, value| {
                 entity_modified = true;
@@ -1289,7 +1288,7 @@ pub(crate) fn auto_remove_components(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::PseudoElementsSupport;
+    use crate::components::{PseudoElementsSupport, StaticPropertyMaps};
     use bevy_app::prelude::*;
     use bevy_asset::uuid_handle;
     use bevy_reflect::Reflect;
@@ -1584,7 +1583,7 @@ mod tests {
         property_registry.register::<TestComponent>();
 
         app.insert_resource(property_registry);
-        app.init_resource::<EmptyComputedProperties>();
+        app.init_resource::<StaticPropertyMaps>();
         app.add_systems(Update, (reset_properties, auto_remove_components).chain());
         app.add_observer(observe_on_component_auto_inserted);
 
@@ -1638,7 +1637,7 @@ mod tests {
         property_registry.register::<TestComponent>();
 
         app.insert_resource(property_registry.clone());
-        app.init_resource::<EmptyComputedProperties>();
+        app.init_resource::<StaticPropertyMaps>();
         app.add_systems(
             Update,
             (
@@ -1698,7 +1697,7 @@ mod tests {
         property_registry.register::<TestComponent>();
 
         app.insert_resource(property_registry.clone());
-        app.init_resource::<EmptyComputedProperties>();
+        app.init_resource::<StaticPropertyMaps>();
 
         fn mark_all_for_property_application(mut query: Query<&mut NodeStyleMarker>) {
             for mut maker in &mut query {

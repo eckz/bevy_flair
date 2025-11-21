@@ -375,9 +375,8 @@ impl Plugin for FlairStylePlugin {
                 ),
             )
             .add_systems(PreStartup, |mut commands: Commands| {
-                // These resources are initialized on PreStartup to make sure all properties are registered.
-                commands.init_resource::<EmptyComputedProperties>();
-                commands.init_resource::<InitialPropertyValues>();
+                // This is initialized on PreStartup to make sure all properties are registered.
+                commands.init_resource::<StaticPropertyMaps>();
             })
             .add_systems(
                 PreUpdate,

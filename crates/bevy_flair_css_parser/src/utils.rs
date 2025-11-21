@@ -10,6 +10,7 @@ pub(crate) fn parse_property_global_keyword<T>(
     let next = parser.expect_located_ident()?;
 
     Ok(match_ignore_ascii_case! {next.as_ref(),
+        "unset" => PropertyValue::Unset,
         "inherit" => PropertyValue::Inherit,
         "initial" => PropertyValue::Initial,
         _ => {
@@ -21,6 +22,7 @@ pub(crate) fn parse_property_global_keyword<T>(
 /// Parses a CSS property value that may be either a global keyword or a typed value.
 ///
 /// This function first attempts to parse one of the global CSS keywords:
+/// - `unset`
 /// - `inherit`
 /// - `initial`
 ///
