@@ -10,7 +10,7 @@ macro_rules! entity {
     (@consume ($entity:expr) ) => {
     };
     (@consume ($entity:expr) #$name:ident $($rest:tt)*) => {
-        $entity.name = Some(smol_str::SmolStr::new_static(stringify!($name)));
+        $entity.name = Some(std::borrow::Cow::Borrowed(stringify!($name)));
         entity!(@consume ($entity) $($rest)*);
     };
     (@consume ($entity:expr) ::before $($rest:tt)*) => {
@@ -38,7 +38,7 @@ macro_rules! entity {
         entity!(@consume ($entity) $($rest)*);
     };
     (@consume ($entity:expr) .$class_name:ident $($rest:tt)*) => {
-        $entity.classes.push(smol_str::SmolStr::new_static(stringify!($class_name)));
+        $entity.classes.push(std::borrow::Cow::Borrowed(stringify!($class_name)));
         entity!(@consume ($entity) $($rest)*);
     };
     (@consume ($entity:expr) $type_name:ident $($rest:tt)*) => {

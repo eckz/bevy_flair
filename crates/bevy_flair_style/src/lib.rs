@@ -44,10 +44,10 @@ pub use style_sheet::*;
 pub use to_css::*;
 pub use vars::*;
 
-pub(crate) type IdName = smol_str::SmolStr;
-pub(crate) type ClassName = smol_str::SmolStr;
-pub(crate) type AttributeKey = smol_str::SmolStr;
-pub(crate) type AttributeValue = smol_str::SmolStr;
+pub(crate) type IdName = std::borrow::Cow<'static, str>;
+pub(crate) type ClassName = std::borrow::Cow<'static, str>;
+pub(crate) type AttributeKey = std::borrow::Cow<'static, str>;
+pub(crate) type AttributeValue = std::borrow::Cow<'static, str>;
 pub(crate) type VarName = Arc<str>;
 
 // TODO: Add support to CoreWidgets added in bevy 0.17

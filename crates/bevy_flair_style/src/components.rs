@@ -385,11 +385,16 @@ impl NodeStyleSheet {
 /// Contains all properties applied to the current Node.
 /// Also contains active animations and transits
 #[derive(Clone, Debug, Default, Component, Reflect, Deref, DerefMut)]
-#[reflect(opaque, Debug, Default, Component)]
-pub struct NodeVars(FxHashMap<Arc<str>, VarTokens>);
+#[reflect(Debug, Default, Clone, Component)]
+// Note: Using HashMap instead of HashMap because it's reflectable
+pub struct NodeVars(std::collections::HashMap<Arc<str>, VarTokens>);
 
 impl NodeVars {
-    pub(crate) fn replace_vars(&mut self, new_vars: FxHashMap<Arc<str>, VarTokens>) -> bool {
+    pub(crate) fn replace_vars(
+        &mut self,
+        new_vars: impl IntoIterator<Item = (Arc<str>, VarTokens)>,
+    ) -> bool {
+        let new_vars = new_vars.into_iter().collect();
         if new_vars != self.0 {
             self.0 = new_vars;
             true
@@ -487,15 +492,7 @@ fn get_reflect_animatable<'a>(
 
 impl NodeProperties {
     #[cfg(debug_assertions)]
-    fn compute_values_debug_assertions(
-        &self,
-        function_name: &str,
-        property_maps: &StaticPropertyMaps,
-    ) {
-        debug_assert!(
-            !property_maps.empty_computed.is_empty(),
-            "`{function_name}` expects `empty_computed_properties` to not be empty"
-        );
+    fn compute_values_debug_assertions(&self, function_name: &str) {
         debug_assert!(
             !self.last_computed_animation_values.is_empty(),
             "`{function_name}` expects `last_computed_animation_values` to not be empty"
@@ -517,10 +514,7 @@ impl NodeProperties {
         static_property_maps: &StaticPropertyMaps,
     ) {
         #[cfg(debug_assertions)]
-        self.compute_values_debug_assertions(
-            "compute_pending_property_values_for_root",
-            static_property_maps,
-        );
+        self.compute_values_debug_assertions("compute_pending_property_values_for_root");
 
         let mut pending_computed_values;
 
@@ -554,10 +548,7 @@ impl NodeProperties {
         static_property_maps: &StaticPropertyMaps,
     ) {
         #[cfg(debug_assertions)]
-        self.compute_values_debug_assertions(
-            "compute_pending_property_values_with_parent",
-            static_property_maps,
-        );
+        self.compute_values_debug_assertions("compute_pending_property_values_with_parent");
         debug_assert!(!parent.pending_computed_values.is_empty());
 
         let mut pending_computed_values;
@@ -1386,7 +1377,7 @@ impl ClassList {
     /// assert_eq!(parsed, custom);
     /// ```
     pub fn new(s: &str) -> Self {
-        Self::new_with_classes(s.split_whitespace())
+        Self::new_with_classes(s.split_whitespace().map(String::from))
     }
 
     /// Creates a new ClassList with the given classes.
@@ -1491,7 +1482,7 @@ impl AttributeList {
 
     /// Returns the value of a specified attribute on the element.
     pub fn get_attribute(&self, name: &str) -> Option<&str> {
-        self.0.get(name).map(|v| v.as_str())
+        self.0.get(name).map(|v| v.as_ref())
     }
 
     /// Sets the value of an attribute on the current entity.

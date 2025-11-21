@@ -30,7 +30,6 @@ use bevy_ui::prelude::*;
 use bevy_utils::once;
 use bevy_window::{PrimaryWindow, RequestRedraw, Window, WindowEvent};
 use rustc_hash::FxHashSet;
-use smol_str::SmolStr;
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
 
@@ -285,7 +284,7 @@ pub(crate) fn track_name_changes(
 ) {
     let mut name_changed_query = data_queries.p0();
     for (name, mut data) in &mut name_changed_query {
-        data.name = Some(SmolStr::new(name));
+        data.name = Some(name.as_str().to_string().into());
     }
 
     let mut data_query = data_queries.p1();

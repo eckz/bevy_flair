@@ -2,6 +2,7 @@ use crate::{ToCss, VarResolver};
 
 use std::fmt;
 
+use bevy_reflect::Reflect;
 use derive_more::{Deref, DerefMut};
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -11,7 +12,7 @@ use thiserror::Error;
 use tracing::error;
 
 /// Represents a token used in variable resolution, based on CSS token types.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Reflect)]
 pub enum VarToken {
     /// A [`<ident-token>`](https://drafts.csswg.org/css-syntax/#ident-token-diagram)
     Ident(SmolStr),
@@ -75,7 +76,8 @@ impl ToCss for VarToken {
 }
 
 /// A single item that can either be a resolved token or a reference to a variable.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Reflect)]
+#[reflect(Debug, PartialEq, Clone)]
 pub enum VarOrToken {
     /// References a --var value
     /// TODO: Add support for fallback
@@ -103,7 +105,7 @@ impl ToCss for VarOrToken {
 /// A collection of `VarOrToken` values.
 ///
 /// This is the main type used for processing and resolving variable-based tokens.
-#[derive(PartialEq, Debug, Clone, Default, Deref, DerefMut)]
+#[derive(PartialEq, Debug, Clone, Default, Reflect, Deref, DerefMut)]
 pub struct VarTokens(SmallVec<[VarOrToken; 2]>);
 
 impl VarTokens {
