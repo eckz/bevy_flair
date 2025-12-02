@@ -95,7 +95,7 @@ fn consume_as_var_tokens<'i>(
     })
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub(crate) struct CssPropertyParser<'a> {
     pub(crate) type_registry: &'a TypeRegistry,
     pub(crate) property_registry: &'a PropertyRegistry,
@@ -274,11 +274,13 @@ enum ParseAnimationProperties {
 /// ```
 struct CssRulesetBodyParser<'a, 'i> {
     inner: CssParserContext<'a, 'i>,
+    // Parse vars e.g. '--var'
+    parse_vars: bool,
     // Parse 'transition' and 'transition-*' properties
     parse_transition: bool,
     // Which 'animation' properties to parse
     parse_animation: ParseAnimationProperties,
-    // Parse nested parser
+    // Parse nested declarations or any @media and @layer
     parse_nested: bool,
 }
 
@@ -292,6 +294,9 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
         name: CowRcStr<'i>,
         input: &mut Parser<'i, 't>,
     ) -> Result<AtRuleType<'i>, ParseError<'i, CssError>> {
+        if !self.parse_nested {
+            return Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)));
+        }
         match_ignore_ascii_case! { &name,
             "media" =>  {
                 let media_selectors = parse_media_selectors(input).map_err(|err| err.into_parse_error())?;
@@ -316,6 +321,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
         Ok(match prelude {
             AtRuleType::MediaSelector(media_selectors) => {
                 let mut ruleset_body_parser = CssRulesetBodyParser {
+                    parse_vars: true,
                     parse_transition: true,
                     parse_animation: ParseAnimationProperties::All,
                     parse_nested: true,
@@ -338,6 +344,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                 let layer = &layers[0];
 
                 let mut ruleset_body_parser = CssRulesetBodyParser {
+                    parse_vars: true,
                     parse_transition: true,
                     parse_animation: ParseAnimationProperties::All,
                     parse_nested: true,
@@ -384,6 +391,7 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
         input: &mut Parser<'i, 't>,
     ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
+            parse_vars: true,
             parse_transition: true,
             parse_animation: ParseAnimationProperties::All,
             parse_nested: true,
@@ -417,7 +425,7 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
         input: &mut Parser<'i, 't>,
         _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
-        if property_name.starts_with("--") {
+        if self.parse_vars && property_name.starts_with("--") {
             let var_name = property_name.strip_prefix("--").unwrap();
 
             let result = input.parse_entirely(|parser| {
@@ -657,6 +665,7 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         input: &mut Parser<'i, 't>,
     ) -> Result<CssStyleSheetItem, ParseError<'i, CssError>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
+            parse_vars: true,
             parse_transition: true,
             parse_animation: ParseAnimationProperties::All,
             parse_nested: true,
@@ -670,6 +679,32 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
             properties,
         }))
     }
+}
+
+pub fn parse_inline_properties(
+    contents: &str,
+    property_parser: CssPropertyParser,
+) -> Vec<CssRulesetProperty> {
+    let mut input = ParserInput::new(contents);
+    let mut parser = Parser::new(&mut input);
+
+    let empty_imports = FxHashMap::default();
+
+    let mut ruleset_body_parser = CssRulesetBodyParser {
+        parse_vars: true,
+        parse_transition: true,
+        parse_animation: ParseAnimationProperties::All,
+        parse_nested: false,
+        inner: CssParserContext {
+            property_parser,
+            declared_animations: Default::default(),
+            imports: &empty_imports,
+            media_selectors: MediaSelectors::empty(),
+            current_layer: String::new(),
+        },
+    };
+    let body_parser = RuleBodyParser::new(&mut parser, &mut ruleset_body_parser);
+    collect_parser(body_parser)
 }
 
 pub fn parse_css<F>(

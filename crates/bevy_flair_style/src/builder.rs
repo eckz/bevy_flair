@@ -193,11 +193,11 @@ impl StyleBuilderProperty {
     /// Creates a new `StyleBuilderProperty::Specific` with the given property reference and value.
     pub fn new(
         property_ref: impl Into<ComponentPropertyRef<'static>>,
-        value: PropertyValue,
+        value: impl Into<PropertyValue>,
     ) -> Self {
         Self::Specific {
             property_ref: property_ref.into(),
-            value,
+            value: value.into(),
         }
     }
 
@@ -265,17 +265,141 @@ impl<'a> From<(ComponentPropertyRef<'a>, PropertyValue)> for StyleBuilderPropert
     }
 }
 
+/// Trait implemented by all ruleset builders.
+/// Implemented by [`StyleSheetRulesetBuilder`] and [`SingleRulesetBuilder`].
+pub trait RulesetBuilder {
+    /// Add properties to the current ruleset.
+    fn add_property(&mut self, property: StyleBuilderProperty);
+
+    /// Add properties to the current ruleset.
+    fn add_properties<I>(&mut self, values: I)
+    where
+        I: IntoIterator<Item = StyleBuilderProperty>,
+    {
+        for value in values {
+            self.add_property(value);
+        }
+    }
+
+    /// Add properties to the current ruleset.
+    fn with_property(mut self, property: StyleBuilderProperty) -> Self
+    where
+        Self: Sized,
+    {
+        self.add_property(property);
+        self
+    }
+
+    /// Add a variable to the current ruleset.
+    fn add_var<V>(&mut self, var_name: V, tokens: VarTokens)
+    where
+        V: Into<VarName>;
+
+    /// Add a variable to the current ruleset.
+    fn with_var<V>(mut self, var_name: V, tokens: VarTokens) -> Self
+    where
+        Self: Sized,
+        V: Into<VarName>,
+    {
+        self.add_var(var_name, tokens);
+        self
+    }
+
+    /// Adds a transition property to this ruleset.
+    fn add_transition_property(&mut self, property: AnimationProperty<TransitionPropertyId>);
+
+    /// Adds a transition property to this ruleset.
+    fn with_transition_property(mut self, property: AnimationProperty<TransitionPropertyId>) -> Self
+    where
+        Self: Sized,
+    {
+        self.add_transition_property(property);
+        self
+    }
+
+    /// Adds an animation property to this ruleset.
+    fn add_animation_property(&mut self, property: AnimationProperty<AnimationPropertyId>);
+
+    /// Adds an animation property to this ruleset.
+    fn with_animation_property(mut self, property: AnimationProperty<AnimationPropertyId>) -> Self
+    where
+        Self: Sized,
+    {
+        self.add_animation_property(property);
+        self
+    }
+}
+
+macro_rules! impl_ruleset_builder {
+    ($ty:path) => {
+        impl RulesetBuilder for $ty {
+            fn add_property(&mut self, property: StyleBuilderProperty) {
+                self.ruleset.properties.push(property);
+            }
+
+            fn add_var<V>(&mut self, var_name: V, tokens: VarTokens)
+            where
+                V: Into<VarName>,
+            {
+                self.ruleset.vars.insert(var_name.into(), tokens);
+            }
+
+            fn add_transition_property(
+                &mut self,
+                property: AnimationProperty<TransitionPropertyId>,
+            ) {
+                self.ruleset.transition_properties.push(property);
+            }
+
+            fn add_animation_property(&mut self, property: AnimationProperty<AnimationPropertyId>) {
+                self.ruleset.animation_properties.push(property);
+            }
+        }
+    };
+}
+
+/// Helper to build a single ruleset.
+/// Useful for ad-hoc rulesets outside a full stylesheet.
+pub struct SingleRulesetBuilder {
+    ruleset: InternalStyleSheetBuilderRuleset,
+}
+
+impl Default for SingleRulesetBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SingleRulesetBuilder {
+    /// Creates a new empty single ruleset builder.
+    pub fn new() -> Self {
+        Self {
+            ruleset: InternalStyleSheetBuilderRuleset::default(),
+        }
+    }
+
+    /// Consumes the builder and returns the built ruleset.
+    pub fn build(
+        self,
+        property_registry: &PropertyRegistry,
+    ) -> Result<Ruleset, CanonicalNameNotFoundError> {
+        self.ruleset.resolve(property_registry)
+    }
+}
+
+impl_ruleset_builder!(SingleRulesetBuilder);
+
 /// Helper to build a single ruleset. Created using [`StyleSheetBuilder`].
-pub struct RulesetBuilder<'a> {
+pub struct StyleSheetRulesetBuilder<'a> {
     ruleset_id: StyleSheetRulesetId,
     layers_hierarchy: &'a mut LayersHierarchy,
-    ruleset: &'a mut BuilderRuleset,
+    ruleset: &'a mut InternalStyleSheetBuilderRuleset,
     css_selectors_to_rulesets: &'a mut Vec<(CssSelector, StyleSheetRulesetId)>,
 }
 
-impl RulesetBuilder<'_> {
-    #[cfg(test)]
-    pub(crate) fn id(&self) -> StyleSheetRulesetId {
+impl StyleSheetRulesetBuilder<'_> {
+    /// Returns the id of the current ruleset.
+    pub fn id(&self) -> StyleSheetRulesetId {
         self.ruleset_id
     }
 
@@ -306,91 +430,13 @@ impl RulesetBuilder<'_> {
         self.add_css_selector(selector);
         self
     }
-
-    /// Add properties to the current ruleset.
-    pub fn add_properties<I, P>(&mut self, values: I)
-    where
-        P: Into<StyleBuilderProperty>,
-        I: IntoIterator<Item = P>,
-    {
-        self.ruleset
-            .properties
-            .extend(values.into_iter().map(|p| p.into()));
-    }
-
-    /// Add properties to the current ruleset.
-    pub fn with_properties<I, P>(mut self, values: I) -> Self
-    where
-        P: Into<StyleBuilderProperty>,
-        I: IntoIterator<Item = P>,
-    {
-        self.add_properties(values);
-        self
-    }
-
-    /// Add properties to the current ruleset.
-    pub fn add_var<V>(&mut self, var_name: V, tokens: VarTokens)
-    where
-        V: Into<VarName>,
-    {
-        self.ruleset.vars.insert(var_name.into(), tokens);
-    }
-
-    /// Add properties to the current ruleset.
-    pub fn add_vars<V, I>(&mut self, values: I)
-    where
-        V: Into<VarName>,
-        I: IntoIterator<Item = (V, VarTokens)>,
-    {
-        self.ruleset.vars.extend(
-            values
-                .into_iter()
-                .map(|(name, tokens)| (name.into(), tokens)),
-        );
-    }
-
-    /// Add properties to the current ruleset.
-    pub fn with_vars<V, I>(mut self, values: I) -> Self
-    where
-        V: Into<VarName>,
-        I: IntoIterator<Item = (V, VarTokens)>,
-    {
-        self.add_vars(values);
-        self
-    }
-
-    /// Adds a transition property to this ruleset.
-    pub fn add_transition_property(&mut self, property: AnimationProperty<TransitionPropertyId>) {
-        self.ruleset.transition_properties.push(property);
-    }
-
-    /// Adds a transition property to this ruleset.
-    pub fn with_transition_property(
-        mut self,
-        property: AnimationProperty<TransitionPropertyId>,
-    ) -> Self {
-        self.add_transition_property(property);
-        self
-    }
-
-    /// Adds an animation property to this ruleset.
-    pub fn add_animation_property(&mut self, property: AnimationProperty<AnimationPropertyId>) {
-        self.ruleset.animation_properties.push(property);
-    }
-
-    /// Adds an animation property to this ruleset.
-    pub fn with_animation_property(
-        mut self,
-        property: AnimationProperty<AnimationPropertyId>,
-    ) -> Self {
-        self.add_animation_property(property);
-        self
-    }
 }
+
+impl_ruleset_builder!(StyleSheetRulesetBuilder<'_>);
 
 /// Representation of a ruleset in the [`StyleSheetBuilder`].
 #[derive(Default)]
-struct BuilderRuleset {
+struct InternalStyleSheetBuilderRuleset {
     pub(super) vars: FxHashMap<VarName, VarTokens>,
     pub(super) properties: Vec<StyleBuilderProperty>,
 
@@ -398,7 +444,7 @@ struct BuilderRuleset {
     pub(super) animation_properties: AnimationProperties<AnimationPropertyId>,
 }
 
-impl BuilderRuleset {
+impl InternalStyleSheetBuilderRuleset {
     fn is_empty(&self) -> bool {
         self.vars.is_empty()
             && self.properties.is_empty()
@@ -437,7 +483,7 @@ impl BuilderRuleset {
 pub struct StyleSheetBuilder {
     layers_hierarchy: LayersHierarchy,
     font_faces: Vec<StyleFontFace>,
-    rulesets: Vec<BuilderRuleset>,
+    rulesets: Vec<InternalStyleSheetBuilderRuleset>,
     animation_keyframes: Vec<AnimationKeyframes>,
     css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
 }
@@ -547,28 +593,6 @@ impl StyleSheetBuilder {
             }
         }
 
-        // TODO???
-        // for (animation_name, properties) in animation_keyframes.iter() {
-        // for (property_id, keyframes) in properties {
-        // for (_, value, _) in keyframes {
-        //     validate_value(property_registry, *property_id, value).map_err(
-        //         |InvalidPropertyError {
-        //              property,
-        //              expected_value_type_path,
-        //              found_value_type_path,
-        //          }| {
-        //             StyleSheetBuilderError::InvalidPropertyInAnimationKeyframes {
-        //                 animation_name: animation_name.clone(),
-        //                 property,
-        //                 expected_value_type_path,
-        //                 found_value_type_path,
-        //             }
-        //         },
-        //     )?
-        // }
-        //     }
-        // }
-
         Ok(())
     }
 
@@ -601,12 +625,26 @@ impl StyleSheetBuilder {
         self.animation_keyframes.push(animation_keyframes);
     }
 
-    /// Creates a new ruleset and returns a [`RulesetBuilder`] to build such ruleset.
-    pub fn new_ruleset(&mut self) -> RulesetBuilder<'_> {
+    /// Creates a new ruleset and returns a [`StyleSheetRulesetBuilder`] to build such ruleset.
+    pub fn new_ruleset(&mut self) -> StyleSheetRulesetBuilder<'_> {
         let ruleset_id = StyleSheetRulesetId(self.rulesets.len());
-        self.rulesets.push(BuilderRuleset::default());
+        self.rulesets
+            .push(InternalStyleSheetBuilderRuleset::default());
 
-        RulesetBuilder {
+        StyleSheetRulesetBuilder {
+            ruleset_id,
+            layers_hierarchy: &mut self.layers_hierarchy,
+            ruleset: &mut self.rulesets[ruleset_id.0],
+            css_selectors_to_rulesets: &mut self.css_selectors_to_rulesets,
+        }
+    }
+
+    /// Modify an existing ruleset and returns a [`StyleSheetRulesetBuilder`] to build such ruleset.
+    pub fn modify_ruleset(
+        &mut self,
+        ruleset_id: StyleSheetRulesetId,
+    ) -> StyleSheetRulesetBuilder<'_> {
+        StyleSheetRulesetBuilder {
             ruleset_id,
             layers_hierarchy: &mut self.layers_hierarchy,
             ruleset: &mut self.rulesets[ruleset_id.0],
@@ -742,21 +780,6 @@ impl StyleSheetBuilder {
             .into_iter()
             .map(|ruleset| ruleset.resolve(property_registry))
             .collect::<Result<Vec<_>, _>>()?;
-
-        // let animation_keyframes = self
-        //     .animation_keyframes
-        //     .into_iter()
-        //     .map(|(animation_name, properties)| {
-        //         let properties = properties
-        //             .into_iter()
-        //             .map(|(property_ref, keyframes)| {
-        //                 Ok((property_registry.resolve(&property_ref)?, keyframes))
-        //             })
-        //             .collect::<Result<Vec<_>, _>>()?;
-        //
-        //         Ok((animation_name, properties))
-        //     })
-        //     .collect::<Result<FxHashMap<_, _>, CanonicalNameNotFoundError>>()?;
 
         let animation_keyframes = self
             .animation_keyframes

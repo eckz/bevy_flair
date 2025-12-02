@@ -6,7 +6,7 @@ use std::cmp::PartialEq;
 use std::fmt::Display;
 
 use crate::animations::*;
-use crate::components::NodeStyleData;
+use crate::components::{NodeStyleData, RawInlineStyle};
 
 use crate::animations::TransitionOptions;
 use crate::css_selector::CssSelector;
@@ -100,8 +100,17 @@ impl RulesetProperty {
     }
 }
 
+/// A collection of style rules, including variable definitions and property settings.
+/// Represents a body of a ruleset defined in css.
+/// It includes the properties, variables, animation and transition properties.
+///
+/// For example:
+/// ```css
+///  --my-variable: 10px;
+///  color: var(--my-variable);
+/// ```
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Ruleset {
+pub struct Ruleset {
     pub(super) vars: FxHashMap<Arc<str>, VarTokens>,
     pub(super) properties: Vec<RulesetProperty>,
     pub(super) transition_properties: AnimationProperties<TransitionPropertyId>,
@@ -110,7 +119,7 @@ pub(crate) struct Ruleset {
 
 /// ID of a ruleset in a [`StyleSheet`].
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Hash, Debug, Reflect)]
-pub(crate) struct StyleSheetRulesetId(pub(crate) usize);
+pub struct StyleSheetRulesetId(pub(crate) usize);
 
 impl Display for StyleSheetRulesetId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -163,20 +172,32 @@ impl StyleSheet {
         StyleSheetBuilder::new()
     }
 
-    pub(crate) fn get(&self, id: StyleSheetRulesetId) -> Option<&Ruleset> {
+    /// Gets a reference to a ruleset by its [`StyleSheetRulesetId`].
+    pub fn get(&self, id: StyleSheetRulesetId) -> Option<&Ruleset> {
         self.rulesets.get(id.0)
     }
 
-    pub(crate) fn get_property_values<V: VarResolver>(
+    fn resolve_rulesets<'a>(
+        &'a self,
+        rulesets: &'a [StyleSheetRulesetId],
+        inline: Option<&'a RawInlineStyle>,
+    ) -> impl Iterator<Item = &'a Ruleset> + 'a {
+        rulesets
+            .iter()
+            .map(|id| self.get(*id).unwrap())
+            .chain(inline.map(|i| &i.ruleset))
+    }
+
+    /// Returns all property values defined in the given rulesets and inline styles.
+    pub fn get_property_values<V: VarResolver>(
         &self,
-        rules_sets: &[StyleSheetRulesetId],
+        rulesets: &[StyleSheetRulesetId],
+        inline: Option<&RawInlineStyle>,
         property_registry: &PropertyRegistry,
         var_resolver: &V,
         output: &mut PropertyMap<PropertyValue>,
     ) {
-        for ruleset_id in rules_sets {
-            let ruleset = self.get(*ruleset_id).unwrap();
-
+        for ruleset in self.resolve_rulesets(rulesets, inline) {
             for property in ruleset.properties.iter() {
                 property.resolve(property_registry, var_resolver, |property_id, value| {
                     output.set_if_neq(property_id, value);
@@ -185,14 +206,15 @@ impl StyleSheet {
         }
     }
 
-    pub(crate) fn get_vars(
+    /// Returns all variables defined in the given rulesets and inline styles.
+    pub fn get_vars(
         &self,
-        rules_sets: &[StyleSheetRulesetId],
+        rulesets: &[StyleSheetRulesetId],
+        inline: Option<&RawInlineStyle>,
     ) -> FxHashMap<VarName, VarTokens> {
         let mut result = FxHashMap::default();
 
-        for ruleset_id in rules_sets {
-            let ruleset = self.get(*ruleset_id).unwrap();
+        for ruleset in self.resolve_rulesets(rulesets, inline) {
             result.extend(
                 ruleset
                     .vars
@@ -205,15 +227,15 @@ impl StyleSheet {
 
     pub(crate) fn resolve_transition_options<V: VarResolver>(
         &self,
-        rules_sets: &[StyleSheetRulesetId],
+        rulesets: &[StyleSheetRulesetId],
+        inline: Option<&RawInlineStyle>,
         property_registry: &PropertyRegistry,
         css_property_registry: &CssPropertyRegistry,
         var_resolver: &V,
     ) -> PropertiesHashMap<TransitionOptions> {
         let mut output = FxHashMap::default();
 
-        for ruleset_id in rules_sets {
-            let ruleset = self.get(*ruleset_id).unwrap();
+        for ruleset in self.resolve_rulesets(rulesets, inline) {
             ruleset
                 .transition_properties
                 .resolve_to_output(var_resolver, &mut output);
@@ -251,14 +273,13 @@ impl StyleSheet {
     // It doesn't include the keyframes
     pub(crate) fn resolve_animation_configs<V: VarResolver>(
         &self,
-        rule_sets: &[StyleSheetRulesetId],
+        rulesets: &[StyleSheetRulesetId],
+        inline: Option<&RawInlineStyle>,
         var_resolver: &V,
     ) -> Vec<AnimationConfiguration> {
         let mut properties = FxHashMap::default();
 
-        for ruleset_id in rule_sets {
-            let ruleset = self.get(*ruleset_id).unwrap();
-
+        for ruleset in self.resolve_rulesets(rulesets, inline) {
             ruleset
                 .animation_properties
                 .resolve_to_output(var_resolver, &mut properties);
@@ -289,11 +310,12 @@ impl StyleSheet {
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
-    use crate::ColorScheme;
     use crate::animations::AnimationProperty;
+    use crate::builder::RulesetBuilder;
     use crate::media_selector::{MediaRangeSelector, MediaSelector};
     use crate::test_utils::NoVarsSupportedResolver;
     use crate::testing::{css_selector, entity};
+    use crate::{ColorScheme, StyleBuilderProperty};
     use bevy_ecs::component::Component;
     use std::sync::LazyLock;
     use std::time::Duration;
@@ -362,6 +384,7 @@ mod tests {
             let mut property_map = PROPERTY_REGISTRY.create_unset_values_map();
             $style_sheet.get_property_values(
                 $rules,
+                None,
                 &PROPERTY_REGISTRY,
                 &crate::test_utils::NoVarsSupportedResolver,
                 &mut property_map,
@@ -440,19 +463,28 @@ mod tests {
         let rule_class_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!(".class_1"))
-            .with_properties([(TEST_PROPERTY, 2f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(2f32),
+            ))
             .id();
 
         let rule_class_with_hover_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!(".class_1:hover"))
-            .with_properties([(TEST_PROPERTY, 4f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(4f32),
+            ))
             .id();
 
         let rule_any_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!("*"))
-            .with_properties([(TEST_PROPERTY, 0f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(0f32),
+            ))
             .id();
 
         let style_sheet = builder.build_without_loader(&PROPERTY_REGISTRY).unwrap();
@@ -509,6 +541,7 @@ mod tests {
         assert_eq!(
             style_sheet.resolve_transition_options(
                 &[rule_any_id, rule_class_id, rule_class_with_hover_id],
+                None,
                 &PROPERTY_REGISTRY,
                 &CSS_PROPERTY_REGISTRY,
                 &NoVarsSupportedResolver,
@@ -529,6 +562,7 @@ mod tests {
                     rule_class_with_hover_id,
                     rule_with_name_id
                 ],
+                None,
                 &PROPERTY_REGISTRY,
                 &CSS_PROPERTY_REGISTRY,
                 &NoVarsSupportedResolver,
@@ -539,6 +573,7 @@ mod tests {
         assert_eq!(
             style_sheet.resolve_animation_configs(
                 &[rule_any_id, rule_class_id, rule_class_with_hover_id],
+                None,
                 &NoVarsSupportedResolver,
             ),
             vec![]
@@ -546,6 +581,7 @@ mod tests {
 
         let resolved_animations = style_sheet.resolve_animation_configs(
             &[rule_any_id, rule_class_id, rule_with_name_id],
+            None,
             &NoVarsSupportedResolver,
         );
 
@@ -575,7 +611,10 @@ mod tests {
                     .clone()
                     .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Dark)),
             )
-            .with_properties([(TEST_PROPERTY, 0f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(0f32),
+            ))
             .id();
 
         let rule_light = builder
@@ -585,7 +624,10 @@ mod tests {
                     .clone()
                     .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Light)),
             )
-            .with_properties([(TEST_PROPERTY, 1f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(1f32),
+            ))
             .id();
 
         let rule_min_width_500 = builder
@@ -594,7 +636,10 @@ mod tests {
                 MediaSelector::ColorScheme(ColorScheme::Light),
                 MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
             ]))
-            .with_properties([(TEST_PROPERTY, 2f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(2f32),
+            ))
             .id();
 
         let rule_width_exact_600 = builder
@@ -603,7 +648,10 @@ mod tests {
                 MediaSelector::ColorScheme(ColorScheme::Light),
                 MediaSelector::ViewportWidth(MediaRangeSelector::Exact(600)),
             ]))
-            .with_properties([(TEST_PROPERTY, 3f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(3f32),
+            ))
             .id();
 
         let rule_aspect_ratio_ge_1 = builder
@@ -611,7 +659,10 @@ mod tests {
             .with_css_selector(any_selector.clone().with_media_selectors(
                 MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(1.0)),
             ))
-            .with_properties([(TEST_PROPERTY, 3f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(3f32),
+            ))
             .id();
 
         let rule_aspect_ratio_le_1 = builder
@@ -619,7 +670,10 @@ mod tests {
             .with_css_selector(any_selector.clone().with_media_selectors(
                 MediaSelector::AspectRatio(MediaRangeSelector::LessOrEqual(1.0)),
             ))
-            .with_properties([(TEST_PROPERTY, 3f32)])
+            .with_property(StyleBuilderProperty::new(
+                TEST_PROPERTY,
+                ReflectValue::Float(3f32),
+            ))
             .id();
 
         let style_sheet = builder.build_without_loader(&PROPERTY_REGISTRY).unwrap();

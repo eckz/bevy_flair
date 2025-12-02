@@ -809,11 +809,7 @@ pub(crate) fn calculate_style_and_set_vars(
             let new_rules =
                 style_sheet.get_matching_ruleset_ids_for_element(&element_ref, &media_provider);
 
-            let mut new_vars = style_sheet.get_vars(&new_rules);
-
-            if let Some(inline_style) = maybe_inline_style {
-                inline_style.vars_to_output(&mut new_vars);
-            }
+            let new_vars = style_sheet.get_vars(&new_rules, maybe_inline_style);
 
             if vars.replace_vars(new_vars) {
                 trace!("Setting vars on '{name_or_entity}': {:?}", &**vars);
@@ -858,7 +854,7 @@ pub(crate) fn set_property_values(
     styled_entities_query.par_iter_mut().for_each_init(
         || any_property_change_parallel.borrow_local_mut(),
         |any_property_change,
-         (name_or_entity, data, inline_style, active_rules, mut marker, mut properties)| {
+         (name_or_entity, data, maybe_inline_style, active_rules, mut marker, mut properties)| {
             if !marker.needs_style_recalculation() {
                 return;
             }
@@ -875,6 +871,7 @@ pub(crate) fn set_property_values(
 
             properties.set_transition_options(style_sheet.resolve_transition_options(
                 new_rules,
+                maybe_inline_style,
                 &property_registry,
                 &css_property_registry,
                 &entity_var_resolver,
@@ -883,19 +880,11 @@ pub(crate) fn set_property_values(
             let mut property_values = property_registry.create_unset_values_map();
             style_sheet.get_property_values(
                 new_rules,
+                maybe_inline_style,
                 &property_registry,
                 &entity_var_resolver,
                 &mut property_values,
             );
-
-            // Inline styles
-            if let Some(inline_style) = inline_style {
-                inline_style.properties_to_output(
-                    &property_registry,
-                    &entity_var_resolver,
-                    &mut property_values,
-                );
-            }
 
             debug_assert!(properties.pending_property_values.is_empty());
             **any_property_change |= properties.pending_property_values != property_values;
@@ -903,7 +892,7 @@ pub(crate) fn set_property_values(
             properties.pending_property_values = property_values;
 
             let animation_configs =
-                style_sheet.resolve_animation_configs(new_rules, &entity_var_resolver);
+                style_sheet.resolve_animation_configs(new_rules, maybe_inline_style, &entity_var_resolver);
 
             if animation_configs != properties.current_animation_configs {
                 debug!("New animations for '{name_or_entity}': {animation_configs:?}'");

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implements `animation-fill-mode` and `animation-play-state`.
   - Allows the use of `var()` inside keyframes (https://github.com/eckz/bevy_flair/issues/26).
   - Support for `animation-timing-function` inside `@keyframes`
+  - You can specify `animation-*` and `transition-*` properties inline.
   - Allows not specifying properties in keyframes, 
     and they will be filled with either the current computed value or an interpolated value.
   - In general is more conformant to the css standard, so if an animation works in a browser,

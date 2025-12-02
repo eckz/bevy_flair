@@ -8,8 +8,8 @@ use std::borrow::Cow;
 
 use crate::{
     AnimationEvent, AnimationEventType, AttributeKey, AttributeValue, ClassName, ColorScheme,
-    DynamicParseVarTokens, IdName, NodePseudoState, NodePseudoStateSelector, StyleSheet,
-    TransitionEvent, TransitionEventType, VarTokens,
+    IdName, NodePseudoState, NodePseudoStateSelector, StyleSheet, TransitionEvent,
+    TransitionEventType, VarTokens,
 };
 
 use bevy_ecs::prelude::*;
@@ -20,7 +20,7 @@ use bevy_flair_core::{
 use bevy_reflect::prelude::*;
 use bitflags::bitflags;
 
-use crate::style_sheet::{RulesetProperty, StyleSheetRulesetId, VarResolver};
+use crate::style_sheet::{Ruleset, StyleSheetRulesetId};
 use bevy_asset::{AssetId, Handle};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::system::SystemParam;
@@ -34,7 +34,6 @@ use bevy_window::Window;
 use derive_more::{Deref, DerefMut};
 use itertools::{Itertools, izip};
 use rustc_hash::{FxHashMap, FxHashSet};
-use smallvec::{SmallVec, smallvec};
 use std::collections::hash_map::Entry;
 use std::convert::Infallible;
 use std::mem;
@@ -1501,111 +1500,6 @@ impl AttributeList {
     }
 }
 
-/// Component that stores inline style.
-/// It should not be used directly, look for the `InlineStyle` component.
-#[derive(Clone, Debug, Default, Component)]
-pub struct RawInlineStyle {
-    pub(crate) properties: Vec<(Arc<str>, SmallVec<[RulesetProperty; 1]>)>,
-    pub(crate) vars: Vec<(Arc<str>, VarTokens)>,
-}
-
-impl RawInlineStyle {
-    /// Insert a single property by its css property name.
-    pub fn insert_raw_single_property(
-        &mut self,
-        css_name: Arc<str>,
-        property_id: ComponentPropertyId,
-        value: PropertyValue,
-    ) {
-        self.remove_raw_property(&css_name);
-        self.properties.push((
-            css_name,
-            smallvec![RulesetProperty::Specific { property_id, value }],
-        ));
-    }
-
-    /// Insert multiple properties that belong to the same css property. (Like a shorthand)
-    pub fn insert_multiple_raw_properties(
-        &mut self,
-        css_name: Arc<str>,
-        properties: impl IntoIterator<Item = (ComponentPropertyId, PropertyValue)>,
-    ) {
-        self.remove_raw_property(&css_name);
-        self.properties.push((
-            css_name,
-            properties
-                .into_iter()
-                .map(|(property_id, value)| RulesetProperty::Specific { property_id, value })
-                .collect(),
-        ));
-    }
-
-    /// Insert a dynamic property by its css property name.
-    pub fn insert_dynamic_raw_property(
-        &mut self,
-        css_name: Arc<str>,
-        parser: DynamicParseVarTokens,
-        tokens: VarTokens,
-    ) {
-        self.remove_raw_property(&css_name);
-        self.properties.push((
-            css_name.clone(),
-            smallvec![RulesetProperty::Dynamic {
-                css_name,
-                parser,
-                tokens,
-            }],
-        ));
-    }
-
-    /// Removes a property by its name.
-    fn remove_raw_property(&mut self, css_name: &str) {
-        self.properties.retain(|(name, _)| &**name != css_name)
-    }
-
-    /// Outputs the properties of the inline style into a [`PropertyMap`]
-    pub fn properties_to_output<V: VarResolver>(
-        &self,
-        property_registry: &PropertyRegistry,
-        var_resolver: &V,
-        output: &mut PropertyMap<PropertyValue>,
-    ) {
-        for property in self
-            .properties
-            .iter()
-            .flat_map(|(_, properties)| properties.iter())
-        {
-            property.resolve(property_registry, var_resolver, |property_id, value| {
-                output.set_if_neq(property_id, value);
-            });
-        }
-    }
-
-    /// Inserts a var by its name and `VarToken`.
-    pub fn insert_raw_var(&mut self, var_name: Arc<str>, var_tokens: VarTokens) {
-        self.remove_raw_var(&var_name);
-        self.vars.push((var_name, var_tokens));
-    }
-
-    /// Removes a var by its name.
-    pub fn remove_raw_var(&mut self, var_name: &str) {
-        self.vars.retain(|(name, _)| &**name != var_name)
-    }
-
-    /// Outputs the vars of the inline style into a [`FxHashMap`].
-    pub fn vars_to_output(&self, output: &mut FxHashMap<Arc<str>, VarTokens>) {
-        for (name, var_tokens) in self.vars.iter() {
-            output.insert(name.clone(), var_tokens.clone());
-        }
-    }
-
-    /// Clears the contents of the [`RawInlineStyle`].
-    pub fn clear(&mut self) {
-        self.properties.clear();
-        self.vars.clear();
-    }
-}
-
 impl<K, V> FromIterator<(K, V)> for AttributeList
 where
     K: Into<AttributeKey>,
@@ -1617,6 +1511,22 @@ where
                 .map(|(k, v)| (k.into(), v.into()))
                 .collect(),
         )
+    }
+}
+
+/// Component that stores inline style.
+/// It should not be used directly, look for the `InlineStyle` component.
+#[derive(Clone, Debug, Component)]
+#[component(immutable)]
+pub struct RawInlineStyle {
+    /// The ruleset containing the inline style.
+    pub ruleset: Ruleset,
+}
+
+impl RawInlineStyle {
+    /// Creates a new `RawInlineStyle` with the given ruleset.
+    pub fn new(ruleset: Ruleset) -> Self {
+        Self { ruleset }
     }
 }
 

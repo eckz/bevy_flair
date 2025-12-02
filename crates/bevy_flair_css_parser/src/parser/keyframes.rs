@@ -94,6 +94,7 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
         input: &mut Parser<'i, 't>,
     ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
+            parse_vars: false,
             parse_transition: false,
             parse_animation: ParseAnimationProperties::OnlyTimingFunction,
             parse_nested: false,
