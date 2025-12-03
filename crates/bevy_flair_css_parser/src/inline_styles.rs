@@ -219,7 +219,7 @@ mod tests {
     macro_rules! get_properties {
         ($property_registry:expr, $inline_style:expr) => {{
             let style_sheet = bevy_flair_style::StyleSheetBuilder::new()
-                .build_without_loader(&$property_registry)
+                .build_without_resolving_placeholders(&$property_registry)
                 .unwrap();
             let mut property_map = $property_registry.create_unset_values_map();
             style_sheet.get_property_values(
@@ -236,7 +236,7 @@ mod tests {
     macro_rules! get_vars {
         ($property_registry:expr, $inline_style:expr) => {{
             let style_sheet = bevy_flair_style::StyleSheetBuilder::new()
-                .build_without_loader(&$property_registry)
+                .build_without_resolving_placeholders(&$property_registry)
                 .unwrap();
             style_sheet.get_vars(&[], Some(&$inline_style))
         }};

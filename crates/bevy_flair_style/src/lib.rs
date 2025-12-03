@@ -31,6 +31,7 @@ pub mod css_selector;
 pub(crate) mod custom_iterators;
 mod layers;
 mod media_selector;
+pub mod placeholder;
 mod systems;
 mod to_css;
 mod vars;
@@ -352,7 +353,7 @@ impl Plugin for FlairStylePlugin {
             .register_required_components_with::<Label, TypeName>(|| {
                 TypeName("label")
             })
-            .add_plugins(ReflectAnimationsPlugin)
+            .add_plugins((ReflectAnimationsPlugin, placeholder::PlaceholderResolvePlugin))
             .add_observer(systems::observe_on_component_auto_inserted)
             .configure_sets(
                 PostUpdate,
@@ -433,6 +434,7 @@ impl Plugin for FlairStylePlugin {
                     systems::emit_animation_events.in_set(StyleSystems::EmitAnimationEvents),
                     systems::emit_redraw_event.in_set(StyleSystems::EmitRedrawEvent),
                     (
+                        systems::resolve_placeholders,
                         systems::apply_computed_properties,
                         systems::auto_remove_components
                             .run_if(systems::auto_remove_components_condition)

@@ -408,9 +408,9 @@ mod tests {
             ComputedValue::None => {
                 panic!("None generated")
             }
-            ComputedValue::Value(value) => {
-                value.downcast_value::<Val>().expect("Downcasting failed")
-            }
+            ComputedValue::Value(value) => *value
+                .downcast_value_ref::<Val>()
+                .expect("Downcasting failed"),
         }
     }
 

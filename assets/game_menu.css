@@ -24,8 +24,9 @@
     height: 100%;
     background-color: #1f2730;
     
-    --floating-borders-top: 100px;
+    --floating-borders-top: 103px;
     --floating-borders-spacing: 90px;
+    --floating-borders-image: url("panel-border-010.png");
 }
 
 :root, #game_menu {
@@ -83,7 +84,8 @@ button, #floating_borders {
     position: absolute;
     top: var(--floating-borders-top);
     transition: top 0.6s;
-    background-image: url("panel-border-010.png");
+    margin-top: 0;
+    background-image: var(--floating-borders-image);
     -bevy-image-mode: sliced(20.0px);
 }
 
@@ -104,6 +106,6 @@ button:nth-child(5):focus ~ #floating_borders {
 }
 
 button:hover ~ #floating_borders {
-    animation: 2.0s linear infinite borders-animation;
+    animation: 2.0s linear 2 borders-animation;
 }
 

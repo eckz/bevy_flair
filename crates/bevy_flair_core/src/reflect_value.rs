@@ -6,24 +6,9 @@ use bevy_ui::Val;
 use serde::{Serialize, Serializer};
 use std::{
     any::{Any, TypeId},
-    fmt::{Debug, Formatter},
-    mem,
+    fmt,
     sync::Arc,
 };
-
-fn safe_transmute<Src: Any + Copy, Dst: Any>(src: Src) -> Option<Dst> {
-    if TypeId::of::<Src>() == TypeId::of::<Dst>() {
-        union SafeUnion<Src: Copy, Dst> {
-            src: Src,
-            dst: mem::ManuallyDrop<Dst>,
-        }
-        let union = SafeUnion { src };
-        // SAFETY: We are transmuting between the same type, and it's a Copy type
-        unsafe { Some(mem::ManuallyDrop::into_inner(union.dst)) }
-    } else {
-        None
-    }
-}
 
 /// Utility wrapper around a `Box<dyn Reflect>`:
 /// It's more convenient than using directly `Box<dyn Reflect>` or an `Arc<dyn Reflect>` for the following reasons:
@@ -109,17 +94,23 @@ impl ReflectValue {
     ///
     /// If the underlying value is not of type `T`, returns `Err(self)`.
     pub fn downcast_value<T: FromReflect>(self) -> Result<T, Self> {
+        T::from_reflect(self.value_as_partial_reflect()).ok_or(self)
+    }
+
+    /// Downcasts the value to type `T`, returning a reference to it.
+    /// If the underlying value is not of type `T`, returns `None`.
+    pub fn downcast_value_ref<T: FromReflect>(&self) -> Option<&T> {
+        #[inline]
+        fn safe_transmute_ref<Src: Any, Dst: Any>(src: &Src) -> Option<&Dst> {
+            (src as &dyn Any).downcast_ref::<Dst>()
+        }
+
         match self {
-            Self::Float(value) => safe_transmute(value).ok_or(Self::Float(value)),
-            Self::Usize(value) => safe_transmute(value).ok_or(Self::Usize(value)),
-            Self::Color(value) => safe_transmute(value).ok_or(Self::Color(value)),
-            Self::Val(value) => safe_transmute(value).ok_or(Self::Val(value)),
-            Self::ReflectArc(reflect_arc) => {
-                match T::from_reflect((*reflect_arc).as_partial_reflect()) {
-                    Some(value) => Ok(value),
-                    None => Err(Self::ReflectArc(reflect_arc)),
-                }
-            }
+            Self::Float(value) => safe_transmute_ref(value),
+            Self::Usize(value) => safe_transmute_ref(value),
+            Self::Color(value) => safe_transmute_ref(value),
+            Self::Val(value) => safe_transmute_ref(value),
+            Self::ReflectArc(reflect_arc) => (*reflect_arc).downcast_ref::<T>(),
         }
     }
 
@@ -173,13 +164,13 @@ impl PartialEq for ReflectValue {
     }
 }
 
-impl Debug for ReflectValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ReflectValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReflectValue::Float(value) => Debug::fmt(value, f),
-            ReflectValue::Usize(value) => Debug::fmt(value, f),
-            ReflectValue::Color(value) => Debug::fmt(value, f),
-            ReflectValue::Val(value) => Debug::fmt(value, f),
+            ReflectValue::Float(value) => fmt::Debug::fmt(value, f),
+            ReflectValue::Usize(value) => fmt::Debug::fmt(value, f),
+            ReflectValue::Color(value) => fmt::Debug::fmt(value, f),
+            ReflectValue::Val(value) => fmt::Debug::fmt(value, f),
             ReflectValue::ReflectArc(reflect_arc) => (**reflect_arc).debug(f),
         }
     }
@@ -229,6 +220,7 @@ mod tests {
 
         assert_eq!(reflect_value, ReflectValue::new(expected));
 
+        assert_eq!(reflect_value.downcast_value_ref::<f32>(), Some(&expected));
         assert_eq!(reflect_value.downcast_value::<f32>(), Ok(expected));
     }
 
@@ -253,6 +245,10 @@ mod tests {
 
         assert_eq!(reflect_value, ReflectValue::new(expected));
 
+        assert_eq!(
+            reflect_value.downcast_value_ref::<CustomReflectStruct>(),
+            Some(&expected)
+        );
         assert_eq!(
             reflect_value.downcast_value::<CustomReflectStruct>(),
             Ok(expected)

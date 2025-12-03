@@ -8,12 +8,12 @@ use bevy_ecs::change_detection::{MaybeLocation, Res};
 use bevy_ecs::prelude::AppTypeRegistry;
 use bevy_ecs::system::SystemParam;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
+use bevy_flair_style::placeholder::PlaceholderAssetLoader;
 use bevy_flair_style::{StyleSheet, StyleSheetBuilderError};
 use bevy_reflect::TypeRegistryArc;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::error;
 
 /// Errors that can occur while loading a CSS stylesheet using [`CssStyleSheetLoader`] or
 /// [`InlineCssStyleSheetParser`].
@@ -142,7 +142,11 @@ impl AssetLoader for CssStyleSheetLoader {
         };
 
         let builder = internal_loader.load_stylesheet(&file_name, &contents)?;
-        Ok(builder.build_with_load_context(&self.property_registry, load_context)?)
+        Ok(builder.build(
+            &type_registry,
+            &self.property_registry,
+            PlaceholderAssetLoader::from_load_context(load_context),
+        )?)
     }
 
     fn extensions(&self) -> &[&str] {
@@ -211,9 +215,9 @@ impl<'w> InlineCssStyleSheetParser<'w> {
         }
 
         let imports = FxHashMap::default();
-        let type_registry = &self.app_type_registry.read();
+        let type_registry = self.app_type_registry.read();
         let internal_loader = InternalStylesheetLoader {
-            type_registry,
+            type_registry: &type_registry,
             property_registry: &self.property_registry,
             css_property_registry: &self.css_property_registry,
             shorthand_property_registry: &self.shorthand_property_registry,
@@ -222,6 +226,10 @@ impl<'w> InlineCssStyleSheetParser<'w> {
         };
 
         let builder = internal_loader.load_stylesheet(&file_name, contents)?;
-        Ok(builder.build_with_asset_server(&self.property_registry, &self.asset_server)?)
+        Ok(builder.build(
+            &type_registry,
+            &self.property_registry,
+            PlaceholderAssetLoader::from_asset_server(&self.asset_server),
+        )?)
     }
 }

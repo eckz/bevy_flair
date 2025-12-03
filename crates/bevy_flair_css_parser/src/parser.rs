@@ -866,13 +866,13 @@ mod tests {
             (
                 "dependency1.css".into(),
                 StyleSheet::builder()
-                    .build_without_loader(&PROPERTY_REGISTRY)
+                    .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
                     .unwrap(),
             ),
             (
                 "dependency2.css".into(),
                 StyleSheet::builder()
-                    .build_without_loader(&PROPERTY_REGISTRY)
+                    .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
                     .unwrap(),
             ),
         ])

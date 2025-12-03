@@ -9,7 +9,6 @@ use smol_str::SmolStr;
 use std::fmt::Write;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::error;
 
 /// Represents a token used in variable resolution, based on CSS token types.
 #[derive(PartialEq, Debug, Clone, Reflect)]

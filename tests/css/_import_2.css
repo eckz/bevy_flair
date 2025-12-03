@@ -6,5 +6,6 @@
 
 :root {
     --import-2-var: red;
+    --font-family: FiraSans;
     margin-left: 10px;
 }

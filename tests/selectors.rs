@@ -53,8 +53,31 @@ macro_rules! assert_node_attr_eq {
         assert_eq!(
             *$attr,
             $expected_value,
-            "Entity '{name}' {attr_name} mismatch",
+            "Entity '{name}' Node.{attr_name} mismatch",
             attr_name = stringify!($attr)
+        );
+    }};
+}
+
+macro_rules! assert_image_node_path {
+    ($app:ident, $name:literal, $expected_path:expr) => {{
+        let name = $name;
+        let world = $app.world();
+        let entity = world.find_by_unique_name(name);
+
+        let Some(ImageNode { image, .. }) = world.get::<ImageNode>(entity) else {
+            panic!("No ImageNode set for entity '{name}' ({entity})");
+        };
+
+        assert!(
+            image.path().is_some(),
+            "ImageNode.image on '{name}' ({entity}) doesn't have a image path"
+        );
+
+        assert_eq!(
+            image.path().unwrap().to_string(),
+            $expected_path,
+            "Entity '{name}' ImageNode.image mismatch",
         );
     }};
 }
@@ -234,6 +257,10 @@ fn media_queries() {
     let mut app = test_app();
     let app = &mut app;
 
+    let _filter_guard = set_panic_on_warn_filter(|_, message| {
+        !message.starts_with("Media selector for 'prefers-color-scheme' cannot be matched")
+    });
+
     fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         // We need a camera to match window and UI
         commands.spawn(Camera2d);
@@ -329,6 +356,7 @@ macro_rules! set_inline_style {
 #[test]
 fn inline_styles() {
     include_test_css!("inline_styles.css");
+    include_assets!("panel-border-010.png");
 
     let mut app = test_app();
     let app = &mut app;
@@ -390,6 +418,20 @@ fn inline_styles() {
 
     assert_width_eq!(app, "child1", Val::Px(100.0));
     assert_width_eq!(app, "child2", Val::Px(1.0));
+
+    // Verify that Handle<Image> are resolved even when using vars
+    set_inline_style!(
+        app,
+        "child1",
+        "background-image: url('panel-border-010.png')"
+    );
+    set_inline_style!(app, "root", "--image: url('panel-border-010.png')");
+    set_inline_style!(app, "child2", "background-image: var(--image)");
+    app.update();
+
+    assert_image_node_path!(app, "child1", "panel-border-010.png");
+
+    assert_image_node_path!(app, "child2", "panel-border-010.png");
 }
 
 #[test]

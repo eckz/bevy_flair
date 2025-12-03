@@ -1069,7 +1069,7 @@ mod tests {
     use bevy_color::palettes::css;
     use bevy_color::{Color, Srgba};
 
-    use bevy_flair_style::AssetPathPlaceHolder;
+    use bevy_flair_style::placeholder::AssetPathPlaceholder;
     use bevy_ui::{
         ColorStop, Gradient, GridTrack, LinearGradient, RadialGradient, RadialGradientShape,
         RepeatedGridTrack, UiPosition,
@@ -1117,7 +1117,7 @@ mod tests {
         Vec<RepeatedGridTrack>,
         Vec<GridTrack>,
         BackgroundGradient,
-        AssetPathPlaceHolder<Image>
+        AssetPathPlaceholder<Image>
     );
 
     trait IntoPropertyValue {
@@ -1323,7 +1323,7 @@ mod tests {
     #[test]
     fn test_background_image() {
         test_shorthand_property!("background-image", "url('image.png')", {
-            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+            "-bevy-image" => AssetPathPlaceholder::<Image>::new("image.png"),
         });
 
         test_shorthand_property!("background-image", "linear-gradient(to top, blue, red)", {
@@ -1337,7 +1337,7 @@ mod tests {
         });
 
         test_shorthand_property!("background-image", "url('image.png'), linear-gradient(to top, blue, red), radial-gradient(green, white)", {
-            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+            "-bevy-image" => AssetPathPlaceholder::<Image>::new("image.png"),
             "-bevy-background-gradient" => BackgroundGradient(vec![
                 Gradient::Linear(LinearGradient::new(
                     0.0,
@@ -1361,7 +1361,7 @@ mod tests {
 
         test_shorthand_property!("background", "red url('image.png'), linear-gradient(to top, blue, red), radial-gradient(green, white)", {
             "background-color" => css::RED,
-            "-bevy-image" => AssetPathPlaceHolder::<Image>::new("image.png"),
+            "-bevy-image" => AssetPathPlaceholder::<Image>::new("image.png"),
             "-bevy-background-gradient" => BackgroundGradient(vec![
                 Gradient::Linear(LinearGradient::new(
                     0.0,

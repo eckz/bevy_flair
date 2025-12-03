@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.7.0] Unreleased
+
+### Added
 - Revamps animations/transition system
   - It adds support for individual properties,
     like `animation-*` and `transition-*` (https://github.com/eckz/bevy_flair/issues/23, https://github.com/eckz/bevy_flair/issues/24).
@@ -14,14 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Allows the use of `var()` inside keyframes (https://github.com/eckz/bevy_flair/issues/26).
   - Support for `animation-timing-function` inside `@keyframes`
   - You can specify `animation-*` and `transition-*` properties inline.
-  - Allows not specifying properties in keyframes, 
-    and they will be filled with either the current computed value or an interpolated value.
-  - In general is more conformant to the css standard, so if an animation works in a browser,
-    it's more probable that it works now in bevy_flair.
-  - This includes a lot of internal changes, some of them might be breaking.
+  - Animations and transitions with zero duration are now supported.
+  - Missing properties in `from` or `to` keyframes will be filled with the current computed value.
+  - In general, bevy_flair is more conformant to the css standard, so if an animation works in a browser,
+    it's more probable that it works now.
 - Full support for `TextureSlicer` parsing inside `NodeImage`.
 - `BoxShadow` and `TextShadow` are interpolable.
 - Support for providing `unset` in any css property.
+
+### Changed
+- Most changes are internal refactorings that only affect direct usage of internal APIs.
+- Some usages of `SmolStr` have been replaced with `Cow<'static, str>`, like `ClassList`, `AttributeList` or `InlineStyle`.
+- Added new `CssPropertyRegistry` struct for managing CSS property name mappings. `PropertyRegistry` is not used for this purpose anymore.
+- Some types implemented `Serialize` and `Deserialize`. It has been removed.
+- The way to build `AnimationKeyframes` manually has changed.
+- `ReflectAnimatable` create_keyframes_animation signature has changed to use `AnimationPropertyKeyframe`.
+- `RawInlineStyle` now can only be built with a `Ruleset` and it's an immutable component, most methods have been removed.
+- The build method of `StyleSheetBuilder` requires a `TypeRegistry`.
+- Some variants of `StyleSheetBuilderError` have been removed
+- `*Placeholder` items have been moved to the `placeholder` module.
+- `InlineStyle` now only contains a single `set` and `get` that works for properties, vars, animations and transitions.
+
+### Fixed
+- Support resolving images and fonts dynamically, even on inline styles (https://github.com/eckz/bevy_flair/issues/36)
 
 ## [0.6.0] 5-Nov-2025
 

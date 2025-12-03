@@ -18,6 +18,9 @@ use bevy_ecs::prelude::*;
 use crate::animations::{AnimationConfiguration, KeyframesResolver};
 use crate::custom_iterators::{CustomUiChildren, CustomUiRoots};
 use crate::media_selector::MediaFeaturesProvider;
+use crate::placeholder::{
+    PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
+};
 use bevy_camera::{Camera, NormalizedRenderTarget};
 use bevy_ecs::relationship::RelationshipSourceCollection;
 use bevy_ecs::system::{SystemParam, SystemState};
@@ -1118,6 +1121,58 @@ pub(crate) fn emit_redraw_event(
     {
         request_redraw_writer.write(RequestRedraw);
     }
+}
+
+// Right before `apply_computed_properties` we need to resolve placeholders
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_placeholders(
+    mut properties_query: Query<(&mut NodeProperties, &NodeStyleData, &NodeStyleMarker)>,
+    asset_server: Res<AssetServer>,
+    style_sheets: Res<Assets<StyleSheet>>,
+    app_type_registry: Res<AppTypeRegistry>,
+    debug_helper: PropertyIdDebugHelperParam,
+) -> Result {
+    let type_registry = app_type_registry.read();
+
+    for (mut properties, style_data, marker) in &mut properties_query {
+        if !marker.needs_property_application() {
+            continue;
+        }
+
+        let Some(style_sheet) = style_sheets.get(style_data.effective_style_sheet_asset_id) else {
+            continue;
+        };
+
+        let mut context = ResolvePlaceholderContext {
+            asset_loader: PlaceholderAssetLoader::from_asset_server(&asset_server),
+            font_faces: &style_sheet.resolved_font_faces,
+        };
+
+        // Only done for `pending_computed_values` and not `pending_computed_animation_values` because it wouldn't make any sense.
+        for (property_id, mut computed_value) in properties.pending_computed_values.iter_mut() {
+            let ComputedValue::Value(reflect_value) = &*computed_value else {
+                continue;
+            };
+
+            match try_resolve_placeholder(reflect_value, &mut context, &type_registry) {
+                Ok(Some(resolved_placeholder)) => {
+                    computed_value.set_if_neq(ComputedValue::Value(resolved_placeholder));
+                }
+                Err(error) => {
+                    warn!(
+                        "Error resolving property '{property_name}': {error}",
+                        property_name = debug_helper
+                            .as_helper()
+                            .property_id_into_string(property_id)
+                    );
+                    computed_value.set_if_neq(ComputedValue::None);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -9,16 +9,19 @@ use crate::{
 
 use crate::css_selector::CssSelector;
 use crate::layers::LayersHierarchy;
+use crate::placeholder::{
+    PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
+};
 use crate::style_sheet::RulesetProperty;
-use bevy_asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError};
+use bevy_asset::{AssetPath, Handle, ParseAssetPathError};
 use bevy_flair_core::*;
-use bevy_image::Image;
-use bevy_reflect::{FromReflect, Reflect};
+use bevy_reflect::{FromReflect, TypeRegistry};
 use bevy_text::Font;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
-use std::{fmt::Debug, marker::PhantomData, mem};
+use std::{fmt::Debug, mem};
 use thiserror::Error;
+use tracing::warn;
 
 /// Possible errors that could happen while trying to build a stylesheet.
 #[derive(Debug, Error)]
@@ -38,32 +41,9 @@ pub enum StyleSheetBuilderError {
         /// Found type of the value
         found_value_type_path: &'static str,
     },
-    /// A property has a value of a different type than the one from the property inside an animation keyframe.
-    #[error(
-        "Property {property:?} points to the animation '{animation_name}' with contains a keyframe of type '{found_value_type_path}', but '{expected_value_type_path}' was expected"
-    )]
-    InvalidPropertyInAnimationKeyframes {
-        /// Name of the animation
-        animation_name: Arc<str>,
-        /// Name of the property
-        property: String,
-        /// Expected type of the value
-        expected_value_type_path: &'static str,
-        /// Found type of the value
-        found_value_type_path: &'static str,
-    },
-    /// Specified animation does not exist.
-    #[error("Animation {0} does not exist")]
-    AnimationDoesNotExist(Arc<str>),
     /// Ruleset is orphan, it does not have any selector.
     #[error("Ruleset {0:?} is orphan. Did you forget to call .with_simple_selector() or similar?")]
     OrphanRuleset(String),
-    /// No asset loader was specified, and at least one asset path was used.
-    #[error("Cannot resolve assets without an asset loader. Use .build_with_asset_server()")]
-    NoAssetLoader,
-    /// Specified font family was not previously defined.
-    #[error("Font family \"{0}\" not found")]
-    FontFamilyNotFound(String),
     /// Error while parsing asset path.
     #[error("Error while parsing asset url(\"{path}\"): {error}")]
     InvalidAssetPath {
@@ -80,81 +60,6 @@ pub enum StyleSheetBuilderError {
 pub struct StyleFontFace {
     pub(super) font_family: String,
     pub(super) path: String,
-}
-
-/// Common trait implemented for [`&AssetServer`] and [`&mut LoadContext<'_>`]
-/// that allows to load any asset.
-///
-/// [`&AssetServer`]: AssetServer
-/// [`&mut LoadContext<'_>`]: LoadContext
-trait AssetLoader {
-    fn load_asset<T: Asset>(
-        &mut self,
-        path: AssetPath,
-    ) -> Result<Handle<T>, StyleSheetBuilderError>;
-}
-
-impl AssetLoader for &AssetServer {
-    fn load_asset<T: Asset>(
-        &mut self,
-        path: AssetPath,
-    ) -> Result<Handle<T>, StyleSheetBuilderError> {
-        Ok(self.load(path))
-    }
-}
-
-impl AssetLoader for &mut LoadContext<'_> {
-    fn load_asset<T: Asset>(
-        &mut self,
-        path: AssetPath,
-    ) -> Result<Handle<T>, StyleSheetBuilderError> {
-        Ok(self.load(path))
-    }
-}
-
-impl AssetLoader for () {
-    fn load_asset<T: Asset>(
-        &mut self,
-        _path: AssetPath,
-    ) -> Result<Handle<T>, StyleSheetBuilderError> {
-        Err(StyleSheetBuilderError::NoAssetLoader)
-    }
-}
-
-/// When a struct contains a `Handle<Font>`, instead of referring to the url of the asset.
-/// It's expected to refer to a defined `@font-face`. This represents the name of such font-face.
-#[derive(Clone, PartialEq, Debug, Reflect)]
-pub struct FontTypePlaceholder(pub String);
-
-/// Placeholder to any generic `Handle<T>`.
-/// When building the `StyleSheet` it will be replaced with the loaded `Handle<T>`.
-/// Mainly used for `Handle<Image>`.
-#[derive(Reflect)]
-pub struct AssetPathPlaceHolder<A>(pub String, #[reflect(ignore)] PhantomData<fn() -> A>);
-
-impl<A> PartialEq for AssetPathPlaceHolder<A> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<A> Clone for AssetPathPlaceHolder<A> {
-    fn clone(&self) -> Self {
-        AssetPathPlaceHolder(self.0.clone(), PhantomData)
-    }
-}
-
-impl<A> Debug for AssetPathPlaceHolder<A> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AssetPathPlaceHolder({:?})", self.0)
-    }
-}
-
-impl<A> AssetPathPlaceHolder<A> {
-    /// Creates a new placeholder for a specific asset type.
-    pub fn new(path: impl Into<String>) -> Self {
-        AssetPathPlaceHolder(path.into(), PhantomData)
-    }
 }
 
 /// Represents a property and its value inside a [`StyleSheetBuilder`].
@@ -682,35 +587,56 @@ impl StyleSheetBuilder {
         }
     }
 
-    fn resolve_asset_handles_with_loader(
+    fn resolve_placeholders(
         &mut self,
-        mut loader: impl AssetLoader,
+        type_registry: &TypeRegistry,
+        resolved_font_faces: &FxHashMap<String, Handle<Font>>,
+        asset_loader: PlaceholderAssetLoader,
     ) -> Result<(), StyleSheetBuilderError> {
-        // TODO: There should be an option to either Error or Warn when there is an issue.
-        fn resolve_placeholder<A: Asset, L: AssetLoader>(
-            loader: &mut L,
-            reflect_value: &mut ReflectValue,
-        ) -> Result<(), StyleSheetBuilderError> {
-            if reflect_value.value_is::<AssetPathPlaceHolder<A>>() {
-                let place_holder = mem::replace(reflect_value, ReflectValue::Usize(0))
-                    .downcast_value::<AssetPathPlaceHolder<A>>()
-                    .unwrap();
+        let mut context = ResolvePlaceholderContext {
+            asset_loader,
+            font_faces: resolved_font_faces,
+        };
 
-                let path = AssetPath::try_parse(&place_holder.0).map_err(|error| {
-                    StyleSheetBuilderError::InvalidAssetPath {
-                        path: place_holder.0.clone(),
-                        error,
+        for property_value in self
+            .rulesets
+            .iter_mut()
+            .flat_map(|r| r.properties.iter_mut())
+        {
+            // We resolve values that are directly resolved.
+            // But dynamic values, like the ones using `var()` will be resolved on the fly.
+            if let StyleBuilderProperty::Specific {
+                value: property_value,
+                ..
+            } = property_value
+                && let PropertyValue::Value(reflect_value) = property_value
+            {
+                match try_resolve_placeholder(reflect_value, &mut context, type_registry) {
+                    Ok(Some(resolved_placeholder)) => {
+                        *reflect_value = resolved_placeholder;
                     }
-                })?;
-
-                let handle = loader.load_asset::<A>(path)?;
-                *reflect_value = ReflectValue::new(handle);
+                    Err(error) => {
+                        warn!("Failed to resolve: {error}");
+                        *property_value = PropertyValue::None;
+                    }
+                    _ => {}
+                }
             }
-
-            Ok(())
         }
 
-        let font_faces: FxHashMap<String, Handle<Font>> = mem::take(&mut self.font_faces)
+        Ok(())
+    }
+
+    /// Build the style sheet.
+    pub fn build(
+        mut self,
+        type_registry: &TypeRegistry,
+        property_registry: &PropertyRegistry,
+        mut asset_loader: PlaceholderAssetLoader,
+    ) -> Result<StyleSheet, StyleSheetBuilderError> {
+        let font_faces = self.font_faces.clone();
+
+        let resolved_font_faces: FxHashMap<String, Handle<Font>> = mem::take(&mut self.font_faces)
             .into_iter()
             .map(|ff| {
                 let path = AssetPath::try_parse(&ff.path).map_err(|error| {
@@ -719,48 +645,12 @@ impl StyleSheetBuilder {
                         error,
                     }
                 })?;
-                let handle = loader.load_asset(path)?;
+                let handle = asset_loader.load_asset(path);
                 Ok((ff.font_family, handle))
             })
             .collect::<Result<_, StyleSheetBuilderError>>()?;
 
-        for property_value in self
-            .rulesets
-            .iter_mut()
-            .flat_map(|r| r.properties.iter_mut())
-        {
-            // TODO: We need to do this also for dynamic properties somehow
-            if let StyleBuilderProperty::Specific {
-                value: PropertyValue::Value(reflect_value),
-                ..
-            } = property_value
-            {
-                if reflect_value.value_is::<FontTypePlaceholder>() {
-                    let place_holder = mem::replace(reflect_value, ReflectValue::Usize(0))
-                        .downcast_value::<FontTypePlaceholder>()
-                        .unwrap();
-
-                    let Some(handle) = font_faces.get(&place_holder.0) else {
-                        return Err(StyleSheetBuilderError::FontFamilyNotFound(place_holder.0));
-                    };
-
-                    *reflect_value = ReflectValue::new(handle.clone());
-                }
-                resolve_placeholder::<Image, _>(&mut loader, reflect_value)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn inner_build(
-        mut self,
-        property_registry: &PropertyRegistry,
-        loader: impl AssetLoader,
-    ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        let font_faces = self.font_faces.clone();
-
-        self.resolve_asset_handles_with_loader(loader)?;
+        self.resolve_placeholders(type_registry, &resolved_font_faces, asset_loader)?;
         self.run_all_validations()?;
 
         let layers_hierarchy = self.layers_hierarchy;
@@ -791,6 +681,7 @@ impl StyleSheetBuilder {
 
         Ok(StyleSheet {
             font_faces,
+            resolved_font_faces,
             rulesets,
             animation_keyframes,
             css_selectors_to_rulesets,
@@ -798,29 +689,16 @@ impl StyleSheetBuilder {
     }
 
     /// Build the style sheet without loading any asset.
-    pub fn build_without_loader(
+    pub fn build_without_resolving_placeholders(
         self,
         property_registry: &PropertyRegistry,
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        self.inner_build(property_registry, ())
-    }
-
-    /// Build the style sheet using the [`AssetServer`] to load any asset.
-    pub fn build_with_asset_server(
-        self,
-        property_registry: &PropertyRegistry,
-        asset_server: &AssetServer,
-    ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        self.inner_build(property_registry, asset_server)
-    }
-
-    /// Build the style sheet using the [`LoadContext`] to load any asset.
-    pub fn build_with_load_context(
-        self,
-        property_registry: &PropertyRegistry,
-        load_context: &mut LoadContext,
-    ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        self.inner_build(property_registry, load_context)
+        let type_registry = TypeRegistry::new();
+        self.build(
+            &type_registry,
+            property_registry,
+            PlaceholderAssetLoader::no_loader(),
+        )
     }
 }
 

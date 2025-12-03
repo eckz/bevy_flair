@@ -12,8 +12,9 @@ use crate::animations::TransitionOptions;
 use crate::css_selector::CssSelector;
 
 use crate::media_selector::MediaFeaturesProvider;
-use bevy_asset::Asset;
+use bevy_asset::{Asset, Handle};
 use bevy_reflect::{Reflect, TypePath};
+use bevy_text::Font;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tracing::{error, warn};
@@ -161,6 +162,7 @@ impl VarResolver for &dyn VarResolver {
 pub struct StyleSheet {
     // This only make sense here when importing other stylesheets
     pub(super) font_faces: Vec<StyleFontFace>,
+    pub(super) resolved_font_faces: FxHashMap<String, Handle<Font>>,
     pub(super) rulesets: Vec<Ruleset>,
     pub(super) animation_keyframes: FxHashMap<Arc<str>, AnimationKeyframes>,
     pub(super) css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
@@ -487,7 +489,9 @@ mod tests {
             ))
             .id();
 
-        let style_sheet = builder.build_without_loader(&PROPERTY_REGISTRY).unwrap();
+        let style_sheet = builder
+            .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
+            .unwrap();
 
         let media_provider = TestMediaProvider::default();
 
@@ -676,7 +680,9 @@ mod tests {
             ))
             .id();
 
-        let style_sheet = builder.build_without_loader(&PROPERTY_REGISTRY).unwrap();
+        let style_sheet = builder
+            .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
+            .unwrap();
 
         let dark_media = TestMediaProvider {
             scheme: Some(ColorScheme::Dark),
