@@ -174,7 +174,7 @@ impl ComponentPropertiesRegistration {
             return Ok(());
         }
 
-        match self.component_fns.reflect_mut.unwrap()(world_entity_mut.into()) {
+        match (self.component_fns.reflect_mut)(world_entity_mut.into()) {
             Some(component) => {
                 self.internal_apply_values(component, property_registry, values)?;
                 Ok(())
@@ -219,7 +219,7 @@ impl ComponentPropertiesRegistration {
             return self.apply_values_ref(entity_mut.reborrow(), property_registry, values, queue);
         }
 
-        match self.component_fns.reflect_mut.unwrap()(entity_mut) {
+        match (self.component_fns.reflect_mut)(entity_mut) {
             Some(component) => {
                 self.internal_apply_values(component, property_registry, values)?;
                 Ok(())

@@ -89,6 +89,15 @@ fn reflect_mut_component<T: Component<Mutability = Mutable> + Reflect>(
     Some(component.as_partial_reflect_mut())
 }
 
+fn reflect_mut_component_panic<T: TypePath>(
+    _entity: EntityMut<'_>,
+) -> Option<&mut dyn PartialReflect> {
+    panic!(
+        "Component '{}' is immutable and reflect_mut cannot be called",
+        T::type_path()
+    );
+}
+
 fn insert_component<T: Component + TypePath>(
     mut entity_world_mut: EntityWorldMut<'_>,
     component: Box<dyn Reflect>,
@@ -117,7 +126,7 @@ pub struct ComponentFns {
     pub(crate) is_mutable: bool,
     pub(crate) contains: fn(FilteredEntityRef<'_, '_>) -> bool,
     pub(crate) reflect: for<'w> fn(FilteredEntityRef<'w, '_>) -> Option<&'w dyn PartialReflect>,
-    pub(crate) reflect_mut: Option<for<'w> fn(EntityMut<'w>) -> Option<&'w mut dyn PartialReflect>>,
+    pub(crate) reflect_mut: for<'w> fn(EntityMut<'w>) -> Option<&'w mut dyn PartialReflect>,
     pub(crate) insert: fn(EntityWorldMut<'_>, Box<dyn Reflect>),
     pub(crate) remove: fn(EntityWorldMut<'_>),
     pub(crate) default: fn() -> Box<dyn Reflect>,
@@ -130,7 +139,7 @@ impl ComponentFns {
             is_mutable: <T::Mutability as ComponentMutability>::MUTABLE,
             contains: contains_component::<T>,
             reflect: reflect_component::<T>,
-            reflect_mut: Some(reflect_mut_component::<T>),
+            reflect_mut: reflect_mut_component::<T>,
             insert: insert_component::<T>,
             remove: remove_component::<T>,
             default: || Box::<T>::default(),
@@ -143,7 +152,7 @@ impl ComponentFns {
             is_mutable: <T::Mutability as ComponentMutability>::MUTABLE,
             contains: contains_component::<T>,
             reflect: reflect_component::<T>,
-            reflect_mut: None,
+            reflect_mut: reflect_mut_component_panic::<T>,
             insert: insert_component::<T>,
             remove: remove_component::<T>,
             default: || Box::<T>::default(),
