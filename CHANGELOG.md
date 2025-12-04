@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for providing `unset` in any css property.
 - Immutable components supported has been added.
 - New example showing how to spawn sound effects using css.
+- `border-left`, `border-right`, etc are supported.
+- `border` shorthand properties accept style keywords, like `solid`, they will be ignored since there is no support in bevy.
 
 ### Changed
 - Most changes are internal refactorings that only affect direct usage of internal APIs.

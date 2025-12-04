@@ -6,6 +6,7 @@ use crate::reflect::{
 };
 use crate::utils::{
     CombinedParse, parse_property_global_keyword, parse_property_value_with, try_parse_none,
+    try_parse_none_with_value,
 };
 use crate::{CssError, ParserExt, error_codes};
 use bevy_app::{App, Plugin};
@@ -433,29 +434,81 @@ fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
     )
 }
 
-fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
-    let width = parse_calc_property_value_with(parser, parse_val)?;
+fn parse_border_style(parser: &mut Parser) -> Result<(), CssError> {
+    let ident = parser.expect_ident()?;
+    Ok(match_ignore_ascii_case! { ident.as_ref(),
+        "dotted" | "dashed" | "solid" | "double" | "groove" | "ridge" | "inset" | "outset"  => (),
+        // This error does not matter much because it will be ignored
+        _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
+    })
+}
 
-    let mut result = vec![
-        (BORDER_LEFT_WIDTH, width.clone()),
-        (BORDER_RIGHT_WIDTH, width.clone()),
-        (BORDER_BOTTOM_WIDTH, width.clone()),
-        (BORDER_TOP_WIDTH, width),
-    ];
+fn parse_border_inner<I: IntoIterator<Item = CssRef>>(
+    width_ref: I,
+    color_ref: I,
+    parser: &mut Parser,
+) -> ShorthandParseResult {
+    let width = match try_parse_none_with_value(parser, Val::ZERO) {
+        Some(zero_value) => PropertyValue::Value(ReflectValue::Val(zero_value)),
+        None => parse_calc_property_value_with(parser, parse_val)?,
+    };
+
+    let mut result: Vec<_> = width_ref
+        .into_iter()
+        .map(|width_ref| (width_ref, width.clone()))
+        .collect();
+
+    // Border style is being ignored because it's not supported by bevy,
+    // but it's convenient to have for when you copy-paste.
+    // TODO: Ideally we should emit a warning or similar
+    let _ = parser.try_parse_with(parse_border_style);
 
     if let Ok(color) =
         parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
     {
         let color = color.map(ReflectValue::Color);
-        result.extend([
-            (BORDER_TOP_COLOR, color.clone()),
-            (BORDER_RIGHT_COLOR, color.clone()),
-            (BORDER_BOTTOM_COLOR, color.clone()),
-            (BORDER_LEFT_COLOR, color.clone()),
-        ]);
+        result.extend(
+            color_ref
+                .into_iter()
+                .map(|color_ref| (color_ref, color.clone())),
+        );
     }
 
     Ok(result)
+}
+
+fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
+    parse_border_inner(
+        [
+            BORDER_LEFT_WIDTH,
+            BORDER_RIGHT_WIDTH,
+            BORDER_BOTTOM_WIDTH,
+            BORDER_TOP_WIDTH,
+        ],
+        [
+            BORDER_TOP_COLOR,
+            BORDER_RIGHT_COLOR,
+            BORDER_BOTTOM_COLOR,
+            BORDER_LEFT_COLOR,
+        ],
+        parser,
+    )
+}
+
+fn parse_border_top(parser: &mut Parser) -> ShorthandParseResult {
+    parse_border_inner([BORDER_TOP_WIDTH], [BORDER_TOP_COLOR], parser)
+}
+
+fn parse_border_right(parser: &mut Parser) -> ShorthandParseResult {
+    parse_border_inner([BORDER_RIGHT_WIDTH], [BORDER_RIGHT_COLOR], parser)
+}
+
+fn parse_border_bottom(parser: &mut Parser) -> ShorthandParseResult {
+    parse_border_inner([BORDER_BOTTOM_WIDTH], [BORDER_BOTTOM_COLOR], parser)
+}
+
+fn parse_border_left(parser: &mut Parser) -> ShorthandParseResult {
+    parse_border_inner([BORDER_LEFT_WIDTH], [BORDER_LEFT_COLOR], parser)
 }
 
 fn parse_border_width(parser: &mut Parser) -> ShorthandParseResult {
@@ -948,6 +1001,26 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         parse_border,
     );
     registry.register_new(
+        "border-top",
+        [BORDER_TOP_WIDTH, BORDER_TOP_COLOR],
+        parse_border_top,
+    );
+    registry.register_new(
+        "border-right",
+        [BORDER_RIGHT_WIDTH, BORDER_RIGHT_COLOR],
+        parse_border_right,
+    );
+    registry.register_new(
+        "border-bottom",
+        [BORDER_BOTTOM_WIDTH, BORDER_BOTTOM_COLOR],
+        parse_border_bottom,
+    );
+    registry.register_new(
+        "border-left",
+        [BORDER_LEFT_WIDTH, BORDER_LEFT_COLOR],
+        parse_border_left,
+    );
+    registry.register_new(
         "border-color",
         [
             BORDER_TOP_COLOR,
@@ -1199,6 +1272,13 @@ mod tests {
     }
     #[test]
     fn test_border() {
+        test_shorthand_property!("border", "none", {
+            "border-left-width" => Val::Px(0.0),
+            "border-right-width" => Val::Px(0.0),
+            "border-bottom-width" => Val::Px(0.0),
+            "border-top-width" => Val::Px(0.0),
+        });
+
         test_shorthand_property!("border", "3px black", {
             "border-left-width" => Val::Px(3.0),
             "border-right-width" => Val::Px(3.0),
@@ -1208,6 +1288,37 @@ mod tests {
             "border-right-color" => Color::from(css::BLACK),
             "border-bottom-color" => Color::from(css::BLACK),
             "border-left-color" => Color::from(css::BLACK),
+        });
+
+        test_shorthand_property!("border", "5px solid black", {
+            "border-left-width" => Val::Px(5.0),
+            "border-right-width" => Val::Px(5.0),
+            "border-bottom-width" => Val::Px(5.0),
+            "border-top-width" => Val::Px(5.0),
+            "border-top-color" => Color::from(css::BLACK),
+            "border-right-color" => Color::from(css::BLACK),
+            "border-bottom-color" => Color::from(css::BLACK),
+            "border-left-color" => Color::from(css::BLACK),
+        });
+
+        test_shorthand_property!("border-left", "10px solid white", {
+            "border-left-width" => Val::Px(10.0),
+            "border-left-color" => Color::from(css::WHITE),
+        });
+
+        test_shorthand_property!("border-right", "10px solid white", {
+            "border-right-width" => Val::Px(10.0),
+            "border-right-color" => Color::from(css::WHITE),
+        });
+
+        test_shorthand_property!("border-bottom", "10px solid white", {
+            "border-bottom-width" => Val::Px(10.0),
+            "border-bottom-color" => Color::from(css::WHITE),
+        });
+
+        test_shorthand_property!("border-left", "10px solid white", {
+            "border-left-width" => Val::Px(10.0),
+            "border-left-color" => Color::from(css::WHITE),
         });
 
         test_shorthand_property!("border-width", "3px 5%", {
@@ -1231,6 +1342,7 @@ mod tests {
             "border-bottom-right-radius" => Val::Px(10.0),
         });
     }
+
     #[test]
     fn test_outline() {
         test_shorthand_property!("outline", "initial", {
