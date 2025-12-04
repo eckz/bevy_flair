@@ -7,12 +7,12 @@ mod image;
 mod text;
 mod ui;
 
-pub(crate) use assets::parse_asset_path;
 pub(crate) use enums::parse_enum_as_property_value;
 pub(crate) use gradient::parse_gradient;
 pub(crate) use grid::{parse_grid_track_vec, parse_repeated_grid_track_vec};
 pub(crate) use ui::{parse_calc_angle, parse_calc_f32, parse_calc_val};
 
+pub use assets::parse_asset_path;
 pub use color::parse_color;
 pub use ui::parse_val;
 

@@ -1,5 +1,5 @@
 use crate::ComponentPropertyId;
-use bevy_ecs::component::Mutable;
+use bevy_ecs::component::{ComponentMutability, Mutable};
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::FilteredEntityRef;
 use bevy_reflect::*;
@@ -71,9 +71,7 @@ pub struct ComponentAutoInserted {
     pub type_id: TypeId,
 }
 
-fn contains_component<T: Component<Mutability = Mutable> + Reflect>(
-    entity: FilteredEntityRef<'_, '_>,
-) -> bool {
+fn contains_component<T: Component + Reflect>(entity: FilteredEntityRef<'_, '_>) -> bool {
     entity.contains::<T>()
 }
 
@@ -116,25 +114,36 @@ fn remove_component<T: Component + TypePath>(mut entity: EntityWorldMut<'_>) {
 /// concrete Bevy component type.
 #[derive(Copy, Clone)]
 pub struct ComponentFns {
+    pub(crate) is_mutable: bool,
     pub(crate) contains: fn(FilteredEntityRef<'_, '_>) -> bool,
     pub(crate) reflect: for<'w> fn(FilteredEntityRef<'w, '_>) -> Option<&'w dyn PartialReflect>,
-    pub(crate) reflect_mut: for<'w> fn(EntityMut<'w>) -> Option<&'w mut dyn PartialReflect>,
+    pub(crate) reflect_mut: Option<for<'w> fn(EntityMut<'w>) -> Option<&'w mut dyn PartialReflect>>,
     pub(crate) insert: fn(EntityWorldMut<'_>, Box<dyn Reflect>),
     pub(crate) remove: fn(EntityWorldMut<'_>),
     pub(crate) default: fn() -> Box<dyn Reflect>,
 }
 
 impl ComponentFns {
-    /// Create `ComponentFns` for a concrete component type `T`.
-    ///
-    /// The type `T` must implement `Component`, and be [`Reflect`able, `Default` and provide a
-    /// `TypePath`. This constructor wires the function pointers to implementations that
-    /// operate on the concrete `T`.
+    /// Create `ComponentFns` for a mutable component type `T`.
     pub fn new<T: Component<Mutability = Mutable> + Reflect + Default + TypePath>() -> Self {
         Self {
+            is_mutable: <T::Mutability as ComponentMutability>::MUTABLE,
             contains: contains_component::<T>,
             reflect: reflect_component::<T>,
-            reflect_mut: reflect_mut_component::<T>,
+            reflect_mut: Some(reflect_mut_component::<T>),
+            insert: insert_component::<T>,
+            remove: remove_component::<T>,
+            default: || Box::<T>::default(),
+        }
+    }
+
+    /// Create `ComponentFns` for an immutable component type `T`.
+    pub fn new_immutable<T: Component + Reflect + Default + TypePath>() -> Self {
+        Self {
+            is_mutable: <T::Mutability as ComponentMutability>::MUTABLE,
+            contains: contains_component::<T>,
+            reflect: reflect_component::<T>,
+            reflect_mut: None,
             insert: insert_component::<T>,
             remove: remove_component::<T>,
             default: || Box::<T>::default(),

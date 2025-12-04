@@ -208,9 +208,6 @@ impl Transition {
 
         self.interpolation_curve =
             reflect.create_property_transition_curve(Some(self.from.clone()), self.to.clone());
-
-        // We cannot leave the transition as Pending
-        // TODO?? self.tick(Duration::ZERO);
     }
 
     /// Calculates the current value of the transitions using the easing and interpolation curves.

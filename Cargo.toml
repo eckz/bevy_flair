@@ -61,6 +61,7 @@ bevy = {version = "0.17", default-features = false, features = [
     "debug",
     "track_location",
     "bevy_state",
+    "bevy_audio",
     "bevy_ui",
     "bevy_ui_render",
     "bevy_text",
@@ -71,6 +72,7 @@ bevy = {version = "0.17", default-features = false, features = [
     "bevy_winit",
     "bevy_gilrs",
     "png",
+    "vorbis",
     "bevy_dev_tools",
     "default_font",
     "x11"

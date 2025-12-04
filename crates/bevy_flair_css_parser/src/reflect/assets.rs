@@ -10,7 +10,24 @@ use bevy_reflect::{FromType, TypePath};
 use bevy_text::Font;
 use cssparser::Parser;
 
-pub(crate) fn parse_asset_path<A: Asset + TypePath>(
+/// Parses an asset path for the given asset type `A`.
+/// This function expects either a `url("path")` or a string `"path"` in the CSS.
+/// The returned value is an `AssetPathPlaceholder<A>` which needs to converted to a `Handle<A>` later.
+///
+/// Make sure you register the placeholder replacement by calling
+/// ```
+/// # use bevy_app::App;
+/// # use bevy_asset::Asset;
+/// # use bevy_reflect::TypePath;
+/// # use bevy_flair_style::placeholder::{AssetPathPlaceholder, ReflectPlaceholder};
+/// # let mut app = App::new();
+/// # #[derive(Asset, Debug, Clone, TypePath)]
+/// # pub struct MyAsset;
+/// app.register_type::<AssetPathPlaceholder<MyAsset>>();
+/// // Or, alternatively
+/// app.register_type_data::<AssetPathPlaceholder<MyAsset>, ReflectPlaceholder>();
+/// ```
+pub fn parse_asset_path<A: Asset + TypePath>(
     parser: &mut Parser,
 ) -> Result<ReflectValue, CssError> {
     let path = parser.expect_url_or_string()?;

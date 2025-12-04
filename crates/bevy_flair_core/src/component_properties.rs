@@ -3,7 +3,7 @@ use crate::entity_command_queue::EntityCommandQueue;
 use crate::{
     ComponentAutoInserted, ComponentPropertyId, ComputedValue, PropertyMap, PropertyRegistry,
 };
-use bevy_ecs::world::{EntityMut, EntityWorldMut, FilteredEntityRef, World};
+use bevy_ecs::world::{CommandQueue, EntityMut, EntityWorldMut, FilteredEntityRef, World};
 use bevy_reflect::{ApplyError, ParsedPath, PartialReflect, TypeInfo};
 use std::any::TypeId;
 use std::fmt;
@@ -153,7 +153,28 @@ impl ComponentPropertiesRegistration {
         property_registry: &PropertyRegistry,
         values: &mut PropertyMap<ComputedValue>,
     ) -> Result<(), ApplyError> {
-        match (self.component_fns.reflect_mut)(world_entity_mut.into()) {
+        if !self.component_fns.is_mutable {
+            let entity = world_entity_mut.id();
+            let mut command_queue = CommandQueue::default();
+            let entity_command_queue = EntityCommandQueue::new(entity, &mut command_queue);
+
+            world_entity_mut.reborrow_scope(|world_entity_mut| {
+                self.apply_values_ref(
+                    world_entity_mut,
+                    property_registry,
+                    values,
+                    entity_command_queue,
+                )
+            })?;
+
+            world_entity_mut.world_scope(|world| {
+                command_queue.apply(world);
+            });
+
+            return Ok(());
+        }
+
+        match self.component_fns.reflect_mut.unwrap()(world_entity_mut.into()) {
             Some(component) => {
                 self.internal_apply_values(component, property_registry, values)?;
                 Ok(())
@@ -191,9 +212,14 @@ impl ComponentPropertiesRegistration {
         values: &mut PropertyMap<ComputedValue>,
         mut queue: EntityCommandQueue<'_>,
     ) -> Result<(), ApplyError> {
-        let entity_mut = entity_mut.into();
+        let mut entity_mut = entity_mut.into();
         let entity = entity_mut.id();
-        match (self.component_fns.reflect_mut)(entity_mut) {
+
+        if !self.component_fns.is_mutable {
+            return self.apply_values_ref(entity_mut.reborrow(), property_registry, values, queue);
+        }
+
+        match self.component_fns.reflect_mut.unwrap()(entity_mut) {
             Some(component) => {
                 self.internal_apply_values(component, property_registry, values)?;
                 Ok(())
@@ -352,12 +378,24 @@ macro_rules! impl_component_properties {
     (@auto_insert_remove #[component(auto_insert_remove)]) => {
         true
     };
+    (@auto_insert_remove #[component(immutable)]) => {
+        true
+    };
     (@auto_insert_remove) => {
         false
     };
+    (@component_fns ($ty:path) #[component(auto_insert_remove)]) => {
+        $crate::ComponentFns::new::<$ty>()
+    };
+    (@component_fns ($ty:path) #[component(immutable)]) => {
+        $crate::ComponentFns::new_immutable::<$ty>()
+    };
+    (@component_fns ($ty:path)) => {
+        $crate::ComponentFns::new::<$ty>()
+    };
     (@inner_impl $(#[$($type_meta:tt)*])? $ty:path) => {
         impl $crate::ComponentProperties for $ty
-            where $ty: bevy_ecs::component::Component<Mutability = bevy_ecs::component::Mutable>
+            where $ty: bevy_ecs::component::Component
                      + bevy_reflect::Reflect
                      + bevy_reflect::Typed {
 
@@ -365,7 +403,7 @@ macro_rules! impl_component_properties {
                 property_registry: &mut $crate::PropertyRegistry,
             ) -> $crate::ComponentPropertiesRegistration {
                 let component_type_info = <$ty as bevy_reflect::Typed>::type_info();
-                let component_fns = $crate::ComponentFns::new::<$ty>();
+                let component_fns = $crate::impl_component_properties!(@component_fns ($ty) $(#[$($type_meta)*])?);
                 let auto_insert_remove = $crate::impl_component_properties!(@auto_insert_remove $(#[$($type_meta)*])?);
 
                 let mut properties = Vec::new();
@@ -459,6 +497,19 @@ mod tests {
         }
     }
 
+    #[derive(Component, Reflect, PartialEq, Debug, Default)]
+    #[component(immutable)]
+    struct ImmutableComponent {
+        pub a: f32,
+    }
+
+    impl_component_properties! {
+        #[component(immutable)]
+        pub struct ImmutableComponent {
+            pub a: f32,
+        }
+    }
+
     #[derive(Component, Reflect, Default)]
     pub struct TupleComponent(pub f32, pub String);
 
@@ -515,11 +566,16 @@ mod tests {
         let mut property_registry = PropertyRegistry::default();
 
         property_registry.register::<StructComponent>();
+        property_registry.register::<ImmutableComponent>();
         property_registry.register::<TupleComponent>();
         property_registry.register::<SelfComponent>();
 
         let x_id = property_registry
             .resolve(StructComponent::property_ref("x"))
+            .unwrap();
+
+        let a_id = property_registry
+            .resolve(ImmutableComponent::property_ref("a"))
             .unwrap();
 
         let tuple_idx_1 = property_registry
@@ -550,6 +606,7 @@ mod tests {
         assert!(!entity_mut.contains::<StructComponent>());
 
         properties[x_id] = ComputedValue::Value(ReflectValue::Float(10.0));
+        properties[a_id] = ComputedValue::Value(ReflectValue::Float(-100.0));
         properties[tuple_idx_1] = ComputedValue::Value(ReflectValue::new("AA".to_owned()));
         properties[self_component_id] =
             ComputedValue::Value(ReflectValue::new(SelfComponent { some_value: 100 }));
@@ -563,13 +620,19 @@ mod tests {
         assert_eq!(properties[x_id], ComputedValue::None);
         assert_eq!(entity_mut.get::<StructComponent>().unwrap().x, 10.0);
 
+        assert_eq!(properties[a_id], ComputedValue::None);
+        assert_eq!(entity_mut.get::<ImmutableComponent>().unwrap().a, -100.0);
+
         // TupleComponent and SelfComponent are not configured to be inserted automatically, so the properties stay
         assert_ne!(properties[tuple_idx_1], ComputedValue::None);
         assert_ne!(properties[self_component_id], ComputedValue::None);
 
         assert_eq!(
             &world.resource::<TrackAutoInserted>().0,
-            &[TypeId::of::<StructComponent>()]
+            &[
+                TypeId::of::<StructComponent>(),
+                TypeId::of::<ImmutableComponent>()
+            ]
         );
 
         let mut entity_mut = world.entity_mut(entity);
