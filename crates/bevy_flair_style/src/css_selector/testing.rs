@@ -77,9 +77,9 @@ impl Element for TestElementRef<'_> {
         // Ignore
     }
 
-    fn has_id(&self, id: &CssString, case_sensitivity: CaseSensitivity) -> bool {
-        if let Some(name) = &self.name {
-            case_sensitivity.eq(name.as_bytes(), id.as_ref())
+    fn has_id(&self, id_to_match: &CssString, case_sensitivity: CaseSensitivity) -> bool {
+        if let Some(id) = &self.id {
+            case_sensitivity.eq(id.as_bytes(), id_to_match.as_ref())
         } else {
             false
         }
@@ -179,9 +179,9 @@ impl Element for TestNodeRef<'_> {
         // Ignore
     }
 
-    fn has_id(&self, id: &CssString, case_sensitivity: CaseSensitivity) -> bool {
-        if let Some(name) = &self.0.value().name {
-            case_sensitivity.eq(name.as_bytes(), id.as_ref())
+    fn has_id(&self, id_to_match: &CssString, case_sensitivity: CaseSensitivity) -> bool {
+        if let Some(id) = &self.0.value().get_id() {
+            case_sensitivity.eq(id.as_bytes(), id_to_match.as_ref())
         } else {
             false
         }

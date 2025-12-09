@@ -206,7 +206,7 @@ impl Element for ElementRef<'_> {
         id: &<Self::Impl as SelectorImpl>::Identifier,
         case_sensitivity: CaseSensitivity,
     ) -> bool {
-        if let Some(name) = &self.data.name {
+        if let Some(name) = &self.data.id {
             case_sensitivity.eq(name.as_bytes(), id.as_ref())
         } else {
             false

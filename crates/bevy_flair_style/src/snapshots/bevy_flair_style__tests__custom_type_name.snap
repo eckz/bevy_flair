@@ -12,7 +12,7 @@ Scene(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           ),
           is_root: true,
-          name: None,
+          id: None,
           classes: [],
           attributes: {},
           type_name: Some("custom-type"),

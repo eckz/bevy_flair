@@ -10,7 +10,7 @@ macro_rules! entity {
     (@consume ($entity:expr) ) => {
     };
     (@consume ($entity:expr) #$name:ident $($rest:tt)*) => {
-        $entity.name = Some(std::borrow::Cow::Borrowed(stringify!($name)));
+        $entity.id = Some(std::borrow::Cow::Borrowed(stringify!($name)));
         entity!(@consume ($entity) $($rest)*);
     };
     (@consume ($entity:expr) ::before $($rest:tt)*) => {

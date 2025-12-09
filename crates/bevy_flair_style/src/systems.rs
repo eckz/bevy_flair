@@ -287,14 +287,14 @@ pub(crate) fn track_name_changes(
 ) {
     let mut name_changed_query = data_queries.p0();
     for (name, mut data) in &mut name_changed_query {
-        data.name = Some(name.as_str().to_string().into());
+        data.id = Some(name.as_str().to_string().into());
     }
 
     let mut data_query = data_queries.p1();
 
     name_removed.read().for_each(|removed_entity| {
         if let Ok(mut data) = data_query.get_mut(removed_entity) {
-            data.name = None;
+            data.id = None;
         }
     });
 }
@@ -1500,7 +1500,7 @@ mod tests {
         app.update();
 
         let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
-        assert_eq!(data.name, Some("Test".into()));
+        assert_eq!(data.id, Some("Test".into()));
 
         *app.world_mut()
             .entity_mut(entity)
@@ -1509,13 +1509,13 @@ mod tests {
         app.update();
 
         let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
-        assert_eq!(data.name, Some("TestChanged".into()));
+        assert_eq!(data.id, Some("TestChanged".into()));
 
         app.world_mut().entity_mut(entity).remove::<Name>();
         app.update();
 
         let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
-        assert_eq!(data.name, None);
+        assert_eq!(data.id, None);
 
         let entity = app.world_mut().spawn(NodeStyleData::default()).id();
 
@@ -1527,7 +1527,7 @@ mod tests {
         app.update();
 
         let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
-        assert_eq!(data.name, Some("TestInserted".into()));
+        assert_eq!(data.id, Some("TestInserted".into()));
     }
 
     #[test]

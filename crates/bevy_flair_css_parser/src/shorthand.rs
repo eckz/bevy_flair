@@ -436,11 +436,12 @@ fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
 
 fn parse_border_style(parser: &mut Parser) -> Result<(), CssError> {
     let ident = parser.expect_ident()?;
-    Ok(match_ignore_ascii_case! { ident.as_ref(),
+    let _: () = match_ignore_ascii_case! { ident.as_ref(),
         "dotted" | "dashed" | "solid" | "double" | "groove" | "ridge" | "inset" | "outset"  => (),
         // This error does not matter much because it will be ignored
         _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
-    })
+    };
+    Ok(())
 }
 
 fn parse_border_inner<I: IntoIterator<Item = CssRef>>(

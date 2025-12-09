@@ -254,7 +254,7 @@ pub struct NodeStyleData {
 
     // Data use for calculate style
     pub(crate) is_root: bool,
-    pub(crate) name: Option<IdName>,
+    pub(crate) id: Option<IdName>,
     pub(crate) classes: Vec<ClassName>,
     pub(crate) attributes: std::collections::HashMap<AttributeKey, AttributeValue>,
 
@@ -277,50 +277,52 @@ impl NodeStyleData {
     }
 
     /// Gets which stylesheet should be applied to this entity
-    #[inline]
     pub fn get_effective_style_sheet_asset_id(&self) -> AssetId<StyleSheet> {
         self.effective_style_sheet_asset_id
     }
 
     /// Indicates if this entity is a root. Mainly used to match against: `:root` selectors.
-    #[inline]
     pub fn is_root(&self) -> bool {
         self.is_root
     }
 
+    /// Gets the id of the current entity, if one is defined.
+    pub fn get_id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
     /// Returns true if this entity has the specified class.
-    #[inline]
     pub fn has_class(&self, class: &str) -> bool {
         self.classes.iter().any(|c| c == class)
     }
 
     /// Returns all active classes for the current entity.
-    #[inline]
     pub fn active_classes(&self) -> &[ClassName] {
         &self.classes
     }
 
+    /// Gets the value of the specified attribute key, if one is defined.
+    pub fn get_type_name(&self) -> Option<&str> {
+        self.type_name
+    }
+
     /// Returns true if current entity identifies with the following type.
     /// How the type of entity is assigned depends on the [`TypeName`] component.
-    #[inline]
     pub fn has_type_name(&self, type_name: &str) -> bool {
         self.type_name == Some(type_name)
     }
 
     /// If the current entity matches the given [`NodePseudoState`].
-    #[inline]
     pub fn matches_pseudo_state(&self, selector: NodePseudoStateSelector) -> bool {
         self.pseudo_state.matches(selector)
     }
 
     /// Gets the entity's current  [`NodePseudoState`].
-    #[inline]
     pub fn get_pseudo_state(&self) -> NodePseudoState {
         self.pseudo_state
     }
 
     /// Mutates the current [`NodePseudoState`].
-    #[inline]
     pub fn get_pseudo_state_mut(&mut self) -> &mut NodePseudoState {
         &mut self.pseudo_state
     }

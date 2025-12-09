@@ -1,7 +1,7 @@
 //! Utilities for working with placeholders in style values.
 //!
 //! For example, a string path representing an image asset or a font-family name
-//! used instead of a direct Handle<Font>
+//! used instead of a direct `Handle<Font>`.
 
 use bevy_app::{App, Plugin};
 use bevy_asset::{Asset, AssetPath, AssetServer, Handle, LoadContext, ParseAssetPathError};

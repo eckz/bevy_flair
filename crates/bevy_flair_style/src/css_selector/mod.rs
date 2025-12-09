@@ -547,7 +547,7 @@ mod tests {
             let all_matches = find_all_matches(&$selector, &$tree);
             all_matches
                 .into_iter()
-                .map(|nr| nr.value().name.as_ref().expect("Id with no name").clone())
+                .map(|nr| nr.value().id.as_ref().expect("Id with no name").clone())
                 .collect::<Vec<_>>()
         }};
     }
