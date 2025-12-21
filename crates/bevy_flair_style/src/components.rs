@@ -1274,9 +1274,12 @@ pub struct TypeName(pub &'static str);
 fn on_insert_type_name(mut world: DeferredWorld, context: HookContext) {
     let entity = context.entity;
     let new_type_name = world.get::<TypeName>(entity).unwrap().0;
-    let mut style_data = world
-        .get_mut::<NodeStyleData>(entity)
-        .expect("TypeName without NodeStyleData");
+    let Some(mut style_data) = world
+        .get_mut::<NodeStyleData>(entity) else {
+            tracing::error!("TypeName without NodeStyleData (ignore if you use `Name::new(...)` for dynamic content)");
+            return;
+        };
+        
 
     if let Some(type_name) = style_data.type_name {
         panic!(
