@@ -130,7 +130,7 @@ impl AssetLoader for CssStyleSheetLoader {
             imports.insert(import_path, loaded_asset.take());
         }
 
-        let file_name = load_context.path().display().to_string();
+        let file_name = load_context.path().to_string();
         let type_registry = self.type_registry_arc.read();
 
         let internal_loader = InternalStylesheetLoader {
