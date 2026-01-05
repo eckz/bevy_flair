@@ -4,6 +4,7 @@ use crate::reflect::ui::parse_four_values;
 use crate::utils::parse_property_value_with;
 use crate::{ParserExt, ReflectParseCss, parse_calc_f32};
 use bevy_flair_core::ReflectValue;
+use bevy_math::Vec2;
 use bevy_reflect::FromType;
 use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
 use bevy_ui::widget::NodeImageMode;
@@ -74,10 +75,8 @@ fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
     let [top, right, bottom, left] = parse_four_values(parser, parse_calc_f32)?;
 
     let border = BorderRect {
-        left,
-        right,
-        top,
-        bottom,
+        min_inset: Vec2::new(top, left),
+        max_inset: Vec2::new(bottom, right)
     };
 
     let center_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();
