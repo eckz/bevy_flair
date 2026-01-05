@@ -57,6 +57,7 @@ impl_component_properties! {
         pub padding: UiRect,
         #[nested]
         pub border: UiRect,
+        pub border_radius: BorderRadius,
         pub flex_direction: FlexDirection,
         pub flex_wrap: FlexWrap,
         pub flex_grow: f32,
@@ -85,15 +86,6 @@ impl_component_properties! {
         pub right: Color,
         pub bottom: Color,
         pub left: Color,
-    }
-}
-
-impl_component_properties! {
-    pub struct BorderRadius {
-        pub top_left: Val,
-        pub top_right: Val,
-        pub bottom_right: Val,
-        pub bottom_left: Val,
     }
 }
 
@@ -231,7 +223,6 @@ impl Plugin for ImplComponentPropertiesPlugin {
             BackgroundColor,
             Outline,
             BorderColor,
-            BorderRadius,
             BoxShadow,
             ZIndex,
             UiTransform,
@@ -306,6 +297,12 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "grid-row" => Node[".grid_row"],
             "grid-column" => Node[".grid_column"],
 
+            // We need to manually register all border-radius sub-properties
+            "border-top-left-radius" => Node[".border_radius.top_left"],
+            "border-top-right-radius" => Node[".border_radius.top_right"],
+            "border-bottom-left-radius" => Node[".border_radius.bottom_left"],
+            "border-bottom-right-radius" => Node[".border_radius.bottom_right"],
+
             // Misc components
             "background-color" => BackgroundColor[".0"],
 
@@ -314,12 +311,6 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "border-right-color" => BorderColor[".right"],
             "border-bottom-color" => BorderColor[".bottom"],
             "border-left-color" => BorderColor[".left"],
-
-            // We need to manually register all border-radius sub-properties
-            "border-top-left-radius" => BorderRadius[".top_left"],
-            "border-top-right-radius" => BorderRadius[".top_right"],
-            "border-bottom-left-radius" => BorderRadius[".bottom_left"],
-            "border-bottom-right-radius" => BorderRadius[".bottom_right"],
 
             "outline-width" => Outline[".width"],
             "outline-offset" => Outline[".offset"],
