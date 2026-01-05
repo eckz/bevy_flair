@@ -10,7 +10,7 @@ use bevy_ecs::system::SystemParam;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::placeholder::PlaceholderAssetLoader;
 use bevy_flair_style::{StyleSheet, StyleSheetBuilderError};
-use bevy_reflect::TypeRegistryArc;
+use bevy_reflect::{TypePath, TypeRegistryArc};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -70,6 +70,7 @@ pub struct CssStyleLoaderSetting {
 /// - Loading stylesheets from `.css` files.
 /// - Resolving `@import` rules by recursively loading dependent stylesheets.
 /// - Error reporting and configurable error modes.
+#[derive(TypePath)]
 pub struct CssStyleSheetLoader {
     type_registry_arc: TypeRegistryArc,
     property_registry: PropertyRegistry,
@@ -129,7 +130,7 @@ impl AssetLoader for CssStyleSheetLoader {
             imports.insert(import_path, loaded_asset.take());
         }
 
-        let file_name = load_context.path().display().to_string();
+        let file_name = load_context.path().to_string();
         let type_registry = self.type_registry_arc.read();
 
         let internal_loader = InternalStylesheetLoader {
