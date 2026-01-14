@@ -1068,6 +1068,8 @@ fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
         #[cfg(feature = "experimental_cursor_custom")]
         result.push((BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial));
         #[cfg(feature = "experimental_cursor_custom")]
+        result.push((BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial));
+        #[cfg(feature = "experimental_cursor_custom")]
         result.push((BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial));
         #[cfg(feature = "experimental_cursor_custom")]
         result.push((BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial));
