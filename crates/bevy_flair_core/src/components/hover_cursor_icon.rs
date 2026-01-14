@@ -24,6 +24,15 @@ use bevy_window::{
 };
 
 
+/// Component which marks a [`Window`]'s [`CursorIcon`] as managed by a [`HoverCursorIcon`] entity.
+///
+/// *This component should not be used manually*
+#[derive(Component, Debug, Default, Clone, PartialEq, Eq, Reflect)]
+#[reflect(Component, Debug, Default, Clone, PartialEq)]
+#[component(immutable)]
+pub struct ManagedCursorIcon;
+
+
 /// Component which changes the window [`CursorIcon`] when [hovered](Interaction).
 #[derive(Component, Debug, Default, Clone, PartialEq, Eq, Reflect)]
 #[reflect(Component, Debug, Default, Clone, PartialEq)]
@@ -36,6 +45,8 @@ pub struct HoverCursorIcon {
 /// Component which tracks which window's [`CursorIcon`] this [`HoverCursorIcon`] is controlling.
 ///
 /// Used to remove the component when this entity is unhovered.
+///
+/// *This component should not be used manually*
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 #[reflect(Component, Debug, Clone, PartialEq)]
 #[component(immutable)]
@@ -47,12 +58,17 @@ fn hovered_cursor_icon_inserted(mut world: DeferredWorld, ctx: HookContext) {
     let HoveredCursorIcon(window_entity) = *world.get::<HoveredCursorIcon>(ctx.entity).unwrap();
     let hci = world.get::<HoverCursorIcon>(ctx.entity).unwrap();
     let icon = CursorIcon::from(hci.system);
-    world.commands().entity(window_entity).insert(icon);
+    world.commands().entity(window_entity).insert((
+        ManagedCursorIcon,
+        icon,
+    ));
 }
 
 fn cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
     if let Some(&HoveredCursorIcon(window_entity)) = world.get::<HoveredCursorIcon>(ctx.entity) {
-        world.commands().entity(window_entity).remove::<CursorIcon>();
+        world.commands().entity(window_entity)
+            .remove::<CursorIcon>()
+            .remove::<ManagedCursorIcon>();
     }
 }
 
