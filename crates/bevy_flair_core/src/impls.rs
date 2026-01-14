@@ -13,9 +13,11 @@ use bevy_ui::prelude::*;
 #[cfg(feature = "experimental_cursor_property")]
 use crate::components::HoverCursorIcon;
 #[cfg(feature = "experimental_cursor_property")]
-use bevy_image::Image;
-#[cfg(feature = "experimental_cursor_property")]
 use bevy_window::SystemCursorIcon;
+#[cfg(feature = "experimental_cursor_custom")]
+use bevy_image::Image;
+#[cfg(feature = "experimental_cursor_custom")]
+use bevy_math::URect;
 
 impl_extract_component_properties! {
     pub struct UiRect {
@@ -190,6 +192,7 @@ impl_component_properties! {
 }
 
 #[cfg(feature = "experimental_cursor_property")]
+#[cfg(feature = "experimental_cursor_custom")]
 impl_component_properties! {
     #[component(auto_insert_remove)]
     pub struct HoverCursorIcon {
@@ -197,9 +200,17 @@ impl_component_properties! {
         pub custom_handle: Handle<Image>,
         pub custom_flip_x: bool,
         pub custom_flip_y: bool,
-        pub custom_flip_rect: UiRect,
+        pub custom_rect: URect,
         pub custom_hotspot_x: u16,
         pub custom_hotspot_y: u16,
+    }
+}
+#[cfg(feature = "experimental_cursor_property")]
+#[cfg(not(feature = "experimental_cursor_custom"))]
+impl_component_properties! {
+    #[component(auto_insert_remove)]
+    pub struct HoverCursorIcon {
+        pub system: SystemCursorIcon,
     }
 }
 
@@ -384,6 +395,9 @@ impl Plugin for ImplComponentPropertiesPlugin {
         #[cfg(feature = "experimental_cursor_property")]
         set_css_properties!(app => {
             "-bevy-cursor-system" => HoverCursorIcon[".system"],
+        });
+        #[cfg(feature = "experimental_cursor_custom")]
+        set_css_properties!(app => {
             "-bevy-cursor-image" => HoverCursorIcon[".custom_handle"],
             "-bevy-cursor-image-flip-x" => HoverCursorIcon[".custom_flip_x"],
             "-bevy-cursor-image-flip-y" => HoverCursorIcon[".custom_flip_y"],
