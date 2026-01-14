@@ -10,6 +10,11 @@ use bevy_text::prelude::*;
 use bevy_text::{FontSmoothing, LineHeight};
 use bevy_ui::prelude::*;
 
+#[cfg(feature = "experimental_cursor_property")]
+use crate::components::HoverCursorIcon;
+#[cfg(feature = "experimental_cursor_property")]
+use bevy_window::SystemCursorIcon;
+
 impl_extract_component_properties! {
     pub struct UiRect {
         pub left: Val,
@@ -182,6 +187,13 @@ impl_component_properties! {
     pub struct TextShadow
 }
 
+#[cfg(feature = "experimental_cursor_property")]
+impl_component_properties! {
+    pub struct HoverCursorIcon {
+        pub system: SystemCursorIcon,
+    }
+}
+
 macro_rules! register_component_properties {
     ($app:expr => { $($ty:path,)* }) => {
         $(
@@ -244,8 +256,12 @@ impl Plugin for ImplComponentPropertiesPlugin {
             TextShadow,
             TextSpan,
         });
+        #[cfg(feature = "experimental_cursor_property")]
+        register_component_properties!(app => { HoverCursorIcon, });
 
         set_inherited_properties!(app => { TextColor, TextFont, TextLayout, });
+        #[cfg(feature = "experimental_cursor_property")]
+        set_inherited_properties!(app => { HoverCursorIcon, });
 
         set_css_properties!(app => {
             "display" => Node[".display"],
@@ -355,6 +371,10 @@ impl Plugin for ImplComponentPropertiesPlugin {
 
             // Misc text components
             "text-shadow" => TextShadow[""],
+        });
+        #[cfg(feature = "experimental_cursor_property")]
+        set_css_properties!(app => {
+            "-bevy-cursor-system" => HoverCursorIcon[".system"],
         });
     }
 }
