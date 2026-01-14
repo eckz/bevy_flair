@@ -47,7 +47,7 @@ fn default_cursor_icon_inserted(mut world: DeferredWorld, ctx: HookContext) {
     if world.get::<ManagedCursorIcon>(ctx.entity).is_none() {
         let dci  = world.get::<DefaultCursorIcon>(ctx.entity).unwrap();
         let icon = dci.0.clone();
-        world.commands().entity(ctx.entity).insert((icon,));
+        world.commands().entity(ctx.entity).try_insert((icon,));
     }
 }
 
@@ -187,12 +187,17 @@ pub struct HoveredCursorIcon(pub Entity);
 
 fn hovered_cursor_icon_inserted(mut world: DeferredWorld, ctx: HookContext) {
     let HoveredCursorIcon(window_entity) = *world.get::<HoveredCursorIcon>(ctx.entity).unwrap();
-    let hci = world.get::<HoverCursorIcon>(ctx.entity).unwrap();
-    let icon = CursorIcon::from(hci);
-    world.commands().entity(window_entity).insert((
-        ManagedCursorIcon,
-        icon,
-    ));
+    if let Some(hci) = world.get::<HoverCursorIcon>(ctx.entity) {
+        let icon = CursorIcon::from(hci);
+        world.commands().entity(window_entity).try_insert((
+            ManagedCursorIcon,
+            icon,
+        ));
+    } else {
+        world.commands().entity(window_entity)
+            .try_remove::<CursorIcon>()
+            .try_remove::<ManagedCursorIcon>();
+    }
 }
 
 fn cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
