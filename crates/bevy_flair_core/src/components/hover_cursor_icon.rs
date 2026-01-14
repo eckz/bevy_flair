@@ -17,7 +17,7 @@ use bevy_ecs::{
     world::DeferredWorld
 };
 use bevy_image::Image;
-use bevy_math::URect;
+use bevy_math::{ Rect, URect };
 use bevy_reflect::{
     Reflect,
     std_traits::ReflectDefault
@@ -80,7 +80,7 @@ pub struct HoverCursorIcon {
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_flip_y: bool,
     #[cfg(feature = "experimental_cursor_custom")]
-    pub custom_rect: URect,
+    pub custom_rect: Rect,
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_hotspot_x: f32,
     #[cfg(feature = "experimental_cursor_custom")]
@@ -98,7 +98,7 @@ impl Default for HoverCursorIcon {
             #[cfg(feature = "experimental_cursor_custom")]
             custom_flip_y: false,
             #[cfg(feature = "experimental_cursor_custom")]
-            custom_rect: URect::EMPTY,
+            custom_rect: Rect::EMPTY,
             #[cfg(feature = "experimental_cursor_custom")]
             custom_hotspot_x: 0.0,
             #[cfg(feature = "experimental_cursor_custom")]
@@ -119,7 +119,12 @@ impl From<&HoverCursorIcon> for CursorIcon {
                     texture_atlas : None,
                     flip_x        : hci.custom_flip_x,
                     flip_y        : hci.custom_flip_y,
-                    rect          : (! hci.custom_rect.is_empty()).then(|| hci.custom_rect),
+                    rect          : (! hci.custom_rect.is_empty()).then(|| URect::new(
+                        hci.custom_rect.min.x as u32,
+                        hci.custom_rect.min.y as u32,
+                        hci.custom_rect.max.x as u32,
+                        hci.custom_rect.max.y as u32,
+                    )),
                     hotspot       : (hci.custom_hotspot_x as u16, hci.custom_hotspot_y as u16,)
                 }))
             }

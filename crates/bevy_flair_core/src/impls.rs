@@ -16,8 +16,6 @@ use crate::components::HoverCursorIcon;
 use bevy_window::SystemCursorIcon;
 #[cfg(feature = "experimental_cursor_custom")]
 use bevy_image::Image;
-#[cfg(feature = "experimental_cursor_custom")]
-use bevy_math::URect;
 
 impl_extract_component_properties! {
     pub struct UiRect {
@@ -208,7 +206,7 @@ impl_component_properties! {
         pub custom_handle: Handle<Image>,
         pub custom_flip_x: bool,
         pub custom_flip_y: bool,
-        pub custom_rect: URect,
+        pub custom_rect: Rect,
         pub custom_hotspot_x: f32,
         pub custom_hotspot_y: f32,
     }
