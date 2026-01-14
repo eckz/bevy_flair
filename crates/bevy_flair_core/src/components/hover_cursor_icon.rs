@@ -72,17 +72,53 @@ pub struct ManagedCursorIcon;
 #[reflect(Component, Debug, Default, Clone, PartialEq)]
 #[component(on_remove = cursor_icon_removed)]
 pub struct HoverCursorIcon {
+    /// A system-provided icon to use as the cursor.
+    ///
+    /// See [`SystemCursorIcon`].
     pub system: SystemCursorIcon,
+
+    /// Handle to the image to use as the cursor.
+    /// The image must be in 8 bit int or 32 bit float rgba.
+    /// PNG images work well for this.
+    ///
+    /// See [`CustomCursorImage::handle`].
+    ///
+    /// The system icon will be used instead if this is `Handle::Uuid(AssetId::<Image>::INVALID_UUID, _)`.
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_handle: Handle<Image>,
+
+    /// Whether the image should be flipped along its x-axis.
+    ///
+    /// See [`CustomCursorImage::flip_x`].
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_flip_x: bool,
+
+    /// Whether the image should be flipped along its y-axis.
+    ///
+    /// See [`CustomCursorImage::flip_y`].
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_flip_y: bool,
+
+    /// Whether the image should be flipped along its y-axis.
+    ///
+    /// See [`CustomCursorImage::rect`].
+    ///
+    /// The default rect will be used if this has no area.
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_rect: Rect,
+
+    /// X coordinate of the hotspot in pixels.
+    /// The hotspot must be within the image bounds.
+    ///
+    /// See [`CustomCursorImage::hotspot`].
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_hotspot_x: f32,
+
+
+    /// Y coordinate of the hotspot in pixels.
+    /// The hotspot must be within the image bounds.
+    ///
+    /// See [`CustomCursorImage::hotspot`].
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_hotspot_y: f32
 }
