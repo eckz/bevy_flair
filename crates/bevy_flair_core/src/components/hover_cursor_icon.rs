@@ -60,7 +60,7 @@ fn default_cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
 
 /// Component which marks a [`Window`]'s [`CursorIcon`] as managed by a [`HoverCursorIcon`] entity.
 ///
-/// *This component should not be used manually*
+/// ***This component should not be used manually***
 #[derive(Component, Debug, Default, Clone, PartialEq, Eq, Reflect)]
 #[reflect(Component, Debug, Default, Clone, PartialEq)]
 #[component(immutable)]
@@ -175,7 +175,7 @@ impl From<&HoverCursorIcon> for CursorIcon {
 ///
 /// Used to remove the component when this entity is unhovered.
 ///
-/// *This component should not be used manually*
+/// ***This component should not be used manually***
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 #[reflect(Component, Debug, Clone, PartialEq)]
 #[component(immutable)]
@@ -208,13 +208,13 @@ fn cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
 }
 
 
+/// Plugin that adds hover cursor icon systems to Bevy.
 #[derive(Default)]
 pub struct HoverCursorPlugin;
 
 impl Plugin for HoverCursorPlugin {
     fn build(&self, app : &mut App) {
-        app
-            .add_systems(Update, update_cursor_icon);
+        app.add_systems(Update, update_cursor_icon);
     }
 }
 
