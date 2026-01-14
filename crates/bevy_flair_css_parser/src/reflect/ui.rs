@@ -401,6 +401,12 @@ mod tests {
     use bevy_ui::{BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
 
     #[test]
+    fn test_bool() {
+        assert!(test_parse_reflect::<bool>("true"));
+        assert!(! test_parse_reflect::<bool>("false"));
+    }
+
+    #[test]
     fn test_f32() {
         assert_eq!(test_parse_reflect::<f32>("3"), 3.0);
         assert_eq!(test_parse_reflect::<f32>("1.5"), 1.5);
