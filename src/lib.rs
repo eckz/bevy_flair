@@ -48,6 +48,8 @@ bevy_app::plugin_group! {
     pub struct FlairPlugin {
         bevy_flair_core:::PropertyRegistryPlugin,
         bevy_flair_core:::ImplComponentPropertiesPlugin,
+        #[cfg(feature = "experimental_cursor_property")]
+        bevy_flair_core::components:::HoverCursorPlugin,
         bevy_flair_style:::FlairStylePlugin,
         bevy_flair_style:::FlairDefaultStyleAnimationsPlugin,
         bevy_flair_css_parser:::FlairCssParserPlugin,

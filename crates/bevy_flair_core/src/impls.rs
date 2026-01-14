@@ -189,6 +189,7 @@ impl_component_properties! {
 
 #[cfg(feature = "experimental_cursor_property")]
 impl_component_properties! {
+    #[component(auto_insert_remove)]
     pub struct HoverCursorIcon {
         pub system: SystemCursorIcon,
     }
