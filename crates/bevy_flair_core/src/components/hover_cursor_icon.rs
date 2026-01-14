@@ -42,7 +42,7 @@ fn default_cursor_icon_inserted(mut world: DeferredWorld, ctx: HookContext) {
 
 fn default_cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
     if world.get::<ManagedCursorIcon>(ctx.entity).is_none() {
-        world.commands().entity(ctx.entity).remove::<CursorIcon>();
+        world.commands().entity(ctx.entity).try_remove::<CursorIcon>();
     }
 }
 
@@ -93,11 +93,11 @@ fn cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
         let mut cmds = world.commands();
         let mut window = cmds.entity(window_entity);
         if let Some(dci) = icon {
-            window.insert(dci.0);
+            window.try_insert(dci.0);
         } else {
-            window.remove::<CursorIcon>();
+            window.try_remove::<CursorIcon>();
         }
-        window.remove::<ManagedCursorIcon>();
+        window.try_remove::<ManagedCursorIcon>();
     }
 }
 
