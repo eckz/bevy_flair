@@ -1,7 +1,7 @@
 @import "buttons.css";
 
 button {
-    cursor: pointer;
+    -bevy-cursor-system: pointer;
 
     &:active {
         cursor: grabbing;
