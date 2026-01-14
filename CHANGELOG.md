@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0] Unreleased
 
 ### Added
+- Bevy 0.18 support.
 - Revamps animations/transition system
   - It adds support for individual properties,
     like `animation-*` and `transition-*` (https://github.com/eckz/bevy_flair/issues/23, https://github.com/eckz/bevy_flair/issues/24).
