@@ -220,10 +220,10 @@ impl Plugin for HoverCursorPlugin {
 
 fn update_cursor_icon(
     mut cmds: Commands,
-    cursor_icons: Query<(Entity, &HoverCursorIcon, &Interaction), (Or<(Changed<HoverCursorIcon>, Changed<Interaction>,)>,)>,
+    cursor_icons: Query<(Entity, &Interaction), (Or<(Changed<HoverCursorIcon>, Changed<Interaction>,)>,)>,
     windows: Query<(Entity, &Window,),>
 ) {
-    for (interacted_entity, icon, interaction,) in &cursor_icons {
+    for (interacted_entity, interaction,) in &cursor_icons {
         if let Interaction::Hovered|Interaction::Pressed = interaction {
             if let Some((window_entity, _,)) = windows.iter().find(|(_, window,)| window.focused) {
                 cmds.entity(interacted_entity).insert(HoveredCursorIcon(window_entity));
