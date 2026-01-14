@@ -48,6 +48,9 @@ selectors = { workspace = true }
 
 ariadne = "0.5"
 
+[features]
+experimental_cursor_property = []
+
 [dev-dependencies]
 indoc = "2.0"
 approx = "0.5"

@@ -35,6 +35,7 @@ bevy_image = { workspace = true }
 bevy_math = { workspace = true }
 bevy_text = { workspace = true }
 bevy_ui = { workspace = true }
+
 bevy_window = { workspace = true, optional = true }
 
 [features]
