@@ -25,6 +25,15 @@ impl_extract_component_properties! {
     }
 }
 
+impl_extract_component_properties! {
+    pub struct BorderRadius {
+        pub top_left: Val,
+        pub top_right: Val,
+        pub bottom_right: Val,
+        pub bottom_left: Val,
+    }
+}
+
 impl_component_properties! {
     pub struct Node {
         pub display: Display,
@@ -57,6 +66,8 @@ impl_component_properties! {
         pub padding: UiRect,
         #[nested]
         pub border: UiRect,
+        #[nested]
+        pub border_radius: BorderRadius,
         pub flex_direction: FlexDirection,
         pub flex_wrap: FlexWrap,
         pub flex_grow: f32,
@@ -85,15 +96,6 @@ impl_component_properties! {
         pub right: Color,
         pub bottom: Color,
         pub left: Color,
-    }
-}
-
-impl_component_properties! {
-    pub struct BorderRadius {
-        pub top_left: Val,
-        pub top_right: Val,
-        pub bottom_right: Val,
-        pub bottom_left: Val,
     }
 }
 
@@ -156,10 +158,14 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
+    @self
+    pub struct LineHeight
+}
+
+impl_component_properties! {
     pub struct TextFont {
         pub font: Handle<Font>,
         pub font_size: f32,
-        pub line_height: LineHeight,
         pub font_smoothing: FontSmoothing,
     }
 }
@@ -231,7 +237,6 @@ impl Plugin for ImplComponentPropertiesPlugin {
             BackgroundColor,
             Outline,
             BorderColor,
-            BorderRadius,
             BoxShadow,
             ZIndex,
             UiTransform,
@@ -239,13 +244,14 @@ impl Plugin for ImplComponentPropertiesPlugin {
             BorderGradient,
             ImageNode,
             TextColor,
+            LineHeight,
             TextFont,
             TextLayout,
             TextShadow,
             TextSpan,
         });
 
-        set_inherited_properties!(app => { TextColor, TextFont, TextLayout, });
+        set_inherited_properties!(app => { TextColor, TextFont, TextLayout, LineHeight, });
 
         set_css_properties!(app => {
             "display" => Node[".display"],
@@ -306,6 +312,12 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "grid-row" => Node[".grid_row"],
             "grid-column" => Node[".grid_column"],
 
+            // We need to manually register all border-radius sub-properties
+            "border-top-left-radius" => Node[".border_radius.top_left"],
+            "border-top-right-radius" => Node[".border_radius.top_right"],
+            "border-bottom-left-radius" => Node[".border_radius.bottom_left"],
+            "border-bottom-right-radius" => Node[".border_radius.bottom_right"],
+
             // Misc components
             "background-color" => BackgroundColor[".0"],
 
@@ -314,12 +326,6 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "border-right-color" => BorderColor[".right"],
             "border-bottom-color" => BorderColor[".bottom"],
             "border-left-color" => BorderColor[".left"],
-
-            // We need to manually register all border-radius sub-properties
-            "border-top-left-radius" => BorderRadius[".top_left"],
-            "border-top-right-radius" => BorderRadius[".top_right"],
-            "border-bottom-left-radius" => BorderRadius[".bottom_left"],
-            "border-bottom-right-radius" => BorderRadius[".bottom_right"],
 
             "outline-width" => Outline[".width"],
             "outline-offset" => Outline[".offset"],
@@ -343,7 +349,8 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "color" => TextColor[".0"],
             "font-family" => TextFont[".font"],
             "font-size" => TextFont[".font_size"],
-            "line-height" => TextFont[".line_height"],
+            "line-height" => LineHeight[""],
+
             // font-smooth is not css standard
             "-bevy-font-smooth" => TextFont[".font_smoothing"],
             "text-align" => TextLayout[".justify"],

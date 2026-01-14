@@ -16,7 +16,7 @@ fn test_app() -> App {
 
     app.register_asset_source(
         AssetSourceId::Default,
-        AssetSource::build().with_reader(move || {
+        AssetSourceBuilder::new(move || {
             Box::new(MemoryAssetReader {
                 root: ASSETS_DIR.clone(),
             })

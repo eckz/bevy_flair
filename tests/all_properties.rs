@@ -50,13 +50,13 @@ fn all_properties() {
     let mut app = test_app();
     app.add_systems(Startup, spawn_scene);
     app.update();
+    app.update();
 
     fn assert_expected_node(entity_ref: EntityRef) {
         let (
             node,
             border_color,
             background_color,
-            border_radius,
             outline,
             z_index,
             box_shadow,
@@ -68,7 +68,6 @@ fn all_properties() {
             &Node,
             &BorderColor,
             &BackgroundColor,
-            &BorderRadius,
             &Outline,
             &ZIndex,
             &BoxShadow,
@@ -110,6 +109,7 @@ fn all_properties() {
                 margin: UiRect::horizontal(Val::Vw(30.0)),
                 padding: UiRect::vertical(Val::Percent(40.0)),
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(10.0)),
                 flex_direction: FlexDirection::ColumnReverse,
                 flex_wrap: FlexWrap::WrapReverse,
                 flex_grow: 2.0,
@@ -138,7 +138,6 @@ fn all_properties() {
 
         assert_eq!(border_color, &BorderColor::all(css::BLUE));
         assert_eq!(background_color.0, css::BLACK.into());
-        assert_eq!(border_radius, &BorderRadius::all(Val::Px(10.0)));
         assert_eq!(
             outline,
             &Outline {
@@ -205,6 +204,7 @@ fn all_properties() {
         &Node {
             left: Val::VMax(300.0),
             flex_basis: Val::Vh(300.0),
+            border_radius: BorderRadius::default(),
             ..Default::default()
         }
     );
@@ -221,7 +221,6 @@ fn all_properties() {
         node,
         border_color,
         background_color,
-        border_radius,
         outline,
         z_index,
         box_shadow,
@@ -233,7 +232,6 @@ fn all_properties() {
         &Node,
         &BorderColor,
         &BackgroundColor,
-        &BorderRadius,
         &Outline,
         &ZIndex,
         &BoxShadow,
@@ -247,7 +245,6 @@ fn all_properties() {
 
     assert_eq!(border_color, &BorderColor::DEFAULT);
     assert_eq!(background_color, &BackgroundColor::DEFAULT);
-    assert_eq!(border_radius, &BorderRadius::DEFAULT);
     assert_eq!(outline, &Outline::default());
     assert_eq!(z_index, &ZIndex::default());
     assert_eq!(box_shadow, &BoxShadow::default());
@@ -262,15 +259,12 @@ fn all_properties() {
 
     let text_entity = app.world().entity(app.find_by_unique_name("Text"));
 
-    let (text_color, text_font, text_layout, text_shadow) =
-        text_entity.components::<(&TextColor, &TextFont, &TextLayout, &TextShadow)>();
+    let (text_color, text_font, text_layout, text_shadow, line_height) =
+        text_entity.components::<(&TextColor, &TextFont, &TextLayout, &TextShadow, &LineHeight)>();
 
     assert_eq!(text_color.0, css::BLUE.into());
     assert_eq!(text_font.font_size, 3.0);
-    assert!(matches!(
-        text_font.line_height,
-        LineHeight::RelativeToFont(1.2)
-    ));
+    assert!(matches!(line_height, LineHeight::RelativeToFont(1.2)));
     assert_eq!(text_font.font_smoothing, FontSmoothing::None);
 
     assert_eq!(text_layout.justify, Justify::Center);
