@@ -53,7 +53,7 @@ bevy_flair_css_parser = { workspace = true }
 [features]
 default = []
 experimental_ghost_nodes = ["bevy_flair_style/experimental_ghost_nodes"]
-experimental_cursor_property = []
+experimental_cursor_property = ["bevy_flair_core/experimental_cursor_property"]
 
 [dev-dependencies]
 criterion = { version = "0.7", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
@@ -99,3 +99,7 @@ opt-level = 0
 
 [profile.dev.package.bevy_ui]
 opt-level = 1
+
+[[example]]
+name = "buttons_cursor"
+required-features = ["experimental_cursor_property"]
