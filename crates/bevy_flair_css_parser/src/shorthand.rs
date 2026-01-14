@@ -1048,49 +1048,54 @@ fn parse_cursor_system(parser : &mut Parser) -> Result<SystemCursorIcon, CssErro
         _ => { return Err(CssError::new_located(
             &next,
             error_codes::cursor::INVALID_SYSTEM_CURSOR,
-            format!("System cursor type '{ident}' is not supported. Valid system cursor types are 'inherit' | 'default'")
+            format!("System cursor type '{ident}' is not supported. Valid system cursor types are 'inherit' | 'default' | 'context-menu' | 'help' | 'pointer' | 'progress' | 'wait' | 'cell' | 'crosshair' | 'text' | 'vertical-text' | 'alias' | 'copy' | 'move' | 'no-drop' | 'not-allowed' | 'grab' | 'grabbing' | 'e-resize' | 'n-resize' | 'ne-resize' | 'nw-resize' | 's-resize' | 'se-resize' | 'sw-resize' | 'w-resize' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize' | 'col-resize' | 'row-resize' | 'all-scroll' | 'zoom-in' | 'zoom-out'")
         )); }
     })
 }
 
 #[cfg(feature = "experimental_cursor_property")]
 fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
-    let mut result = Vec::new();
 
     if let Ok(cursor_system) =
         parser.try_parse_with(|parser| parse_property_value_with(parser, parse_cursor_system))
     {
-        result.push((BEVY_CURSOR_SYSTEM, cursor_system.map(ReflectValue::new)));
-        #[cfg(feature = "experimental_cursor_custom")]
-        result.push((BEVY_CURSOR_IMAGE, PropertyValue::Initial));
-        #[cfg(feature = "experimental_cursor_custom")]
-        result.push((BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial));
-        #[cfg(feature = "experimental_cursor_custom")]
-        result.push((BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial));
-        #[cfg(feature = "experimental_cursor_custom")]
-        result.push((BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial));
-        #[cfg(feature = "experimental_cursor_custom")]
-        result.push((BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial));
-        #[cfg(feature = "experimental_cursor_custom")]
-        result.push((BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial));
+        return Ok(vec![
+            (BEVY_CURSOR_SYSTEM, cursor_system.map(ReflectValue::new)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial)),
+        ]);
     }
 
-    else {
-        #[cfg(feature = "experimental_cursor_custom")]
-        { if let Ok(cursor_image) =
-            parser.try_parse_with(|parser| parse_property_value_with(parser, parse_asset_path::<Image>))
-        {
-            result.push((BEVY_CURSOR_SYSTEM, PropertyValue::Initial));
-            result.push((BEVY_CURSOR_IMAGE, cursor_image));
-            result.push((BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial));
-            result.push((BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial));
-            result.push((BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial));
-            result.push((BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial));
-            result.push((BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial));
-        } }
+    #[cfg(feature = "experimental_cursor_custom")]
+    if let Ok(cursor_image) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_asset_path::<Image>))
+    {
+        return Ok(vec![
+            (BEVY_CURSOR_SYSTEM, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE, cursor_image),
+            (BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial),
+        ]);
     }
 
-    Ok(result)
+    Err(CssError::new_located(
+        &parser.located_next()?,
+        error_codes::cursor::INVALID_SYSTEM_CURSOR,
+        format!("Invalid cursor type. Valid cursor types are 'inherit' | 'default' | 'context-menu' | 'help' | 'pointer' | 'progress' | 'wait' | 'cell' | 'crosshair' | 'text' | 'vertical-text' | 'alias' | 'copy' | 'move' | 'no-drop' | 'not-allowed' | 'grab' | 'grabbing' | 'e-resize' | 'n-resize' | 'ne-resize' | 'nw-resize' | 's-resize' | 'se-resize' | 'sw-resize' | 'w-resize' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize' | 'col-resize' | 'row-resize' | 'all-scroll' | 'zoom-in' | 'zoom-out' | 'url(\"...\")'")
+    ))
 }
 
 pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandPropertyRegistry) {
