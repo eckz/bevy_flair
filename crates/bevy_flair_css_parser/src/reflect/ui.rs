@@ -13,6 +13,21 @@ use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
 use std::f32::consts;
 
+pub(crate) fn parse_bool(parser: &mut Parser) -> Result<bool, CssError> {
+    let next = parser.located_next()?;
+    Ok(match &*next {
+        Token::Ident(ident) if &**ident == "true" => true,
+        Token::Ident(ident) if &**ident == "false" => false,
+        _ => {
+            return Err(CssError::new_located(
+                &next,
+                error_codes::UNEXPECTED_F32_TOKEN,
+                "This is not a valid boolean token. true or false are valid booleans",
+            ));
+        }
+    })
+}
+
 pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
     let next = parser.located_next()?;
     Ok(match &*next {
@@ -293,6 +308,14 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     }
 
     Ok(ReflectValue::new(BoxShadow(styles)))
+}
+
+impl FromType<bool> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| {
+            parse_property_value_with(parser, parse_bool).map(PropertyValue::into_reflect_value)
+        })
+    }
 }
 
 impl FromType<f32> for ReflectParseCss {
