@@ -192,6 +192,14 @@ impl_component_properties! {
 }
 
 #[cfg(feature = "experimental_cursor_property")]
+#[cfg(not(feature = "experimental_cursor_custom"))]
+impl_component_properties! {
+    #[component(auto_insert_remove)]
+    pub struct HoverCursorIcon {
+        pub system: SystemCursorIcon,
+    }
+}
+#[cfg(feature = "experimental_cursor_property")]
 #[cfg(feature = "experimental_cursor_custom")]
 impl_component_properties! {
     #[component(auto_insert_remove)]
@@ -201,16 +209,8 @@ impl_component_properties! {
         pub custom_flip_x: bool,
         pub custom_flip_y: bool,
         pub custom_rect: URect,
-        pub custom_hotspot_x: u16,
-        pub custom_hotspot_y: u16,
-    }
-}
-#[cfg(feature = "experimental_cursor_property")]
-#[cfg(not(feature = "experimental_cursor_custom"))]
-impl_component_properties! {
-    #[component(auto_insert_remove)]
-    pub struct HoverCursorIcon {
-        pub system: SystemCursorIcon,
+        pub custom_hotspot_x: f32,
+        pub custom_hotspot_y: f32,
     }
 }
 

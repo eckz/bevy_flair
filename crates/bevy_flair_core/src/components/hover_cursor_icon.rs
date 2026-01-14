@@ -82,9 +82,9 @@ pub struct HoverCursorIcon {
     #[cfg(feature = "experimental_cursor_custom")]
     pub custom_rect: URect,
     #[cfg(feature = "experimental_cursor_custom")]
-    pub custom_hotspot_x: u16,
+    pub custom_hotspot_x: f32,
     #[cfg(feature = "experimental_cursor_custom")]
-    pub custom_hotspot_y: u16
+    pub custom_hotspot_y: f32
 }
 
 impl Default for HoverCursorIcon {
@@ -100,9 +100,9 @@ impl Default for HoverCursorIcon {
             #[cfg(feature = "experimental_cursor_custom")]
             custom_rect: URect::EMPTY,
             #[cfg(feature = "experimental_cursor_custom")]
-            custom_hotspot_x: 0,
+            custom_hotspot_x: 0.0,
             #[cfg(feature = "experimental_cursor_custom")]
-            custom_hotspot_y: 0
+            custom_hotspot_y: 0.0
         }
     }
 }
@@ -120,7 +120,7 @@ impl From<&HoverCursorIcon> for CursorIcon {
                     flip_x        : hci.custom_flip_x,
                     flip_y        : hci.custom_flip_y,
                     rect          : (! hci.custom_rect.is_empty()).then(|| hci.custom_rect),
-                    hotspot       : (hci.custom_hotspot_x, hci.custom_hotspot_y,)
+                    hotspot       : (hci.custom_hotspot_x as u16, hci.custom_hotspot_y as u16,)
                 }))
             }
         }

@@ -9,5 +9,7 @@ button {
 }
 
 button:not(.dark-light-button):active {
-    cursor: url("panel-border-010.png");
+    -bevy-cursor-image: url("panel-border-010.png");
+    -bevy-cursor-image-hotspot-x: 48;
+    -bevy-cursor-image-hotspot-y: 48;
 }
