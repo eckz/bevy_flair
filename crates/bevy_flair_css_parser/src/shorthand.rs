@@ -990,7 +990,12 @@ fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
 #[cfg(feature = "experimental_cursor_property")]
 define_css_properties! {
     const BEVY_CURSOR_SYSTEM = "-bevy-cursor-system";
-    // const BEVY_CURSOR_IMAGE = "-bevy-cursor-image";
+    const BEVY_CURSOR_IMAGE = "-bevy-cursor-image";
+    const BEVY_CURSOR_IMAGE_FLIP_X = "-bevy-cursor-image-flip-x";
+    const BEVY_CURSOR_IMAGE_FLIP_Y = "-bevy-cursor-image-flip-y";
+    const BEVY_CURSOR_IMAGE_RECT = "-bevy-cursor-image-rect";
+    const BEVY_CURSOR_IMAGE_HOTSPOT_X = "-bevy-cursor-image-hotspot-x";
+    const BEVY_CURSOR_IMAGE_HOTSPOT_Y = "-bevy-cursor-image-hotspot-y";
 }
 
 #[cfg(feature = "experimental_cursor_property")]
@@ -1049,10 +1054,17 @@ fn parse_cursor_system(parser : &mut Parser) -> Result<SystemCursorIcon, CssErro
 #[cfg(feature = "experimental_cursor_property")]
 fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
     let mut result = Vec::new();
+
     if let Ok(cursor_system) =
         parser.try_parse_with(|parser| parse_property_value_with(parser, parse_cursor_system))
     {
         result.push((BEVY_CURSOR_SYSTEM, cursor_system.map(ReflectValue::new)));
+    }
+
+    else if let Ok(cursor_image) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_asset_path::<Image>))
+    {
+        result.push((BEVY_CURSOR_IMAGE, cursor_image))
     }
 
     Ok(result)
@@ -1172,7 +1184,12 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
     #[cfg(feature = "experimental_cursor_property")]
     registry.register_new("cursor", [
         BEVY_CURSOR_SYSTEM,
-        // BEVY_CURSOR_IMAGE,
+        BEVY_CURSOR_IMAGE,
+        BEVY_CURSOR_IMAGE_FLIP_X,
+        BEVY_CURSOR_IMAGE_FLIP_Y,
+        BEVY_CURSOR_IMAGE_RECT,
+        BEVY_CURSOR_IMAGE_HOTSPOT_X,
+        BEVY_CURSOR_IMAGE_HOTSPOT_Y,
     ], parse_cursor);
 }
 

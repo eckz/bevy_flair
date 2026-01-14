@@ -3,6 +3,7 @@ use bevy_app::{
     Plugin,
     Update
 };
+use bevy_asset::Handle;
 use bevy_ecs::{
     component::Component,
     entity::Entity,
@@ -12,11 +13,15 @@ use bevy_ecs::{
     system::{ Query, Commands },
     world::DeferredWorld
 };
+use bevy_image::Image;
 use bevy_reflect::{
     Reflect,
     std_traits::ReflectDefault
 };
-use bevy_ui::Interaction;
+use bevy_ui::{
+    Interaction,
+    UiRect
+};
 use bevy_window::{
     Window,
     CursorIcon,
@@ -57,11 +62,17 @@ pub struct ManagedCursorIcon;
 
 
 /// Component which changes the window [`CursorIcon`] when [hovered](Interaction).
-#[derive(Component, Debug, Default, Clone, PartialEq, Eq, Reflect)]
+#[derive(Component, Debug, Default, Clone, PartialEq, Reflect)]
 #[reflect(Component, Debug, Default, Clone, PartialEq)]
 #[component(on_remove = cursor_icon_removed)]
 pub struct HoverCursorIcon {
-    pub system : SystemCursorIcon
+    pub system: SystemCursorIcon,
+    pub custom_handle: Option<Handle<Image>>,
+    pub custom_flip_x: bool,
+    pub custom_flip_y: bool,
+    pub custom_flip_rect: Option<UiRect>,
+    pub custom_hotspot_x: u16,
+    pub custom_hotspot_y: u16
 }
 
 

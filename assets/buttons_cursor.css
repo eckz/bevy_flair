@@ -2,7 +2,12 @@
 
 button {
     cursor: pointer;
+
+    &:active {
+        cursor: grabbing;
+    }
 }
-button:active {
-    cursor: grabbing;
+
+button.dark-light-button:active {
+    cursor: url("panel-border-010.png");
 }

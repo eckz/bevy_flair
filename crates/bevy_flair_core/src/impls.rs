@@ -13,6 +13,8 @@ use bevy_ui::prelude::*;
 #[cfg(feature = "experimental_cursor_property")]
 use crate::components::HoverCursorIcon;
 #[cfg(feature = "experimental_cursor_property")]
+use bevy_image::Image;
+#[cfg(feature = "experimental_cursor_property")]
 use bevy_window::SystemCursorIcon;
 
 impl_extract_component_properties! {
@@ -192,6 +194,12 @@ impl_component_properties! {
     #[component(auto_insert_remove)]
     pub struct HoverCursorIcon {
         pub system: SystemCursorIcon,
+        pub custom_handle: Handle<Image>,
+        pub custom_flip_x: bool,
+        pub custom_flip_y: bool,
+        pub custom_flip_rect: UiRect,
+        pub custom_hotspot_x: u16,
+        pub custom_hotspot_y: u16,
     }
 }
 
@@ -376,6 +384,12 @@ impl Plugin for ImplComponentPropertiesPlugin {
         #[cfg(feature = "experimental_cursor_property")]
         set_css_properties!(app => {
             "-bevy-cursor-system" => HoverCursorIcon[".system"],
+            "-bevy-cursor-image" => HoverCursorIcon[".custom_handle"],
+            "-bevy-cursor-image-flip-x" => HoverCursorIcon[".custom_flip_x"],
+            "-bevy-cursor-image-flip-y" => HoverCursorIcon[".custom_flip_y"],
+            "-bevy-cursor-image-rect" => HoverCursorIcon[".custom_rect"],
+            "-bevy-cursor-image-hotspot-x" => HoverCursorIcon[".custom_hotspot_x"],
+            "-bevy-cursor-image-hotspot-y" => HoverCursorIcon[".custom_hotspot_y"],
         });
     }
 }
