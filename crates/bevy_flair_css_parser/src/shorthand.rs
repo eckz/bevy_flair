@@ -1190,15 +1190,19 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
     );
     registry.register_new("transform", [TRANSLATE, SCALE, ROTATE], parse_transform);
     #[cfg(feature = "experimental_cursor_property")]
-    registry.register_new("cursor", [
-        BEVY_CURSOR_SYSTEM,
-        BEVY_CURSOR_IMAGE,
-        BEVY_CURSOR_IMAGE_FLIP_X,
-        BEVY_CURSOR_IMAGE_FLIP_Y,
-        BEVY_CURSOR_IMAGE_RECT,
-        BEVY_CURSOR_IMAGE_HOTSPOT_X,
-        BEVY_CURSOR_IMAGE_HOTSPOT_Y,
-    ], parse_cursor);
+    {
+        #[cfg(not(feature = "experimental_cursor_custom"))]
+        registry.register_new("cursor", [BEVY_CURSOR_SYSTEM], parse_cursor);
+        #[cfg(feature = "experimental_cursor_custom")]
+        registry.register_new("cursor", [
+            BEVY_CURSOR_IMAGE,
+            BEVY_CURSOR_IMAGE_FLIP_X,
+            BEVY_CURSOR_IMAGE_FLIP_Y,
+            BEVY_CURSOR_IMAGE_RECT,
+            BEVY_CURSOR_IMAGE_HOTSPOT_X,
+            BEVY_CURSOR_IMAGE_HOTSPOT_Y,
+        ], parse_cursor);
+    }
 }
 
 /// A plugin that registers common CSS shorthand properties.
