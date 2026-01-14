@@ -24,6 +24,29 @@ use bevy_window::{
 };
 
 
+/// Component that can be added to a [`Window`], which sets the [`CursorIcon`]
+///  to some default when a [`HoverCursorIcon`] is un[hovered](Interaction).
+#[derive(Component, Debug, Default, Clone, PartialEq, Eq, Reflect)]
+#[reflect(Component, Debug, Default, Clone, PartialEq)]
+#[component(on_insert = default_cursor_icon_inserted)]
+#[component(on_remove = default_cursor_icon_removed)]
+pub struct DefaultCursorIcon(pub CursorIcon);
+
+fn default_cursor_icon_inserted(mut world: DeferredWorld, ctx: HookContext) {
+    if world.get::<ManagedCursorIcon>(ctx.entity).is_none() {
+        let dci  = world.get::<DefaultCursorIcon>(ctx.entity).unwrap();
+        let icon = dci.0.clone();
+        world.commands().entity(ctx.entity).insert((icon,));
+    }
+}
+
+fn default_cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
+    if world.get::<ManagedCursorIcon>(ctx.entity).is_none() {
+        world.commands().entity(ctx.entity).remove::<CursorIcon>();
+    }
+}
+
+
 /// Component which marks a [`Window`]'s [`CursorIcon`] as managed by a [`HoverCursorIcon`] entity.
 ///
 /// *This component should not be used manually*
