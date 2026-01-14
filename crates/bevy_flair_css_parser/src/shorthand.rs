@@ -31,6 +31,9 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
 
+#[cfg(feature = "experimental_cursor_property")]
+use bevy_window::SystemCursorIcon;
+
 /// Reference to a CSS property name.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, derive_more::Display)]
 pub struct CssRef(SmolStr);
@@ -984,6 +987,77 @@ fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
     Ok(result)
 }
 
+#[cfg(feature = "experimental_cursor_property")]
+define_css_properties! {
+    const BEVY_CURSOR_SYSTEM = "-bevy-cursor-system";
+    // const BEVY_CURSOR_IMAGE = "-bevy-cursor-image";
+}
+
+#[cfg(feature = "experimental_cursor_property")]
+fn parse_cursor_system(parser : &mut Parser) -> Result<SystemCursorIcon, CssError> {
+    let next = parser.located_next()?;
+    let cssparser::Token::Ident(ident) = &next.item else {
+        return Err(CssError::from(
+            parser.new_unexpected_token_error::<()>(next.item.clone()),
+        ));
+    };
+
+    Ok(match &**ident {
+        "default" => SystemCursorIcon::Default,
+        "context-menu" => SystemCursorIcon::ContextMenu,
+        "help" => SystemCursorIcon::Help,
+        "pointer" => SystemCursorIcon::Pointer,
+        "progress" => SystemCursorIcon::Progress,
+        "wait" => SystemCursorIcon::Wait,
+        "cell" => SystemCursorIcon::Cell,
+        "crosshair" => SystemCursorIcon::Crosshair,
+        "text" => SystemCursorIcon::Text,
+        "vertical-text" => SystemCursorIcon::VerticalText,
+        "alias" => SystemCursorIcon::Alias,
+        "copy" => SystemCursorIcon::Copy,
+        "move" => SystemCursorIcon::Move,
+        "no-drop" => SystemCursorIcon::NoDrop,
+        "not-allowed" => SystemCursorIcon::NotAllowed,
+        "grab" => SystemCursorIcon::Grab,
+        "grabbing" => SystemCursorIcon::Grabbing,
+        "e-resize" => SystemCursorIcon::EResize,
+        "n-resize" => SystemCursorIcon::NResize,
+        "ne-resize" => SystemCursorIcon::NeResize,
+        "nw-resize" => SystemCursorIcon::NwResize,
+        "s-resize" => SystemCursorIcon::SResize,
+        "se-resize" => SystemCursorIcon::SeResize,
+        "sw-resize" => SystemCursorIcon::SwResize,
+        "w-resize" => SystemCursorIcon::WResize,
+        "ew-resize" => SystemCursorIcon::EwResize,
+        "ns-resize" => SystemCursorIcon::NsResize,
+        "nesw-resize" => SystemCursorIcon::NeswResize,
+        "nwse-resize" => SystemCursorIcon::NwseResize,
+        "col-resize" => SystemCursorIcon::ColResize,
+        "row-resize" => SystemCursorIcon::RowResize,
+        "all-scroll" => SystemCursorIcon::AllScroll,
+        "zoom-in" => SystemCursorIcon::ZoomIn,
+        "zoom-out" => SystemCursorIcon::ZoomOut,
+
+        _ => { return Err(CssError::new_located(
+            &next,
+            error_codes::cursor::INVALID_SYSTEM_CURSOR,
+            format!("System cursor type '{ident}' is not supported. Valid system cursor types are 'inherit' | 'default'")
+        )); }
+    })
+}
+
+#[cfg(feature = "experimental_cursor_property")]
+fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
+    let mut result = Vec::new();
+    if let Ok(cursor_system) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_cursor_system))
+    {
+        result.push((BEVY_CURSOR_SYSTEM, cursor_system.map(ReflectValue::new)));
+    }
+
+    Ok(result)
+}
+
 pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandPropertyRegistry) {
     registry.register_new("overflow", [OVERFLOW_X, OVERFLOW_Y], parse_overflow);
     registry.register_new("outline", [OUTLINE_WIDTH, OUTLINE_COLOR], parse_outline);
@@ -1095,6 +1169,11 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         parse_grid,
     );
     registry.register_new("transform", [TRANSLATE, SCALE, ROTATE], parse_transform);
+    #[cfg(feature = "experimental_cursor_property")]
+    registry.register_new("cursor", [
+        BEVY_CURSOR_SYSTEM,
+        // BEVY_CURSOR_IMAGE,
+    ], parse_cursor);
 }
 
 /// A plugin that registers common CSS shorthand properties.
@@ -1617,7 +1696,7 @@ mod tests {
             "rotate" => Rot2::degrees(120.0),
         });
 
-        test_err_shorthand_property!("transform", "translatez(20px)", 
+        test_err_shorthand_property!("transform", "translatez(20px)",
             "[71] Warning: Transform function not supported
    ,-[ test.css:1:1 ]
    |

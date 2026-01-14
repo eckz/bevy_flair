@@ -663,6 +663,7 @@ dependencies = [
  "bevy_reflect",
  "bevy_text",
  "bevy_ui",
+ "bevy_window",
  "cssparser",
  "cssparser-color",
  "derive_more",
