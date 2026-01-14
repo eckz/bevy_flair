@@ -51,6 +51,7 @@ ariadne = "0.5"
 
 [features]
 experimental_cursor_property = ["dep:bevy_window"]
+experimental_cursor_custom = []
 
 [dev-dependencies]
 indoc = "2.0"

@@ -55,11 +55,15 @@ bevy_flair_css_parser = { workspace = true }
 [features]
 default = []
 experimental_ghost_nodes = ["bevy_flair_style/experimental_ghost_nodes"]
-experimental_cursor_property = ["bevy_flair_core/experimental_cursor_property", "bevy_flair_css_parser/experimental_cursor_property"]
+experimental_cursor_property = [
+"bevy_flair_core/experimental_cursor_property",
+"bevy_flair_css_parser/experimental_cursor_property"
+]
 experimental_cursor_custom = [
     "dep:bevy_window", "bevy_window/custom_cursor",
     "dep:bevy_winit", "bevy_winit/custom_cursor",
-    "bevy_flair_core/experimental_cursor_custom"
+    "bevy_flair_core/experimental_cursor_custom",
+    "bevy_flair_css_parser/experimental_cursor_custom"
 ]
 
 [dev-dependencies]
