@@ -1063,6 +1063,14 @@ fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
         result.push((BEVY_CURSOR_SYSTEM, cursor_system.map(ReflectValue::new)));
         #[cfg(feature = "experimental_cursor_custom")]
         result.push((BEVY_CURSOR_IMAGE, PropertyValue::Initial));
+        #[cfg(feature = "experimental_cursor_custom")]
+        result.push((BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial));
+        #[cfg(feature = "experimental_cursor_custom")]
+        result.push((BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial));
+        #[cfg(feature = "experimental_cursor_custom")]
+        result.push((BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial));
+        #[cfg(feature = "experimental_cursor_custom")]
+        result.push((BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial));
     }
 
     else {
@@ -1071,7 +1079,12 @@ fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
             parser.try_parse_with(|parser| parse_property_value_with(parser, parse_asset_path::<Image>))
         {
             result.push((BEVY_CURSOR_SYSTEM, PropertyValue::Initial));
-            result.push((BEVY_CURSOR_IMAGE, cursor_image))
+            result.push((BEVY_CURSOR_IMAGE, cursor_image));
+            result.push((BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial));
+            result.push((BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial));
+            result.push((BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial));
+            result.push((BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial));
+            result.push((BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial));
         } }
     }
 
