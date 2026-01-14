@@ -1321,6 +1321,10 @@ mod tests {
         BackgroundGradient,
         AssetPathPlaceholder<Image>
     );
+    #[cfg(feature = "experimental_cursor_property")]
+    impl_into_reflect_value!(
+        SystemCursorIcon
+    );
 
     trait IntoPropertyValue {
         fn into_property_value(self) -> PropertyValue;
@@ -1766,5 +1770,57 @@ mod tests {
 ---'
 "
         );
+    }
+
+    #[cfg(feature = "experimental_cursor_property")]
+    #[cfg(not(feature = "experimental_cursor_custom"))]
+    #[test]
+    fn test_cursor_property() {
+        use bevy_window::SystemCursorIcon;
+
+        test_shorthand_property!("cursor", "pointer", {
+            "-bevy-cursor-system" => SystemCursorIcon::Pointer,
+        });
+
+        test_shorthand_property!("cursor", "nw-resize", {
+            "-bevy-cursor-system" => SystemCursorIcon::NwResize,
+        });
+    }
+
+    #[cfg(feature = "experimental_cursor_property")]
+    #[cfg(feature = "experimental_cursor_custom")]
+    #[test]
+    fn test_cursor_custom() {
+        use bevy_window::SystemCursorIcon;
+
+        test_shorthand_property!("cursor", "pointer", {
+            "-bevy-cursor-system" => SystemCursorIcon::Pointer,
+            "-bevy-cursor-image" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-y" => PropertyValue::Initial,
+            "-bevy-cursor-image-rect" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-y" => PropertyValue::Initial,
+        });
+
+        test_shorthand_property!("cursor", "nw-resize", {
+            "-bevy-cursor-system" => SystemCursorIcon::NwResize,
+            "-bevy-cursor-image" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-y" => PropertyValue::Initial,
+            "-bevy-cursor-image-rect" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-y" => PropertyValue::Initial,
+        });
+
+        test_shorthand_property!("cursor", "url('image.png')", {
+            "-bevy-cursor-system" => PropertyValue::Initial,
+            "-bevy-cursor-image" => AssetPathPlaceholder::<Image>::new("image.png"),
+            "-bevy-cursor-image-flip-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-y" => PropertyValue::Initial,
+            "-bevy-cursor-image-rect" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-y" => PropertyValue::Initial,
+        });
     }
 }
