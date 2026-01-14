@@ -42,10 +42,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Install ubuntu dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+        if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev libasound2-dev
+          sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: cargo check
         run: cargo check --workspace --target ${{ matrix.target }}
       - name: cargo check --release
@@ -103,7 +103,7 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev libasound2-dev
+          sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: cargo clippy
         run: cargo clippy --workspace  --all-targets  -- -D warnings
       - name: cargo clippy --release
@@ -135,7 +135,7 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev libasound2-dev
+          sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: Run cargo doc
         run: cargo doc --workspace --no-deps --examples --all-features --document-private-items
         env:
@@ -163,11 +163,12 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev libasound2-dev
+          sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: cargo test
         run: cargo test --workspace
-      - name: cargo test --all-features
-        run: cargo test --workspace --all-features
+# Disabled because runner runs out of space
+#      - name: cargo test --all-features
+#        run: cargo test --workspace --all-features
   # Run cargo check --all-targets using MSRV
   check-msrv:
     runs-on: ubuntu-latest
@@ -195,7 +196,7 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev libasound2-dev
+          sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: cargo check
         run: cargo check --all-targets
       - name: cargo check --release

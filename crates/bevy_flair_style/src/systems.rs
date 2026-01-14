@@ -21,7 +21,7 @@ use crate::media_selector::MediaFeaturesProvider;
 use crate::placeholder::{
     PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
 };
-use bevy_camera::{Camera, NormalizedRenderTarget};
+use bevy_camera::{NormalizedRenderTarget, RenderTarget};
 use bevy_ecs::relationship::RelationshipSourceCollection;
 use bevy_ecs::system::{SystemParam, SystemState};
 use bevy_ecs::world::{CommandQueue, EntityRefExcept};
@@ -388,7 +388,7 @@ pub(crate) fn clear_global_change_detection(
 
 pub(crate) fn set_nodes_for_style_recalculation_on_window_media_features_change(
     primary_window: Option<Single<Entity, With<PrimaryWindow>>>,
-    cameras_query: Query<(Entity, &Camera)>,
+    cameras_query: Query<(Entity, &RenderTarget)>,
     window_media_features_changed: Query<Entity, Changed<WindowMediaFeatures>>,
     mut nodes_query: Query<(
         &NodeStyleSelectorFlags,
@@ -403,8 +403,8 @@ pub(crate) fn set_nodes_for_style_recalculation_on_window_media_features_change(
 
     let primary_window = primary_window.as_deref().copied();
 
-    for (camera_entity, camera) in &cameras_query {
-        let Some(NormalizedRenderTarget::Window(window)) = camera.target.normalize(primary_window)
+    for (camera_entity, render_target) in &cameras_query {
+        let Some(NormalizedRenderTarget::Window(window)) = render_target.normalize(primary_window)
         else {
             continue;
         };
@@ -664,7 +664,7 @@ impl VarResolver for EntityVarResolver<'_, '_, '_> {
 #[derive(SystemParam)]
 pub(crate) struct MediaFeaturesParam<'w, 's> {
     selector_flags_query: Query<'w, 's, &'static NodeStyleSelectorFlags>,
-    cameras_query: Query<'w, 's, &'static Camera>,
+    cameras_query: Query<'w, 's, &'static RenderTarget>,
     window_media_features_query: Query<'w, 's, &'static WindowMediaFeatures>,
     primary_window: Option<Single<'w, 's, Entity, With<PrimaryWindow>>>,
 }
@@ -672,9 +672,9 @@ pub(crate) struct MediaFeaturesParam<'w, 's> {
 impl<'w, 's> MediaFeaturesParam<'w, 's> {
     pub fn get_window_media_features(&self, camera: Entity) -> Option<&WindowMediaFeatures> {
         let primary_window = self.primary_window.as_deref().copied();
-        let camera = self.cameras_query.get(camera).ok()?;
+        let render_target = self.cameras_query.get(camera).ok()?;
         if let Some(NormalizedRenderTarget::Window(window)) =
-            camera.target.normalize(primary_window)
+            render_target.normalize(primary_window)
         {
             self.window_media_features_query.get(window.entity()).ok()
         } else {

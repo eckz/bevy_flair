@@ -7,6 +7,7 @@ use crate::components::{
 use crate::css_selector::{
     CssPseudoElement, CssSelectorImpl, CssString, InternalPseudoStateSelector,
 };
+use crate::custom_iterators::CustomUiChildren;
 use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
 use selectors::{Element, OpaqueElement, SelectorImpl};
@@ -287,5 +288,6 @@ impl Element for ElementRef<'_> {
     }
 }
 
-use crate::custom_iterators::CustomUiChildren;
+// Used in testing
+#[allow(unused_imports)]
 pub(crate) use impl_element_commons;

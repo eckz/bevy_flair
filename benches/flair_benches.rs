@@ -24,12 +24,12 @@ static ASSETS_DIR: LazyLock<Dir> = LazyLock::new(|| {
 
 fn test_app() -> App {
     use bevy::asset::io::memory::MemoryAssetReader;
-    use bevy::asset::io::{AssetSource, AssetSourceId};
+    use bevy::asset::io::{AssetSourceBuilder, AssetSourceId};
     let mut app = App::new();
 
     app.register_asset_source(
         AssetSourceId::Default,
-        AssetSource::build().with_reader(move || {
+        AssetSourceBuilder::new(move || {
             Box::new(MemoryAssetReader {
                 root: ASSETS_DIR.clone(),
             })
