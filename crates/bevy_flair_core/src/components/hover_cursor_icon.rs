@@ -64,6 +64,7 @@ fn default_cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
 #[derive(Component, Debug, Default, Clone, PartialEq, Eq, Reflect)]
 #[reflect(Component, Debug, Default, Clone, PartialEq)]
 #[component(immutable)]
+#[component(storage = "SparseSet")]
 pub struct ManagedCursorIcon;
 
 
@@ -179,6 +180,7 @@ impl From<&HoverCursorIcon> for CursorIcon {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 #[reflect(Component, Debug, Clone, PartialEq)]
 #[component(immutable)]
+#[component(storage = "SparseSet")]
 #[component(on_insert = hovered_cursor_icon_inserted)]
 #[component(on_remove = cursor_icon_removed)]
 pub struct HoveredCursorIcon(pub Entity);
