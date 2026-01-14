@@ -50,6 +50,7 @@ fn all_properties() {
     let mut app = test_app();
     app.add_systems(Startup, spawn_scene);
     app.update();
+    app.update();
 
     fn assert_expected_node(entity_ref: EntityRef) {
         let (
