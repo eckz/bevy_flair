@@ -1047,7 +1047,7 @@ fn parse_cursor_system(parser : &mut Parser) -> Result<SystemCursorIcon, CssErro
 
         _ => { return Err(CssError::new_located(
             &next,
-            error_codes::cursor::INVALID_SYSTEM_CURSOR,
+            error_codes::cursor::INVALID_CURSOR,
             format!("System cursor type '{ident}' is not supported. Valid system cursor types are 'inherit' | 'default' | 'context-menu' | 'help' | 'pointer' | 'progress' | 'wait' | 'cell' | 'crosshair' | 'text' | 'vertical-text' | 'alias' | 'copy' | 'move' | 'no-drop' | 'not-allowed' | 'grab' | 'grabbing' | 'e-resize' | 'n-resize' | 'ne-resize' | 'nw-resize' | 's-resize' | 'se-resize' | 'sw-resize' | 'w-resize' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize' | 'col-resize' | 'row-resize' | 'all-scroll' | 'zoom-in' | 'zoom-out'")
         )); }
     })
@@ -1093,7 +1093,7 @@ fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
 
     Err(CssError::new_located(
         &parser.located_next()?,
-        error_codes::cursor::INVALID_SYSTEM_CURSOR,
+        error_codes::cursor::INVALID_CURSOR,
         format!("Invalid cursor type. Valid cursor types are 'inherit' | 'default' | 'context-menu' | 'help' | 'pointer' | 'progress' | 'wait' | 'cell' | 'crosshair' | 'text' | 'vertical-text' | 'alias' | 'copy' | 'move' | 'no-drop' | 'not-allowed' | 'grab' | 'grabbing' | 'e-resize' | 'n-resize' | 'ne-resize' | 'nw-resize' | 's-resize' | 'se-resize' | 'sw-resize' | 'w-resize' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize' | 'col-resize' | 'row-resize' | 'all-scroll' | 'zoom-in' | 'zoom-out' | 'url(\"...\")'")
     ))
 }

@@ -101,5 +101,5 @@ define_errors!(animations => {
 
 #[cfg(feature = "experimental_cursor_property")]
 define_errors!(cursor => {
-    INVALID_SYSTEM_CURSOR(120, "Invalid system cursor"),
+    INVALID_CURSOR(120, "Invalid cursor type"),
 });
