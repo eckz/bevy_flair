@@ -1,9 +1,12 @@
+#[cfg(feature = "experimental_cursor_custom")]
+use core::marker::PhantomData;
+
 use bevy_app::{
     App,
     Plugin,
     Update
 };
-use bevy_asset::Handle;
+use bevy_asset::{ Handle, AssetId };
 use bevy_ecs::{
     component::Component,
     entity::Entity,
@@ -14,18 +17,21 @@ use bevy_ecs::{
     world::DeferredWorld
 };
 use bevy_image::Image;
+use bevy_math::URect;
 use bevy_reflect::{
     Reflect,
     std_traits::ReflectDefault
 };
-use bevy_ui::{
-    Interaction,
-    UiRect
-};
+use bevy_ui::Interaction;
 use bevy_window::{
     Window,
     CursorIcon,
-    SystemCursorIcon
+    SystemCursorIcon,
+};
+#[cfg(feature = "experimental_cursor_custom")]
+use bevy_window::{
+    CustomCursor,
+    CustomCursorImage
 };
 
 
@@ -62,17 +68,65 @@ pub struct ManagedCursorIcon;
 
 
 /// Component which changes the window [`CursorIcon`] when [hovered](Interaction).
-#[derive(Component, Debug, Default, Clone, PartialEq, Reflect)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component, Debug, Default, Clone, PartialEq)]
 #[component(on_remove = cursor_icon_removed)]
 pub struct HoverCursorIcon {
     pub system: SystemCursorIcon,
-    pub custom_handle: Option<Handle<Image>>,
+    #[cfg(feature = "experimental_cursor_custom")]
+    pub custom_handle: Handle<Image>,
+    #[cfg(feature = "experimental_cursor_custom")]
     pub custom_flip_x: bool,
+    #[cfg(feature = "experimental_cursor_custom")]
     pub custom_flip_y: bool,
-    pub custom_flip_rect: Option<UiRect>,
+    #[cfg(feature = "experimental_cursor_custom")]
+    pub custom_rect: URect,
+    #[cfg(feature = "experimental_cursor_custom")]
     pub custom_hotspot_x: u16,
+    #[cfg(feature = "experimental_cursor_custom")]
     pub custom_hotspot_y: u16
+}
+
+impl Default for HoverCursorIcon {
+    fn default() -> Self {
+        Self {
+            system : SystemCursorIcon::default(),
+            #[cfg(feature = "experimental_cursor_custom")]
+            custom_handle: Handle::Uuid(AssetId::<Image>::INVALID_UUID, PhantomData),
+            #[cfg(feature = "experimental_cursor_custom")]
+            custom_flip_x: false,
+            #[cfg(feature = "experimental_cursor_custom")]
+            custom_flip_y: false,
+            #[cfg(feature = "experimental_cursor_custom")]
+            custom_rect: URect::EMPTY,
+            #[cfg(feature = "experimental_cursor_custom")]
+            custom_hotspot_x: 0,
+            #[cfg(feature = "experimental_cursor_custom")]
+            custom_hotspot_y: 0
+        }
+    }
+}
+
+impl From<&HoverCursorIcon> for CursorIcon {
+    fn from(hci : &HoverCursorIcon) -> Self {
+        #[cfg(feature = "experimental_cursor_custom")]
+        {
+            if hci.custom_handle.id() == (AssetId::Uuid { uuid : AssetId::<Image>::INVALID_UUID }) {
+                Self::System(hci.system)
+            } else {
+                Self::Custom(CustomCursor::Image(CustomCursorImage {
+                    handle        : hci.custom_handle.clone(),
+                    texture_atlas : None,
+                    flip_x        : hci.custom_flip_x,
+                    flip_y        : hci.custom_flip_y,
+                    rect          : (! hci.custom_rect.is_empty()).then(|| hci.custom_rect),
+                    hotspot       : (hci.custom_hotspot_x, hci.custom_hotspot_y,)
+                }))
+            }
+        }
+        #[cfg(not(feature = "experimental_cursor_custom"))]
+        Self::System(hci.system)
+    }
 }
 
 
@@ -91,7 +145,7 @@ pub struct HoveredCursorIcon(pub Entity);
 fn hovered_cursor_icon_inserted(mut world: DeferredWorld, ctx: HookContext) {
     let HoveredCursorIcon(window_entity) = *world.get::<HoveredCursorIcon>(ctx.entity).unwrap();
     let hci = world.get::<HoverCursorIcon>(ctx.entity).unwrap();
-    let icon = CursorIcon::from(hci.system);
+    let icon = CursorIcon::from(hci);
     world.commands().entity(window_entity).insert((
         ManagedCursorIcon,
         icon,

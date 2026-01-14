@@ -8,6 +8,6 @@ button {
     }
 }
 
-button.dark-light-button:active {
+button:not(.dark-light-button):active {
     cursor: url("panel-border-010.png");
 }
