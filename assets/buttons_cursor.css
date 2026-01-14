@@ -1,0 +1,5 @@
+@import "buttons.css";
+
+button {
+    cursor: pointer;
+}
