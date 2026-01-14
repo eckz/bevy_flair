@@ -76,7 +76,7 @@ fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
 
     let border = BorderRect {
         min_inset: Vec2::new(left, top),
-        max_inset: Vec2::new(right, bottom)
+        max_inset: Vec2::new(right, bottom),
     };
 
     let center_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();

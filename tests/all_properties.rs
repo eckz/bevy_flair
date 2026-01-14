@@ -263,10 +263,7 @@ fn all_properties() {
 
     assert_eq!(text_color.0, css::BLUE.into());
     assert_eq!(text_font.font_size, 3.0);
-    assert!(matches!(
-        line_height,
-        LineHeight::RelativeToFont(1.2)
-    ));
+    assert!(matches!(line_height, LineHeight::RelativeToFont(1.2)));
     assert_eq!(text_font.font_smoothing, FontSmoothing::None);
 
     assert_eq!(text_layout.justify, Justify::Center);

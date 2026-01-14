@@ -21,7 +21,7 @@ use crate::media_selector::MediaFeaturesProvider;
 use crate::placeholder::{
     PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
 };
-use bevy_camera::{RenderTarget, NormalizedRenderTarget};
+use bevy_camera::{NormalizedRenderTarget, RenderTarget};
 use bevy_ecs::relationship::RelationshipSourceCollection;
 use bevy_ecs::system::{SystemParam, SystemState};
 use bevy_ecs::world::{CommandQueue, EntityRefExcept};
@@ -672,7 +672,7 @@ pub(crate) struct MediaFeaturesParam<'w, 's> {
 impl<'w, 's> MediaFeaturesParam<'w, 's> {
     pub fn get_window_media_features(&self, camera: Entity) -> Option<&WindowMediaFeatures> {
         let primary_window = self.primary_window.as_deref().copied();
-        let render_target= self.cameras_query.get(camera).ok()?;
+        let render_target = self.cameras_query.get(camera).ok()?;
         if let Some(NormalizedRenderTarget::Window(window)) =
             render_target.normalize(primary_window)
         {
