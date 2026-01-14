@@ -89,9 +89,15 @@ fn hovered_cursor_icon_inserted(mut world: DeferredWorld, ctx: HookContext) {
 
 fn cursor_icon_removed(mut world: DeferredWorld, ctx: HookContext) {
     if let Some(&HoveredCursorIcon(window_entity)) = world.get::<HoveredCursorIcon>(ctx.entity) {
-        world.commands().entity(window_entity)
-            .remove::<CursorIcon>()
-            .remove::<ManagedCursorIcon>();
+        let icon = world.get::<DefaultCursorIcon>(window_entity).cloned();
+        let mut cmds = world.commands();
+        let mut window = cmds.entity(window_entity);
+        if let Some(dci) = icon {
+            window.insert(dci.0);
+        } else {
+            window.remove::<CursorIcon>();
+        }
+        window.remove::<ManagedCursorIcon>();
     }
 }
 

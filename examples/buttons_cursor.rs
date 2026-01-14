@@ -6,9 +6,10 @@ use bevy::{
     input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
     prelude::*,
     text::TextWriter,
-    window::{PrimaryWindow, WindowTheme},
+    window::{PrimaryWindow, WindowTheme, Window, SystemCursorIcon},
 };
 use bevy_flair::prelude::*;
+use bevy_flair::core::components::DefaultCursorIcon;
 
 fn main() {
     App::new()
@@ -18,6 +19,7 @@ fn main() {
             TabNavigationPlugin,
             FlairPlugin,
         ))
+        .add_systems(Startup, set_default_cursor)
         .add_systems(Startup, setup)
         .add_systems(PostStartup, force_window_theme)
         .run();
@@ -25,6 +27,12 @@ fn main() {
 
 #[derive(Component)]
 struct DarkLightButton;
+
+fn set_default_cursor(mut commands: Commands, windows : Query<Entity, With<Window>>) {
+    for window in windows {
+        commands.entity(window).insert(DefaultCursorIcon(SystemCursorIcon::Help.into()));
+    }
+}
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     fn button() -> impl Bundle {
