@@ -13,6 +13,7 @@ use bevy::{
     input_focus::{AutoFocus, InputDispatchPlugin, InputFocus, directional_navigation::*},
     math::CompassOctant,
     prelude::*,
+    ui::auto_directional_navigation::*,
 };
 use bevy_flair::prelude::*;
 use std::collections::HashSet;
@@ -130,7 +131,7 @@ fn process_inputs(
     }
 }
 
-fn navigate(action_state: Res<ActionState>, mut directional_navigation: DirectionalNavigation) {
+fn navigate(action_state: Res<ActionState>, mut directional_navigation: AutoDirectionalNavigator) {
     let net_north_south = action_state
         .pressed_actions
         .contains(&DirectionalNavigationAction::Up) as i8
@@ -233,11 +234,12 @@ fn main() {
 }
 
 fn change_state(state: Res<State<GameState>>, mut next_state: ResMut<NextState<GameState>>) {
-    if **state == GameState::Menu {
-        next_state.set(GameState::Game);
+    let new_state = if **state == GameState::Menu {
+        GameState::Game
     } else {
-        next_state.set(GameState::Menu);
-    }
+        GameState::Menu
+    };
+    next_state.set(new_state);
 }
 
 fn spawn_camera(mut commands: Commands) {
