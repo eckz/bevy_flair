@@ -10,6 +10,13 @@ use bevy_text::prelude::*;
 use bevy_text::{FontSmoothing, LineHeight};
 use bevy_ui::prelude::*;
 
+#[cfg(feature = "experimental_cursor_property")]
+use crate::components::HoverCursorIcon;
+#[cfg(feature = "experimental_cursor_property")]
+use bevy_window::SystemCursorIcon;
+#[cfg(feature = "experimental_cursor_custom")]
+use bevy_image::Image;
+
 impl_extract_component_properties! {
     pub struct UiRect {
         pub left: Val,
@@ -188,6 +195,29 @@ impl_component_properties! {
     pub struct TextShadow
 }
 
+#[cfg(feature = "experimental_cursor_property")]
+#[cfg(not(feature = "experimental_cursor_custom"))]
+impl_component_properties! {
+    #[component(auto_insert_remove)]
+    pub struct HoverCursorIcon {
+        pub system: SystemCursorIcon,
+    }
+}
+#[cfg(feature = "experimental_cursor_property")]
+#[cfg(feature = "experimental_cursor_custom")]
+impl_component_properties! {
+    #[component(auto_insert_remove)]
+    pub struct HoverCursorIcon {
+        pub system: SystemCursorIcon,
+        pub custom_handle: Handle<Image>,
+        pub custom_flip_x: bool,
+        pub custom_flip_y: bool,
+        pub custom_rect: Rect,
+        pub custom_hotspot_x: f32,
+        pub custom_hotspot_y: f32,
+    }
+}
+
 macro_rules! register_component_properties {
     ($app:expr => { $($ty:path,)* }) => {
         $(
@@ -250,8 +280,12 @@ impl Plugin for ImplComponentPropertiesPlugin {
             TextShadow,
             TextSpan,
         });
+        #[cfg(feature = "experimental_cursor_property")]
+        register_component_properties!(app => { HoverCursorIcon, });
 
         set_inherited_properties!(app => { TextColor, TextFont, TextLayout, LineHeight, });
+        #[cfg(feature = "experimental_cursor_property")]
+        set_inherited_properties!(app => { HoverCursorIcon, });
 
         set_css_properties!(app => {
             "display" => Node[".display"],
@@ -362,6 +396,19 @@ impl Plugin for ImplComponentPropertiesPlugin {
 
             // Misc text components
             "text-shadow" => TextShadow[""],
+        });
+        #[cfg(feature = "experimental_cursor_property")]
+        set_css_properties!(app => {
+            "-bevy-cursor-system" => HoverCursorIcon[".system"],
+        });
+        #[cfg(feature = "experimental_cursor_custom")]
+        set_css_properties!(app => {
+            "-bevy-cursor-image" => HoverCursorIcon[".custom_handle"],
+            "-bevy-cursor-image-flip-x" => HoverCursorIcon[".custom_flip_x"],
+            "-bevy-cursor-image-flip-y" => HoverCursorIcon[".custom_flip_y"],
+            "-bevy-cursor-image-rect" => HoverCursorIcon[".custom_rect"],
+            "-bevy-cursor-image-hotspot-x" => HoverCursorIcon[".custom_hotspot_x"],
+            "-bevy-cursor-image-hotspot-y" => HoverCursorIcon[".custom_hotspot_y"],
         });
     }
 }

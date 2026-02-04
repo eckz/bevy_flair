@@ -45,6 +45,8 @@ selectors = { version = "0.32" }
 [dependencies]
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
+bevy_window = { workspace = true, optional = true }
+bevy_winit = { version = "0.18", optional = true }
 
 bevy_flair_core = { workspace = true }
 bevy_flair_style = { workspace = true }
@@ -53,6 +55,16 @@ bevy_flair_css_parser = { workspace = true }
 [features]
 default = []
 experimental_ghost_nodes = ["bevy_flair_style/experimental_ghost_nodes"]
+experimental_cursor_property = [
+"bevy_flair_core/experimental_cursor_property",
+"bevy_flair_css_parser/experimental_cursor_property"
+]
+experimental_cursor_custom = [
+    "dep:bevy_window", "bevy_window/custom_cursor",
+    "dep:bevy_winit", "bevy_winit/custom_cursor",
+    "bevy_flair_core/experimental_cursor_custom",
+    "bevy_flair_css_parser/experimental_cursor_custom"
+]
 
 [dev-dependencies]
 criterion = { version = "0.7", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
@@ -82,3 +94,7 @@ opt-level = 0
 
 [profile.dev.package.bevy_ui]
 opt-level = 1
+
+[[example]]
+name = "buttons_cursor"
+required-features = ["experimental_cursor_property", "experimental_cursor_custom"]

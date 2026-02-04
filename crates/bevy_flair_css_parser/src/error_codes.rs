@@ -98,3 +98,8 @@ define_errors!(animations => {
     INVALID_ANIMATION_NAME(123, "Invalid animation name"),
     INVALID_TRANSITION_PROPERTY_NAME(124, "Invalid transition property name"),
 });
+
+#[cfg(feature = "experimental_cursor_property")]
+define_errors!(cursor => {
+    INVALID_CURSOR(120, "Invalid cursor type"),
+});

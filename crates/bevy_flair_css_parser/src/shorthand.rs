@@ -31,6 +31,9 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
 
+#[cfg(feature = "experimental_cursor_property")]
+use bevy_window::SystemCursorIcon;
+
 /// Reference to a CSS property name.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, derive_more::Display)]
 pub struct CssRef(SmolStr);
@@ -984,6 +987,117 @@ fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
     Ok(result)
 }
 
+#[cfg(feature = "experimental_cursor_property")]
+define_css_properties! {
+    const BEVY_CURSOR_SYSTEM = "-bevy-cursor-system";
+}#[cfg(feature = "experimental_cursor_custom")]
+define_css_properties! {
+    const BEVY_CURSOR_IMAGE = "-bevy-cursor-image";
+    const BEVY_CURSOR_IMAGE_FLIP_X = "-bevy-cursor-image-flip-x";
+    const BEVY_CURSOR_IMAGE_FLIP_Y = "-bevy-cursor-image-flip-y";
+    const BEVY_CURSOR_IMAGE_RECT = "-bevy-cursor-image-rect";
+    const BEVY_CURSOR_IMAGE_HOTSPOT_X = "-bevy-cursor-image-hotspot-x";
+    const BEVY_CURSOR_IMAGE_HOTSPOT_Y = "-bevy-cursor-image-hotspot-y";
+}
+
+#[cfg(feature = "experimental_cursor_property")]
+fn parse_cursor_system(parser : &mut Parser) -> Result<SystemCursorIcon, CssError> {
+    let next = parser.located_next()?;
+    let cssparser::Token::Ident(ident) = &next.item else {
+        return Err(CssError::from(
+            parser.new_unexpected_token_error::<()>(next.item.clone()),
+        ));
+    };
+
+    Ok(match &**ident {
+        "default" => SystemCursorIcon::Default,
+        "context-menu" => SystemCursorIcon::ContextMenu,
+        "help" => SystemCursorIcon::Help,
+        "pointer" => SystemCursorIcon::Pointer,
+        "progress" => SystemCursorIcon::Progress,
+        "wait" => SystemCursorIcon::Wait,
+        "cell" => SystemCursorIcon::Cell,
+        "crosshair" => SystemCursorIcon::Crosshair,
+        "text" => SystemCursorIcon::Text,
+        "vertical-text" => SystemCursorIcon::VerticalText,
+        "alias" => SystemCursorIcon::Alias,
+        "copy" => SystemCursorIcon::Copy,
+        "move" => SystemCursorIcon::Move,
+        "no-drop" => SystemCursorIcon::NoDrop,
+        "not-allowed" => SystemCursorIcon::NotAllowed,
+        "grab" => SystemCursorIcon::Grab,
+        "grabbing" => SystemCursorIcon::Grabbing,
+        "e-resize" => SystemCursorIcon::EResize,
+        "n-resize" => SystemCursorIcon::NResize,
+        "ne-resize" => SystemCursorIcon::NeResize,
+        "nw-resize" => SystemCursorIcon::NwResize,
+        "s-resize" => SystemCursorIcon::SResize,
+        "se-resize" => SystemCursorIcon::SeResize,
+        "sw-resize" => SystemCursorIcon::SwResize,
+        "w-resize" => SystemCursorIcon::WResize,
+        "ew-resize" => SystemCursorIcon::EwResize,
+        "ns-resize" => SystemCursorIcon::NsResize,
+        "nesw-resize" => SystemCursorIcon::NeswResize,
+        "nwse-resize" => SystemCursorIcon::NwseResize,
+        "col-resize" => SystemCursorIcon::ColResize,
+        "row-resize" => SystemCursorIcon::RowResize,
+        "all-scroll" => SystemCursorIcon::AllScroll,
+        "zoom-in" => SystemCursorIcon::ZoomIn,
+        "zoom-out" => SystemCursorIcon::ZoomOut,
+
+        _ => { return Err(CssError::new_located(
+            &next,
+            error_codes::cursor::INVALID_CURSOR,
+            format!("System cursor type '{ident}' is not supported. Valid system cursor types are 'inherit' | 'default' | 'context-menu' | 'help' | 'pointer' | 'progress' | 'wait' | 'cell' | 'crosshair' | 'text' | 'vertical-text' | 'alias' | 'copy' | 'move' | 'no-drop' | 'not-allowed' | 'grab' | 'grabbing' | 'e-resize' | 'n-resize' | 'ne-resize' | 'nw-resize' | 's-resize' | 'se-resize' | 'sw-resize' | 'w-resize' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize' | 'col-resize' | 'row-resize' | 'all-scroll' | 'zoom-in' | 'zoom-out'")
+        )); }
+    })
+}
+
+#[cfg(feature = "experimental_cursor_property")]
+fn parse_cursor(parser: &mut Parser) -> ShorthandParseResult {
+
+    if let Ok(cursor_system) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_cursor_system))
+    {
+        return Ok(vec![
+            (BEVY_CURSOR_SYSTEM, cursor_system.map(ReflectValue::new)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial)),
+            #[cfg(feature = "experimental_cursor_custom")]
+            ((BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial)),
+        ]);
+    }
+
+    #[cfg(feature = "experimental_cursor_custom")]
+    if let Ok(cursor_image) =
+        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_asset_path::<Image>))
+    {
+        return Ok(vec![
+            (BEVY_CURSOR_SYSTEM, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE, cursor_image),
+            (BEVY_CURSOR_IMAGE_FLIP_X, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_FLIP_Y, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_RECT, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_HOTSPOT_X, PropertyValue::Initial),
+            (BEVY_CURSOR_IMAGE_HOTSPOT_Y, PropertyValue::Initial),
+        ]);
+    }
+
+    Err(CssError::new_located(
+        &parser.located_next()?,
+        error_codes::cursor::INVALID_CURSOR,
+        format!("Invalid cursor type. Valid cursor types are 'inherit' | 'default' | 'context-menu' | 'help' | 'pointer' | 'progress' | 'wait' | 'cell' | 'crosshair' | 'text' | 'vertical-text' | 'alias' | 'copy' | 'move' | 'no-drop' | 'not-allowed' | 'grab' | 'grabbing' | 'e-resize' | 'n-resize' | 'ne-resize' | 'nw-resize' | 's-resize' | 'se-resize' | 'sw-resize' | 'w-resize' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize' | 'col-resize' | 'row-resize' | 'all-scroll' | 'zoom-in' | 'zoom-out' | 'url(\"...\")'")
+    ))
+}
+
 pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandPropertyRegistry) {
     registry.register_new("overflow", [OVERFLOW_X, OVERFLOW_Y], parse_overflow);
     registry.register_new("outline", [OUTLINE_WIDTH, OUTLINE_COLOR], parse_outline);
@@ -1095,6 +1209,20 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         parse_grid,
     );
     registry.register_new("transform", [TRANSLATE, SCALE, ROTATE], parse_transform);
+    #[cfg(feature = "experimental_cursor_property")]
+    {
+        #[cfg(not(feature = "experimental_cursor_custom"))]
+        registry.register_new("cursor", [BEVY_CURSOR_SYSTEM], parse_cursor);
+        #[cfg(feature = "experimental_cursor_custom")]
+        registry.register_new("cursor", [
+            BEVY_CURSOR_IMAGE,
+            BEVY_CURSOR_IMAGE_FLIP_X,
+            BEVY_CURSOR_IMAGE_FLIP_Y,
+            BEVY_CURSOR_IMAGE_RECT,
+            BEVY_CURSOR_IMAGE_HOTSPOT_X,
+            BEVY_CURSOR_IMAGE_HOTSPOT_Y,
+        ], parse_cursor);
+    }
 }
 
 /// A plugin that registers common CSS shorthand properties.
@@ -1192,6 +1320,10 @@ mod tests {
         Vec<GridTrack>,
         BackgroundGradient,
         AssetPathPlaceholder<Image>
+    );
+    #[cfg(feature = "experimental_cursor_property")]
+    impl_into_reflect_value!(
+        SystemCursorIcon
     );
 
     trait IntoPropertyValue {
@@ -1617,7 +1749,7 @@ mod tests {
             "rotate" => Rot2::degrees(120.0),
         });
 
-        test_err_shorthand_property!("transform", "translatez(20px)", 
+        test_err_shorthand_property!("transform", "translatez(20px)",
             "[71] Warning: Transform function not supported
    ,-[ test.css:1:1 ]
    |
@@ -1638,5 +1770,57 @@ mod tests {
 ---'
 "
         );
+    }
+
+    #[cfg(feature = "experimental_cursor_property")]
+    #[cfg(not(feature = "experimental_cursor_custom"))]
+    #[test]
+    fn test_cursor_property() {
+        use bevy_window::SystemCursorIcon;
+
+        test_shorthand_property!("cursor", "pointer", {
+            "-bevy-cursor-system" => SystemCursorIcon::Pointer,
+        });
+
+        test_shorthand_property!("cursor", "nw-resize", {
+            "-bevy-cursor-system" => SystemCursorIcon::NwResize,
+        });
+    }
+
+    #[cfg(feature = "experimental_cursor_property")]
+    #[cfg(feature = "experimental_cursor_custom")]
+    #[test]
+    fn test_cursor_custom() {
+        use bevy_window::SystemCursorIcon;
+
+        test_shorthand_property!("cursor", "pointer", {
+            "-bevy-cursor-system" => SystemCursorIcon::Pointer,
+            "-bevy-cursor-image" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-y" => PropertyValue::Initial,
+            "-bevy-cursor-image-rect" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-y" => PropertyValue::Initial,
+        });
+
+        test_shorthand_property!("cursor", "nw-resize", {
+            "-bevy-cursor-system" => SystemCursorIcon::NwResize,
+            "-bevy-cursor-image" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-y" => PropertyValue::Initial,
+            "-bevy-cursor-image-rect" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-y" => PropertyValue::Initial,
+        });
+
+        test_shorthand_property!("cursor", "url('image.png')", {
+            "-bevy-cursor-system" => PropertyValue::Initial,
+            "-bevy-cursor-image" => AssetPathPlaceholder::<Image>::new("image.png"),
+            "-bevy-cursor-image-flip-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-flip-y" => PropertyValue::Initial,
+            "-bevy-cursor-image-rect" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-x" => PropertyValue::Initial,
+            "-bevy-cursor-image-hotspot-y" => PropertyValue::Initial,
+        });
     }
 }

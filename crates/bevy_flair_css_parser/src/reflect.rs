@@ -24,6 +24,9 @@ use bevy_math::{Rect, Rot2, Vec2};
 use bevy_text::{FontSmoothing, Justify, LineBreak, LineHeight};
 use bevy_ui::widget::NodeImageMode;
 
+#[cfg(feature = "experimental_cursor_custom")]
+use bevy_window::SystemCursorIcon;
+
 /// A function that parses a CSS type.
 /// When the function succeeds, it should return a [`bevy_flair_core::ReflectValue`].
 /// When the function fails, it should return a [`CssError`].
@@ -108,6 +111,7 @@ impl Plugin for ReflectParsePlugin {
             app,
             ReflectParseCss,
             (
+                bool,
                 f32,
                 Vec2,
                 String,
@@ -155,6 +159,12 @@ impl Plugin for ReflectParsePlugin {
                 Justify,
                 LineBreak,
             )
+        );
+        #[cfg(feature = "experimental_cursor_custom")]
+        register_type_data!(
+            app,
+            ReflectParseCssEnum,
+            (SystemCursorIcon,)
         );
     }
 }

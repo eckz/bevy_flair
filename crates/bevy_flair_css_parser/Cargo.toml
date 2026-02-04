@@ -38,6 +38,7 @@ bevy_math = { workspace = true }
 bevy_reflect = { workspace = true }
 bevy_text = { workspace = true }
 bevy_ui = { workspace = true }
+bevy_window = { workspace = true, optional = true }
 
 bevy_flair_core = { workspace = true }
 bevy_flair_style = { workspace = true }
@@ -47,6 +48,10 @@ cssparser-color = { workspace = true }
 selectors = { workspace = true }
 
 ariadne = "0.5"
+
+[features]
+experimental_cursor_property = ["dep:bevy_window"]
+experimental_cursor_custom = []
 
 [dev-dependencies]
 indoc = "2.0"
