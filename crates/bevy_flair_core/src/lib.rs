@@ -1,5 +1,6 @@
 //! # Bevy Flair Core
 
+pub mod components;
 mod component_property;
 pub mod property_map;
 mod property_value;

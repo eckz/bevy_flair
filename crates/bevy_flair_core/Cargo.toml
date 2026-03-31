@@ -36,5 +36,11 @@ bevy_math = { workspace = true }
 bevy_text = { workspace = true }
 bevy_ui = { workspace = true }
 
+bevy_window = { workspace = true, optional = true }
+
+[features]
+experimental_cursor_property = ["dep:bevy_window"]
+experimental_cursor_custom = []
+
 [dev-dependencies]
 bevy_math = { workspace = true }
