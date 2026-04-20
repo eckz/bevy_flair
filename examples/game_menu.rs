@@ -7,10 +7,12 @@
 //!  - Image slicing
 //!  - Custom font
 
+use bevy::input_focus::FocusCause;
+use bevy::picking::hover::Hovered;
+use bevy::ui_widgets::{Activate, ActivateOnPress};
 use bevy::{
-    ecs::spawn::SpawnWith,
     input::{InputSystems, common_conditions::input_just_pressed},
-    input_focus::{AutoFocus, InputDispatchPlugin, InputFocus, directional_navigation::*},
+    input_focus::{AutoFocus, InputFocus, directional_navigation::*},
     math::CompassOctant,
     prelude::*,
     ui::auto_directional_navigation::*,
@@ -153,11 +155,6 @@ fn navigate(action_state: Res<ActionState>, mut directional_navigation: AutoDire
     }
 }
 
-#[derive(Debug, EntityEvent)]
-struct ButtonActivate {
-    pub entity: Entity,
-}
-
 fn interact_with_focused_button(
     mut commands: Commands,
     action_state: Res<ActionState>,
@@ -166,20 +163,9 @@ fn interact_with_focused_button(
     if action_state
         .pressed_actions
         .contains(&DirectionalNavigationAction::Select)
-        && let Some(entity) = input_focus.0
+        && let Some(entity) = input_focus.get()
     {
-        commands.trigger(ButtonActivate { entity });
-    }
-}
-
-fn on_click_button_observer(
-    on_click: On<Pointer<Click>>,
-    mut commands: Commands,
-    has_button_query: Query<Has<Button>>,
-) {
-    let entity = on_click.original_event_target();
-    if has_button_query.get(entity).unwrap() {
-        commands.trigger(ButtonActivate { entity });
+        commands.trigger(Activate { entity });
     }
 }
 
@@ -191,13 +177,12 @@ fn focus_on_over_button_observer(
 ) {
     let entity = on_pointer_over.original_event_target();
     if has_button_query.get(entity).unwrap_or(false) {
-        focus.set(entity);
+        focus.set(entity, FocusCause::Pressed);
     }
 }
 
 fn navigation_plugin(app: &mut App) {
     app.init_resource::<ActionState>()
-        .add_observer(on_click_button_observer)
         .add_observer(focus_on_over_button_observer)
         .add_systems(
             PreUpdate,
@@ -217,7 +202,6 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
-            InputDispatchPlugin,
             DirectionalNavigationPlugin,
             FlairPlugin,
             navigable_children_plugin,
@@ -228,12 +212,12 @@ fn main() {
         .add_systems(OnEnter(GameState::Menu), spawn_menu)
         .add_systems(
             Update,
-            change_state.run_if(input_just_pressed(KeyCode::Escape)),
+            toggle_game_state.run_if(input_just_pressed(KeyCode::Escape)),
         )
         .run();
 }
 
-fn change_state(state: Res<State<GameState>>, mut next_state: ResMut<NextState<GameState>>) {
+fn toggle_game_state(state: Res<State<GameState>>, mut next_state: ResMut<NextState<GameState>>) {
     let new_state = if **state == GameState::Menu {
         GameState::Game
     } else {
@@ -246,58 +230,86 @@ fn spawn_camera(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
-    fn button(name: &'static str) -> impl Bundle {
-        (Button, Children::spawn_one(Text::new(name)))
-    }
+fn spawn_menu(mut commands: Commands) {
+    commands.spawn_scene(menu_scene());
+}
 
-    commands.spawn((
-        DespawnOnExit(GameState::Menu),
-        Name::new("Root"),
+fn base_button() -> impl Scene {
+    bsn! {
+        Node
+        Button
+        TypeName("button")
+        Hovered
+        ActivateOnPress
+    }
+}
+
+fn button(text: &'static str) -> impl Scene {
+    bsn! {
+        :base_button()
+        Children [
+            Text(text)
+        ]
+    }
+}
+
+fn text(text: &'static str) -> impl Scene {
+    bsn! {
+        Node
+        Children [
+            Text(text)
+        ]
+    }
+}
+
+fn menu_scene() -> impl Scene {
+    bsn! {
+        DespawnOnExit<GameState>(GameState::Menu)
+        #Root
         Node {
             // We set display None so it's hidden until the css is loaded
             display: Display::None,
-            ..default()
-        },
-        Styled::new(asset_server.load("game_menu.css")),
-        children![(
-            Name::new("game_menu"),
-            Node::default(),
-            NavigableChildren::default(),
-            Children::spawn(SpawnWith(|spawner: &mut ChildSpawner| {
-                spawner.spawn((
-                    Name::new("menu_title"),
-                    Node::default(),
-                    Children::spawn_one(Text::new("Main Menu")),
-                ));
-
-                spawner.spawn((button("Continue"), AutoFocus)).observe(
-                    |_trigger: On<ButtonActivate>| {
+        }
+        Styled::StyleSheet("game_menu.css")
+        Children [
+            #game_menu
+            Node
+            NavigableChildren
+            Children [
+                (
+                    :text("Main Menu")
+                    #menu_title
+                ),
+                (
+                    :button("Continue")
+                    AutoFocus
+                    on(|_: On<Activate>| {
                         info!("Button continue selected");
-                    },
-                );
-                spawner.spawn(button("New"));
-
-                spawner.spawn(button("Return")).observe(
-                    |_trigger: On<ButtonActivate>, mut next_state: ResMut<NextState<GameState>>| {
+                    })
+                ),
+                (
+                    :button("New")
+                ),
+                (
+                    :button("Return")
+                    on(|_: On<Activate>, mut next_state: ResMut<NextState<GameState>>| {
                         info!("Returning to game");
                         next_state.set(GameState::Game);
-                    },
-                );
-
-                spawner.spawn(button("Quit")).observe(
-                    |_trigger: On<ButtonActivate>, mut exit_msg: MessageWriter<AppExit>| {
+                    })
+                ),
+                (
+                    :button("Quit")
+                    on(|_: On<Activate>, mut exit_msg: MessageWriter<AppExit>| {
                         info!("Exiting");
                         exit_msg.write_default();
-                    },
-                );
-
-                spawner.spawn((
-                    Name::new("floating_borders"),
-                    Node::default(),
-                    Pickable::IGNORE,
-                ));
-            })),
-        )],
-    ));
+                    })
+                ),
+                (
+                    #floating_borders
+                    Node
+                    Pickable::IGNORE
+                ),
+            ]
+        ]
+    }
 }

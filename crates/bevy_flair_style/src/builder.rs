@@ -13,10 +13,10 @@ use crate::placeholder::{
     PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
 };
 use crate::style_sheet::RulesetProperty;
-use bevy_asset::{AssetPath, Handle, ParseAssetPathError};
+use bevy_asset::{AssetPath, ParseAssetPathError};
 use bevy_flair_core::*;
 use bevy_reflect::{FromReflect, TypeRegistry};
-use bevy_text::Font;
+use bevy_text::FontSource;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use std::{fmt::Debug, mem};
@@ -55,11 +55,29 @@ pub enum StyleSheetBuilderError {
     },
 }
 
+/// Source for a font referenced by a style sheet.
+///
+/// Example:
+/// ```rust
+/// # use bevy_flair_style::builder::StyleFontSource;
+/// // Load a font asset from an asset path (e.g. "fonts/MyFont.ttf")
+/// let from_asset = StyleFontSource::Path("fonts/MyFont.ttf".into());
+///
+/// // Use a local font family (no asset loading)
+/// let local = StyleFontSource::Local("Poppins".into());
+/// ```
+#[derive(Clone, Debug)]
+pub enum StyleFontSource {
+    /// A font provided by an asset path (asset loader will be used).
+    Path(String),
+    /// A local/system font family name (no asset loading).
+    Local(String),
+}
 /// Represents a font face defined in a style sheet.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct StyleFontFace {
     pub(super) font_family: String,
-    pub(super) path: String,
+    pub(super) source: StyleFontSource,
 }
 
 /// Represents a property and its value inside a [`StyleSheetBuilder`].
@@ -400,10 +418,10 @@ impl StyleSheetBuilder {
     }
 
     /// Add a font-face for the current style sheet.
-    pub fn register_font_face(&mut self, font_family: impl Into<String>, path: impl Into<String>) {
+    pub fn register_font_face(&mut self, font_family: impl Into<String>, source: StyleFontSource) {
         self.font_faces.push(StyleFontFace {
             font_family: font_family.into(),
-            path: path.into(),
+            source,
         })
     }
 
@@ -590,7 +608,7 @@ impl StyleSheetBuilder {
     fn resolve_placeholders(
         &mut self,
         type_registry: &TypeRegistry,
-        resolved_font_faces: &FxHashMap<String, Handle<Font>>,
+        resolved_font_faces: &FxHashMap<String, FontSource>,
         asset_loader: PlaceholderAssetLoader,
     ) -> Result<(), StyleSheetBuilderError> {
         let mut context = ResolvePlaceholderContext {
@@ -636,17 +654,22 @@ impl StyleSheetBuilder {
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
         let font_faces = self.font_faces.clone();
 
-        let resolved_font_faces: FxHashMap<String, Handle<Font>> = mem::take(&mut self.font_faces)
+        let resolved_font_faces: FxHashMap<String, FontSource> = mem::take(&mut self.font_faces)
             .into_iter()
-            .map(|ff| {
-                let path = AssetPath::try_parse(&ff.path).map_err(|error| {
-                    StyleSheetBuilderError::InvalidAssetPath {
-                        path: ff.path.clone(),
-                        error,
-                    }
-                })?;
-                let handle = asset_loader.load_asset(path);
-                Ok((ff.font_family, handle))
+            .map(|ff| match ff.source {
+                StyleFontSource::Path(path) => {
+                    let path = AssetPath::try_parse(&path).map_err(|error| {
+                        StyleSheetBuilderError::InvalidAssetPath {
+                            path: path.clone(),
+                            error,
+                        }
+                    })?;
+                    let handle = asset_loader.load_asset(path);
+                    Ok((ff.font_family, FontSource::Handle(handle)))
+                }
+                StyleFontSource::Local(local) => {
+                    Ok((ff.font_family, FontSource::Family(local.into())))
+                }
             })
             .collect::<Result<_, StyleSheetBuilderError>>()?;
 

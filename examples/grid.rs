@@ -27,7 +27,7 @@ fn main() {
                 config: FpsOverlayConfig {
                     text_color: css::RED.into(),
                     text_config: TextFont {
-                        font_size: 48.0,
+                        font_size: FontSize::Px(48.0),
                         ..default()
                     },
                     ..default()

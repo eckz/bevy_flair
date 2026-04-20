@@ -8,15 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.0] - Unreleased
 
 ### Changed
-- **BREAKING**: `NodeStyleSheet` component renamed to `Styled`. Any entity can be styled, not just a Node.
-- **BREAKING**: Other internal components renamed for consistency
+- Added support for Bevy 0.19.
+- Upgraded cssparser to 0.37.
+- `NodeStyleSheet` component renamed to `Styled`. Any entity can be styled, not just a Node.
+- Other internal components renamed for consistency
   - `NodeStyleData` component renamed to `StyleData`.
   - `NodeStyleMarker` -> `StyleMarkers`.
   - `NodeStyleActiveRules` -> `StyleActiveRules`.
   - `NodeStyleSelectorFlags` -> `StyleSelectorFlags`.
   - `CustomUiRoots` -> `StyledRoots`.
   - `CustomUiChildren` -> `StyledChildren`.
-- **BREAKING**: Removed `Siblings` component (no longer needed for hierarchy tracking).
+- Removed `Siblings` component.
 
 ### Fixed
 - Fixed support for non-UI entities in the style hierarchy. This mainly affected hierarchies with Text. This was previously supported, but it stopped working at some point.

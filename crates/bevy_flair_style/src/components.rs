@@ -315,7 +315,7 @@ impl StyleData {
 ///     });
 /// }
 /// ```
-#[derive(Debug, Default, Component, Reflect)]
+#[derive(Debug, Default, Component, FromTemplate, Reflect)]
 #[reflect(Debug, Default, Component)]
 #[require(
     StyleData,

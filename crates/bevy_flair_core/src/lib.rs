@@ -8,6 +8,7 @@ mod registry;
 
 mod component_properties;
 mod entity_command_queue;
+pub mod helper_components;
 mod impls;
 
 use bevy_app::{App, Plugin};

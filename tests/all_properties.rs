@@ -1,6 +1,8 @@
 use bevy::color::palettes::css;
 use bevy::prelude::*;
-use bevy::text::{FontSmoothing, LineHeight};
+use bevy::text::{
+    FontFeatureTag, FontFeatures, FontSmoothing, FontVariationTag, FontVariations, LineHeight,
+};
 use bevy_flair::prelude::*;
 
 mod test_app;
@@ -86,7 +88,7 @@ fn all_properties() {
                 overflow: Overflow::clip(),
                 scrollbar_width: 3.0,
                 overflow_clip_margin: OverflowClipMargin {
-                    visual_box: OverflowClipBox::PaddingBox,
+                    visual_box: VisualBox::PaddingBox,
                     margin: 5.0,
                 },
                 left: Val::Px(10.0),
@@ -106,6 +108,7 @@ fn all_properties() {
                 justify_self: JustifySelf::Stretch,
                 align_content: AlignContent::SpaceEvenly,
                 justify_content: JustifyContent::SpaceAround,
+                direction: InlineDirection::Rtl,
                 margin: UiRect::horizontal(Val::Vw(30.0)),
                 padding: UiRect::vertical(Val::Percent(40.0)),
                 border: UiRect::all(Val::Px(1.0)),
@@ -263,9 +266,22 @@ fn all_properties() {
         text_entity.components::<(&TextColor, &TextFont, &TextLayout, &TextShadow, &LineHeight)>();
 
     assert_eq!(text_color.0, css::BLUE.into());
-    assert_eq!(text_font.font_size, 3.0);
-    assert!(matches!(line_height, LineHeight::RelativeToFont(1.2)));
-    assert_eq!(text_font.font_smoothing, FontSmoothing::None);
+    assert_eq!(
+        text_font,
+        &TextFont {
+            font: FontSource::Monospace,
+            font_size: FontSize::Px(3.0),
+            weight: FontWeight::BOLD,
+            width: FontWidth::EXTRA_CONDENSED,
+            style: FontStyle::Oblique(Some(45.0)),
+            font_smoothing: FontSmoothing::None,
+            font_features: FontFeatures::from([FontFeatureTag::SMALL_CAPS]),
+            font_variations: FontVariations::builder()
+                .set(FontVariationTag::WEIGHT, 100.0)
+                .build()
+        }
+    );
+    assert_eq!(line_height, &LineHeight::RelativeToFont(1.2));
 
     assert_eq!(text_layout.justify, Justify::Center);
     assert_eq!(text_layout.linebreak, LineBreak::AnyCharacter);

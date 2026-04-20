@@ -332,11 +332,13 @@ fn imports() {
         panic!("No TextFont set for entity {text}");
     };
 
+    let font_path = match &font.font {
+        FontSource::Handle(handle) => handle.path().expect("Fount source handle without path"),
+        _ => panic!("Invalid font source: {:?}", &font.font),
+    };
+
     // Font family url is defined in _import_2.css
-    assert_eq!(
-        font.font.path().unwrap().to_string(),
-        "fonts/FiraSans-Regular.ttf"
-    );
+    assert_eq!(font_path.to_string(), "fonts/FiraSans-Regular.ttf");
 }
 
 macro_rules! set_inline_style {

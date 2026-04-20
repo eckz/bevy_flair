@@ -12,9 +12,9 @@ use crate::animations::TransitionOptions;
 use crate::css_selector::CssSelector;
 
 use crate::media_selector::MediaFeaturesProvider;
-use bevy_asset::{Asset, Handle};
+use bevy_asset::Asset;
 use bevy_reflect::{Reflect, TypePath};
-use bevy_text::Font;
+use bevy_text::FontSource;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tracing::{error, warn};
@@ -162,7 +162,7 @@ impl VarResolver for &dyn VarResolver {
 pub struct StyleSheet {
     // This only make sense here when importing other stylesheets
     pub(super) font_faces: Vec<StyleFontFace>,
-    pub(super) resolved_font_faces: FxHashMap<String, Handle<Font>>,
+    pub(super) resolved_font_faces: FxHashMap<String, FontSource>,
     pub(super) rulesets: Vec<Ruleset>,
     pub(super) animation_keyframes: FxHashMap<Arc<str>, AnimationKeyframes>,
     pub(super) css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,

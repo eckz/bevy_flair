@@ -58,6 +58,7 @@ define_errors!(ui => {
     UNEXPECTED_UI_POSITION_TOKEN(66, "Unexpected ui position token"),
     UNEXPECTED_RADIAL_SHAPE_TOKEN(67, "Unexpected radial shape/size token"),
     MISSING_GRADIENT_COLORS(68, "Unexpected radial shape/size token"),
+    UNEXPECTED_LETTER_SPACING_TOKEN(69, "Unexpected token for a LetterSpacing type"),
 });
 
 define_errors!(transform => {
@@ -97,4 +98,12 @@ define_errors!(animations => {
     INVALID_TRANSITION_PROPERTY(122, "Property name not recognized"),
     INVALID_ANIMATION_NAME(123, "Invalid animation name"),
     INVALID_TRANSITION_PROPERTY_NAME(124, "Invalid transition property name"),
+});
+
+define_errors!(font => {
+    UNEXPECTED_FONT_SIZE_TOKEN(120, "Unexpected token for a FontSize type"),
+    UNEXPECTED_FONT_WEIGHT_TOKEN(121, "Unexpected token for a FontWeight type"),
+    UNEXPECTED_FONT_WIDTH_TOKEN(122, "Unexpected token for a FontWidth type"),
+    UNEXPECTED_FONT_STYLE_TOKEN(123, "Unexpected token for a FontStyle type"),
+    FOUR_ASCII_CHARS_STRING(124, "Expected a four ASCII characters"),
 });

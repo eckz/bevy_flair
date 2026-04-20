@@ -1,11 +1,11 @@
 ---
 source: crates/bevy_flair_style/src/lib.rs
-expression: scene_serializer
+expression: world_serializer
 ---
-Scene(
+World(
   resources: {},
   entities: {
-    4294967294: Entity(
+    4294967241: Entity(
       components: {
         "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(

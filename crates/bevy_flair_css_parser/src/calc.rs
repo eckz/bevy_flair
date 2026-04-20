@@ -6,6 +6,7 @@ use cssparser::{Parser, Token};
 
 use crate::utils::parse_property_global_keyword;
 use bevy_math::Rot2;
+use bevy_text::{FontSize, FontWeight};
 use bevy_ui::Val;
 use smallvec::SmallVec;
 use std::convert::Infallible;
@@ -97,6 +98,14 @@ impl CalcMul for Rot2 {
     }
 }
 
+impl CalcMul for FontWeight {
+    type Error = Infallible;
+
+    fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error> {
+        Ok(FontWeight((a.0 as f32 * b).floor() as u16))
+    }
+}
+
 macro_rules! impl_calc_mul {
     ($($ty:ty),*) => {
         $(
@@ -113,7 +122,7 @@ macro_rules! impl_calc_mul {
     };
 }
 
-impl_calc_mul!(f32, Val);
+impl_calc_mul!(f32, Val, FontSize);
 
 /// A trait for values that support addition and subtraction inside CSS `calc()` expressions.
 pub trait CalcAdd: Sized {
@@ -140,7 +149,7 @@ impl CalcAdd for f32 {
     }
 
     fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
-        Ok(a + b)
+        Ok(a - b)
     }
 }
 
@@ -184,7 +193,57 @@ impl CalcAdd for Val {
     }
 
     fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
-        Self::try_add(a, b.neg())
+        CalcAdd::try_add(a, b.neg())
+    }
+}
+
+impl CalcAdd for FontSize {
+    const ZERO: Self = FontSize::Px(0.0);
+
+    type Error = String;
+
+    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
+        if a == Self::ZERO {
+            Ok(b)
+        } else if b == Self::ZERO {
+            Ok(a)
+        } else {
+            match (a, b) {
+                (FontSize::Px(a), FontSize::Px(b)) => Ok(FontSize::Px(a + b)),
+                (FontSize::Vw(a), FontSize::Vw(b)) => Ok(FontSize::Vw(a + b)),
+                (FontSize::Vh(a), FontSize::Vh(b)) => Ok(FontSize::Vh(a + b)),
+                (FontSize::VMin(a), FontSize::VMin(b)) => Ok(FontSize::VMin(a + b)),
+                (FontSize::VMax(a), FontSize::VMax(b)) => Ok(FontSize::VMax(a + b)),
+                (FontSize::Rem(a), FontSize::Rem(b)) => Ok(FontSize::Rem(a + b)),
+                (a, b) => Err(format!(
+                    "Cannot add/sub different font size types ({a:?} + {b:?})"
+                )),
+            }
+        }
+    }
+
+    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
+        Self::try_add(a, b * -1.0)
+    }
+}
+
+impl CalcAdd for FontWeight {
+    const ZERO: Self = FontWeight(0);
+
+    type Error = String;
+
+    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
+        match u16::checked_add(a.0, b.0) {
+            Some(o) => Ok(FontWeight(o)),
+            None => Err(format!("Overflow when doing the operation: {a:?} + {b:?}")),
+        }
+    }
+
+    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
+        match u16::checked_sub(a.0, b.0) {
+            Some(o) => Ok(FontWeight(o)),
+            None => Err(format!("Overflow when doing the operation: {a:?} - {b:?}")),
+        }
     }
 }
 
@@ -432,6 +491,7 @@ mod tests {
 
     #[test]
     fn sum() {
+        assert_eq!(parse("calc(2px - 10px)"), Val::Px(-8.0));
         assert_eq!(parse("calc(2px + 4px)"), Val::Px(6.0));
         assert_eq!(parse("calc(10% + 5%)"), Val::Percent(15.0));
         assert_eq!(parse("calc(10vw + 10vw)"), Val::Vw(20.0));

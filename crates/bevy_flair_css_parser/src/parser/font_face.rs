@@ -1,14 +1,30 @@
 use crate::parser::{CssStyleSheetItem, collect_parser};
-use crate::{CssError, error_codes};
+use crate::{CssError, ParserExt, error_codes};
+use bevy_flair_style::StyleFontSource;
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserState,
-    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, match_ignore_ascii_case,
+    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, Token, match_ignore_ascii_case,
 };
+
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum FontFaceSource {
+    Path(String),
+    Local(String),
+}
+
+impl From<FontFaceSource> for StyleFontSource {
+    fn from(value: FontFaceSource) -> Self {
+        match value {
+            FontFaceSource::Path(path) => StyleFontSource::Path(path),
+            FontFaceSource::Local(local) => StyleFontSource::Local(local),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) enum FontFaceProperty {
     FamilyName(String),
-    Source(String),
+    Source(FontFaceSource),
     Error(CssError),
 }
 
@@ -32,7 +48,7 @@ impl FontFaceProperty {
 #[derive(Clone, Debug)]
 pub(crate) struct FontFace {
     pub family_name: String,
-    pub source: String,
+    pub source: FontFaceSource,
     pub errors: Vec<CssError>,
 }
 
@@ -49,23 +65,47 @@ fn parse_font_face_property(property_name: CowRcStr, parser: &mut Parser) -> Fon
     }
 
     fn parse_source(parser: &mut Parser) -> Result<FontFaceProperty, CssError> {
-        let source = parser.expect_url_or_string()?;
-        Ok(FontFaceProperty::Source(source.to_string()))
+        let next = parser.located_next()?;
+
+        match &*next {
+            Token::UnquotedUrl(value) => Ok(FontFaceProperty::Source(FontFaceSource::Path(
+                value.to_string(),
+            ))),
+            Token::QuotedString(value) => Ok(FontFaceProperty::Source(FontFaceSource::Path(
+                value.to_string(),
+            ))),
+            Token::Function(name) if name.eq_ignore_ascii_case("url") => parser
+                .parse_nested_block_with(|parser| {
+                    Ok(FontFaceProperty::Source(FontFaceSource::Path(
+                        parser.expect_string()?.to_string(),
+                    )))
+                }),
+            Token::Function(name) if name.eq_ignore_ascii_case("local") => parser
+                .parse_nested_block_with(|parser| {
+                    Ok(FontFaceProperty::Source(FontFaceSource::Local(
+                        parser.expect_string()?.to_string(),
+                    )))
+                }),
+            _ => Err(CssError::new_located(
+                &next,
+                error_codes::basic::UNEXPECTED_TOKEN,
+                "Not valid source token",
+            )),
+        }
     }
 
-    {
-        match_ignore_ascii_case! { &property_name,
-                "font-family" => {
-                    parse_font_family(parser)
-                },
-                "src" => {
-                    parse_source(parser)
-                },
-                _ => {
-                    Err(CssError::new_unlocated(error_codes::basic::UNEXPECTED_FONT_FACE_PROPERTY, "This property is not recognized. Only 'font-family' and 'src' can be used"))
-                }
-            }
-    }.unwrap_or_else(FontFaceProperty::Error)
+    let result = match_ignore_ascii_case! { &property_name,
+        "font-family" => {
+            parse_font_family(parser)
+        },
+        "src" => {
+            parse_source(parser)
+        },
+        _ => {
+            Err(CssError::new_unlocated(error_codes::basic::UNEXPECTED_FONT_FACE_PROPERTY, "This property is not recognized. Only 'font-family' and 'src' can be used"))
+        }
+    };
+    result.unwrap_or_else(FontFaceProperty::Error)
 }
 
 /// Font-face declaration parser
@@ -147,16 +187,15 @@ pub(super) fn parse_font_face_body(input: &mut Parser) -> CssStyleSheetItem {
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::FontFace;
+    use crate::parser::{FontFace, FontFaceSource};
     use indoc::indoc;
 
     #[test]
-    fn basic() {
+    fn with_url() {
         let contents = indoc! {r#"
          @font-face {
            font-family: "Poppings";
-           src:
-             url("Poppings-Regular.ttf");
+           src: url("Poppings-Regular.ttf");
          }
          "#};
 
@@ -169,7 +208,56 @@ mod tests {
             font_face,
             FontFace {
                 family_name: "Poppings".into(),
-                source: "Poppings-Regular.ttf".into(),
+                source: FontFaceSource::Path("Poppings-Regular.ttf".into()),
+                errors: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn with_source_string() {
+        let contents = indoc! {r#"
+         @font-face {
+           font-family: "Poppings";
+           src: "Poppings-Regular.ttf";
+         }
+         "#};
+
+        let items = parse(contents);
+        let font_face = items.expect_one_font_face();
+
+        assert!(font_face.errors.is_empty());
+
+        assert_eq!(
+            font_face,
+            FontFace {
+                family_name: "Poppings".into(),
+                source: FontFaceSource::Path("Poppings-Regular.ttf".into()),
+                errors: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn with_local() {
+        let contents = indoc! {r#"
+         @font-face {
+           font-family: "Helvetica";
+           src:
+             local("Helvetica");
+         }
+         "#};
+
+        let items = parse(contents);
+        let font_face = items.expect_one_font_face();
+
+        assert!(font_face.errors.is_empty());
+
+        assert_eq!(
+            font_face,
+            FontFace {
+                family_name: "Helvetica".into(),
+                source: FontFaceSource::Local("Helvetica".into()),
                 errors: Vec::new()
             }
         );

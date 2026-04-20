@@ -375,7 +375,7 @@ mod tests {
     use crate::reflect::reflect_test_utils::{test_err_parse_reflect, test_parse_reflect};
     use bevy_color::palettes::css;
     use bevy_math::{Rot2, Vec2};
-    use bevy_ui::{BoxShadow, OverflowClipBox, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
+    use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, Val2, VisualBox, ZIndex};
 
     #[test]
     fn test_f32() {
@@ -457,14 +457,14 @@ mod tests {
             test_parse_reflect::<OverflowClipMargin>("content-box 5px"),
             OverflowClipMargin {
                 margin: 5.0,
-                visual_box: OverflowClipBox::ContentBox
+                visual_box: VisualBox::ContentBox
             }
         );
         assert_eq!(
             test_parse_reflect::<OverflowClipMargin>("border-box 10px"),
             OverflowClipMargin {
                 margin: 10.0,
-                visual_box: OverflowClipBox::BorderBox
+                visual_box: VisualBox::BorderBox
             }
         );
     }

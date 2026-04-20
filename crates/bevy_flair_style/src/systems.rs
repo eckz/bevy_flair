@@ -551,7 +551,7 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
         for component in property_registry.get_component_registrations() {
             component
                 .apply_values_ref(
-                    &entity_ref,
+                    entity_ref,
                     &property_registry,
                     &mut reset_property_values,
                     entity_command_queue.reborrow(),
@@ -1151,6 +1151,7 @@ pub(crate) fn apply_computed_properties(
     let debug_helper = debug_helper_local.get_or_insert_with(|| {
         SystemState::<PropertyIdDebugHelperParam>::new(world)
             .get(world)
+            .expect("Cannot build PropertyIdDebugHelperParam")
             .as_helper()
             .to_owned()
     });
@@ -1271,13 +1272,13 @@ pub(crate) fn auto_remove_components(
             }
 
             if component.auto_remove_deferred(
-                &entity_ref,
+                entity_ref,
                 &properties.computed_values,
                 entity_command_queue.reborrow(),
             ) {
                 properties
                     .auto_inserted_components
-                    .remove(&component_type_id);
+                    .swap_remove(&component_type_id);
             }
         }
     }

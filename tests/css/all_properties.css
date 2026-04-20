@@ -23,6 +23,7 @@
     justify-self: stretch;
     align-content: space-evenly;
     justify-content: space-around;
+    direction: rtl;
     margin: 0 30vw;
     padding: calc(20% * 2) 0;
     border-width: thin;
@@ -78,6 +79,7 @@
     justify-self: stretch !important;
     align-content: space-evenly !important;
     justify-content: space-around !important;
+    direction: rtl !important;
     margin: 0 30vw !important;
     padding: calc(20% * 2) 0 !important;
     border-width: thin !important;
@@ -133,6 +135,7 @@
     justify-self: inherit;
     align-content: inherit;
     justify-content: inherit;
+    direction: inherit;
     margin: inherit;
     padding: inherit;
     border-width: inherit;
@@ -186,6 +189,7 @@
     justify-self: initial;
     align-content: initial;
     justify-content: initial;
+    direction: initial;
     margin: initial;
     padding: initial;
     border-width: initial;
@@ -239,6 +243,7 @@
     justify-self: unset;
     align-content: unset;
     justify-content: unset;
+    direction: unset;
     margin: unset;
     padding: unset;
     border-width: unset;
@@ -268,10 +273,16 @@
 }
 
 text {
-    color: blue;
+    font-family: monospace;
     font-size: 3px;
-    line-height: 120%;
+    font-weight: bold;
+    font-width: extra-condensed;
+    font-style: oblique 45deg;
     -bevy-font-smooth: none;
+    font-feature-settings: "smcp" on;
+    font-variation-settings: "wght" 100;
+    color: blue;
+    line-height: 120%;
     text-align: center;
     -bevy-line-break: any-character;
     

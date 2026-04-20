@@ -4,10 +4,8 @@ use crate::error_codes::enums as error_codes;
 use crate::reflect::ReflectParseCssEnum;
 use crate::utils::parse_property_value_with;
 use bevy_flair_core::PropertyValue;
-use bevy_reflect::{
-    DynamicEnum, DynamicVariant, Enum, EnumInfo, FromReflect, FromType, TypeInfo, Typed,
-    VariantInfo,
-};
+use bevy_reflect::enums::{DynamicEnum, DynamicVariant, Enum, EnumInfo, VariantInfo};
+use bevy_reflect::{FromReflect, FromType, TypeInfo, Typed};
 use cssparser::Parser;
 use std::borrow::Cow;
 
