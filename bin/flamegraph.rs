@@ -44,7 +44,7 @@ fn spawn_root_with_n_children(n: u32) -> impl FnMut(Commands, Res<AssetServer>) 
         commands
             .spawn((
                 Node::default(),
-                NodeStyleSheet::new(asset_server.load("basic.css")),
+                Styled::new(asset_server.load("basic.css")),
             ))
             .with_children(|root| {
                 for _ in 0..n {

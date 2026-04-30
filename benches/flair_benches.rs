@@ -71,10 +71,7 @@ where
 {
     move |mut commands, asset_server| {
         commands
-            .spawn((
-                Node::default(),
-                NodeStyleSheet::new(asset_server.load(style_sheet)),
-            ))
+            .spawn((Node::default(), Styled::new(asset_server.load(style_sheet))))
             .with_children(|root| {
                 for _ in 0..n {
                     root.spawn(button_spawner());
@@ -87,7 +84,7 @@ fn spawn_n_roots(style_sheet: &'static str, n: u32) -> impl FnMut(Commands, Res<
     move |mut commands, asset_server| {
         let style = asset_server.load(style_sheet);
         for _ in 0..n {
-            commands.spawn((Node::default(), NodeStyleSheet::new(style.clone())));
+            commands.spawn((Node::default(), Styled::new(style.clone())));
         }
     }
 }

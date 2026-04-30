@@ -1,13 +1,11 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 
-use crate::components::{
-    NodeStyleData, NodeStyleSelectorFlags, PseudoElement, RecalculateOnChangeFlags, Siblings,
-};
+use crate::components::{PseudoElement, RecalculateOnChangeFlags, StyleData, StyleSelectorFlags};
 use crate::css_selector::{
     CssPseudoElement, CssSelectorImpl, CssString, InternalPseudoStateSelector,
 };
-use crate::custom_iterators::CustomUiChildren;
+use crate::custom_iterators::StyledChildren;
 use selectors::attr::CaseSensitivity;
 use selectors::context::MatchingContext;
 use selectors::{Element, OpaqueElement, SelectorImpl};
@@ -73,9 +71,8 @@ macro_rules! impl_element_commons {
 
 #[derive(SystemParam)]
 pub(crate) struct ElementRefSystemParam<'w, 's> {
-    style_data_query: Query<'w, 's, (&'static NodeStyleData, &'static NodeStyleSelectorFlags)>,
-    ui_children: CustomUiChildren<'w, 's>,
-    siblings_query: Query<'w, 's, &'static Siblings>,
+    style_data_query: Query<'w, 's, (&'static StyleData, &'static StyleSelectorFlags)>,
+    styled_children: StyledChildren<'w, 's>,
 }
 
 impl fmt::Debug for ElementRefSystemParam<'_, '_> {
@@ -88,29 +85,29 @@ impl fmt::Debug for ElementRefSystemParam<'_, '_> {
 #[derive(Clone, Debug)]
 pub(crate) struct ElementRef<'a> {
     entity: Entity,
-    data: &'a NodeStyleData,
-    selector_flags: &'a NodeStyleSelectorFlags,
-    queries: &'a ElementRefSystemParam<'a, 'a>,
+    data: &'a StyleData,
+    selector_flags: &'a StyleSelectorFlags,
+    params: &'a ElementRefSystemParam<'a, 'a>,
 }
 
-impl Borrow<NodeStyleData> for ElementRef<'_> {
-    fn borrow(&self) -> &NodeStyleData {
+impl Borrow<StyleData> for ElementRef<'_> {
+    fn borrow(&self) -> &StyleData {
         self.data
     }
 }
 
 impl<'a> ElementRef<'a> {
-    pub fn new(entity: Entity, queries: &'a ElementRefSystemParam<'a, 'a>) -> Self {
-        let (data, selector_flags) = queries
+    pub fn new(entity: Entity, params: &'a ElementRefSystemParam<'a, 'a>) -> Self {
+        let (data, selector_flags) = params
             .style_data_query
             .get(entity)
-            .expect("NodeStyleData does not exist for entity");
+            .expect("StyleData does not exist for entity");
 
         Self {
             entity,
             data,
             selector_flags,
-            queries,
+            params,
         }
     }
 
@@ -126,7 +123,7 @@ impl<'a> ElementRef<'a> {
             entity,
             data,
             selector_flags,
-            queries,
+            params: queries,
         })
     }
 }
@@ -141,51 +138,64 @@ impl Element for ElementRef<'_> {
     }
 
     fn parent_element(&self) -> Option<Self> {
-        let parent = self.queries.ui_children.get_parent(self.entity)?;
+        let parent = self.params.styled_children.get_parent(self.entity)?;
         Self::related_new(
             parent,
-            self.queries,
+            self.params,
             RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS,
         )
     }
 
     fn prev_sibling_element(&self) -> Option<Self> {
-        let prev_sibling = self
-            .queries
-            .siblings_query
-            .get(self.entity)
-            .ok()?
-            .previous_sibling?;
+        let siblings = self
+            .params
+            .styled_children
+            .iter_siblings(self.entity)
+            .collect::<Vec<_>>();
+        let mut found_self = false;
+
+        let prev_sibling = siblings.into_iter().rev().find(|sibling| {
+            let did_found_self = found_self;
+            found_self = *sibling == self.entity;
+            did_found_self
+        })?;
+
         Self::related_new(
             prev_sibling,
-            self.queries,
+            self.params,
             RecalculateOnChangeFlags::RECALCULATE_SIBLINGS,
         )
     }
 
     fn next_sibling_element(&self) -> Option<Self> {
+        let mut found_self = false;
+
         let next_sibling = self
-            .queries
-            .siblings_query
-            .get(self.entity)
-            .ok()?
-            .next_sibling?;
+            .params
+            .styled_children
+            .iter_siblings(self.entity)
+            .find(|sibling| {
+                let did_found_self = found_self;
+                found_self = *sibling == self.entity;
+                did_found_self
+            })?;
+
         Self::related_new(
             next_sibling,
-            self.queries,
+            self.params,
             RecalculateOnChangeFlags::RECALCULATE_SIBLINGS,
         )
     }
 
     fn first_element_child(&self) -> Option<Self> {
         let first_child = self
-            .queries
-            .ui_children
-            .iter_ui_children(self.entity)
+            .params
+            .styled_children
+            .iter_children(self.entity)
             .next()?;
         Self::related_new(
             first_child,
-            self.queries,
+            self.params,
             RecalculateOnChangeFlags::RECALCULATE_ASCENDANTS,
         )
     }
@@ -251,9 +261,9 @@ impl Element for ElementRef<'_> {
     }
 
     fn is_empty(&self) -> bool {
-        self.queries
-            .ui_children
-            .iter_ui_children(self.entity)
+        self.params
+            .styled_children
+            .iter_children(self.entity)
             .next()
             .is_none()
     }

@@ -46,7 +46,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             Node::default(),
-            NodeStyleSheet::new(asset_server.load("buttons.css")),
+            Styled::new(asset_server.load("buttons.css")),
             ClassList::empty(),
             TabGroup::new(0),
         ))

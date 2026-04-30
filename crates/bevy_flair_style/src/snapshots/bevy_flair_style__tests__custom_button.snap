@@ -7,7 +7,7 @@ Scene(
   entities: {
     4294967294: Entity(
       components: {
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           ),
@@ -26,7 +26,7 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": StyleSheet(Uuid("fe981062-17ce-46e4-999a-5a61ea8fe722")),
+        "bevy_flair_style::components::Styled": StyleSheet(Uuid("fe981062-17ce-46e4-999a-5a61ea8fe722")),
         "bevy_flair_style::tests::CustomButton": CustomButton(),
       },
     ),

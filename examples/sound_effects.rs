@@ -88,7 +88,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     commands.spawn((
         Node::default(),
-        NodeStyleSheet::new(asset_server.load("sound_effects.css")),
+        Styled::new(asset_server.load("sound_effects.css")),
         children![button(), button(), button(), button()],
     ));
 }

@@ -11,7 +11,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 ## Features
 
 - Apply CSS assets directly to Bevy UI elements.
-- Inherited stylesheets. Specify a [`NodeStyleSheet`] on a root node and all children inherit it automatically.
+- Inherited stylesheets. Specify a [`Styled`] on a root node and all children inherit it automatically.
 - Property inheritance support (e.g. `color`, `font-family`).
 - Font loading with [`@font-face`].
 - Animated property changes via [`transition`].
@@ -45,7 +45,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 - [`@layer`] support.
 - Inline CSS properties.
 - Pseudo-elements `::before` and `::after` (enabled with [`PseudoElementsSupport`]).
-- Different stylesheets per subtree. With the use of a different [`NodeStyleSheet`] per subtree. It's even possible to not apply any style for a given subtree.
+- Different stylesheets per subtree. With the use of a different [`Styled`] per subtree. It's even possible to not apply any style for a given subtree.
 - Use of custom `Time` for transitions and animations (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_time.rs>).
 - Support for the use of [`GhostNode`] in the hierarchy. Ghost nodes are simply ignored.
   - Enable `experimental_ghost_nodes` feature for better support of Ghost nodes.
@@ -68,7 +68,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 [`ClassList`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/struct.ClassList.html
 [`TypeName`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.TypeName.html
 [`PseudoElementsSupport`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.PseudoElementsSupport.html
-[`NodeStyleSheet`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.NodeStyleSheet.html
+[`Styled`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.Styled.html
 [`AttributeList`]: https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.AttributeList.html
 [`InlineStyle`]: https://docs.rs/bevy_flair/latest/bevy_flair/parser/inline_styles/enum.InlineStyle.html
 [selectors]: https://crates.io/crates/selectors
@@ -109,7 +109,7 @@ https://github.com/user-attachments/assets/792b9cfa-42fb-4e50-a85f-8d21aafeb1e5
 
 1. Add `bevy_flair` to your `Cargo.toml`.
 
-2. Create your UI structure and attach `NodeStyleSheet` the root:
+2. Create your UI structure and attach `Styled` the root:
 
 `main.rs`:
 
@@ -128,7 +128,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
     commands.spawn((
         Node::default(),
-        NodeStyleSheet::new(asset_server.load("my_stylesheet.css")),
+        Styled::new(asset_server.load("my_stylesheet.css")),
         children![(Button, children![Text::new("Button")])],
     ));
 }

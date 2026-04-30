@@ -525,15 +525,15 @@ impl<'i> TryFrom<&'i str> for CssSelector {
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
-    use crate::components::NodeStyleData;
+    use crate::components::StyleData;
     use crate::css_selector::testing::*;
     use crate::testing::*;
     use ego_tree::*;
 
     fn find_all_matches<'a>(
         selector: &CssSelector,
-        tree: &'a Tree<NodeStyleData>,
-    ) -> Vec<NodeRef<'a, NodeStyleData>> {
+        tree: &'a Tree<StyleData>,
+    ) -> Vec<NodeRef<'a, StyleData>> {
         tree.nodes()
             .filter(|node| {
                 let test_node: TestNodeRef = (*node).into();

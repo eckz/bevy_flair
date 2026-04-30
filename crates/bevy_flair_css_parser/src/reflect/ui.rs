@@ -352,7 +352,7 @@ impl FromType<Option<f32>> for ReflectParseCss {
 impl FromType<Option<Rect>> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| {
-            parse_property_value_with(parser, |parser| parse_rect(parser).map(Option::Some))
+            parse_property_value_with(parser, |parser| parse_rect(parser).map(Some))
                 .map(PropertyValue::into_reflect_value)
         })
     }

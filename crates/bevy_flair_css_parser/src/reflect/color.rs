@@ -1,7 +1,7 @@
 use crate::ReflectParseCss;
 use crate::error::CssError;
 use crate::error_codes::color as error_codes;
-use crate::utils::parse_property_value_with;
+use crate::utils::{parse_property_value_with, try_parse_none};
 use bevy_color::{Alpha, Color};
 use bevy_flair_core::ReflectValue;
 use bevy_math::FloatExt;
@@ -195,9 +195,25 @@ pub fn parse_color(parser: &mut Parser) -> Result<Color, CssError> {
     result.into_result()
 }
 
+pub fn parse_option_color(parser: &mut Parser) -> Result<Option<Color>, CssError> {
+    if let Some(none_value) = try_parse_none::<Option<Color>>(parser) {
+        Ok(none_value)
+    } else {
+        Ok(Some(parse_color(parser)?))
+    }
+}
+
 impl FromType<Color> for ReflectParseCss {
     fn from_type() -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_color)?.map(ReflectValue::Color)))
+    }
+}
+
+impl FromType<Option<Color>> for ReflectParseCss {
+    fn from_type() -> Self {
+        Self(|parser| {
+            Ok(parse_property_value_with(parser, parse_option_color)?.map(ReflectValue::new))
+        })
     }
 }
 

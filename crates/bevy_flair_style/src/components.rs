@@ -43,56 +43,16 @@ use std::sync::{Arc, atomic};
 use std::time::Duration;
 use tracing::{trace, warn};
 
-/// Contains information about siblings of an Entity.
-/// This is required to have a faster access to siblings
-#[derive(Debug, Clone, Default, Component, Reflect)]
-#[reflect(Debug, Clone, Default, Component)]
-pub struct Siblings {
-    /// Next sibling or None if this is the last child.
-    pub next_sibling: Option<Entity>,
-    /// Previous sibling or None if this is the first child.
-    pub previous_sibling: Option<Entity>,
-}
-
-impl Siblings {
-    /// Recalculate the values when siblings change.
-    // TODO: Probably there is a more efficient way of doing this.
-    pub fn recalculate_with(
-        &mut self,
-        self_entity: Entity,
-        siblings: impl IntoIterator<Item = Entity>,
-    ) {
-        let all_siblings = siblings.into_iter().enumerate().collect::<Vec<_>>();
-        let entity_index = all_siblings
-            .iter()
-            .find_map(|&(index, e)| (e == self_entity).then_some(index))
-            .unwrap_or_else(|| {
-                panic!(
-                    "self_entity is not part of the siblings: {self_entity:?} => {all_siblings:?}"
-                )
-            });
-
-        let next_sibling =
-            (entity_index < all_siblings.len() - 1).then(|| all_siblings[entity_index + 1].1);
-        let previous_sibling = (entity_index > 0).then(|| all_siblings[entity_index - 1].1);
-
-        *self = Self {
-            previous_sibling,
-            next_sibling,
-        }
-    }
-}
-
 /// Helper component that when an entity needs it's style to be recalculated
 #[derive(Debug, Clone, Component, Reflect)]
 #[reflect(Debug, Clone, Default, Component)]
-pub struct NodeStyleMarker {
+pub struct StyleMarkers {
     needs_reset: bool,
     needs_style_recalculation: bool,
     needs_property_application: bool,
 }
 
-impl Default for NodeStyleMarker {
+impl Default for StyleMarkers {
     fn default() -> Self {
         Self {
             needs_reset: true,
@@ -102,7 +62,7 @@ impl Default for NodeStyleMarker {
     }
 }
 
-impl NodeStyleMarker {
+impl StyleMarkers {
     /// Marks this entity to be reset.
     pub fn set_needs_reset(&mut self) {
         self.needs_reset = true;
@@ -142,16 +102,16 @@ impl NodeStyleMarker {
     }
 }
 
-/// Gathers all data needed to calculate styles.
-/// Selectors will use this struct to decide if the entity is a match or not.
+/// Stores the active style rules that apply to an entity.
+///
+/// This component tracks which stylesheet rules are currently active for an entity.
 #[derive(Debug, Clone, Default, Component, Reflect)]
 #[reflect(Debug, Clone, Default, Component)]
-pub struct NodeStyleActiveRules {
+pub struct StyleActiveRules {
     pub(crate) active_rules: Vec<StyleSheetRulesetId>,
 }
 
-/// Gathers all data needed to calculate styles.
-/// Selectors will use this struct to decide if the entity is a match or not.
+/// Stores media query features for the window context.
 #[derive(Debug, Clone, Default, PartialEq, Component, Reflect)]
 #[component(immutable)]
 #[reflect(Debug, Clone, Default, PartialEq, Component)]
@@ -233,13 +193,13 @@ impl<T: bitflags::Flags<Bits = usize>> AtomicFlags<T> {
 }
 
 #[derive(Debug, Default, Component)]
-pub(crate) struct NodeStyleSelectorFlags {
+pub(crate) struct StyleSelectorFlags {
     pub(crate) css_selector_flags: AtomicFlags<selectors::matching::ElementSelectorFlags>,
     pub(crate) recalculate_on_change_flags: AtomicFlags<RecalculateOnChangeFlags>,
     pub(crate) depends_on_media_flags: AtomicFlags<DependsOnMediaFeaturesFlags>,
 }
 
-impl NodeStyleSelectorFlags {
+impl StyleSelectorFlags {
     pub fn reset(&mut self) {
         *self = Default::default();
     }
@@ -249,7 +209,7 @@ impl NodeStyleSelectorFlags {
 /// Selectors will use this struct to decide if the entity is a match or not.
 #[derive(Debug, Clone, Default, Component, Reflect)]
 #[reflect(Debug, Clone, Default, Component)]
-pub struct NodeStyleData {
+pub struct StyleData {
     pub(crate) effective_style_sheet_asset_id: AssetId<StyleSheet>,
 
     // Data use for calculate style
@@ -263,7 +223,7 @@ pub struct NodeStyleData {
     pub(crate) is_pseudo_element: Option<PseudoElement>,
 }
 
-impl NodeStyleData {
+impl StyleData {
     pub(crate) fn set_effective_style_sheet_asset_id(
         &mut self,
         effective_style_sheet_asset_id: AssetId<StyleSheet>,
@@ -329,44 +289,43 @@ impl NodeStyleData {
 }
 
 /// Indicates how an entity should be styled.
-/// - By default using [`NodeStyleSheet::Inherited`], inherits the stylesheet of the parent.
-/// - By specifying [`NodeStyleSheet::StyleSheet`], it applies the given stylesheet to this entity and all descendants.
-/// - By using [`NodeStyleSheet::Block`] it blocks any inherited stylesheet to this entity or any descendant.
+/// - By default using [`Styled::Inherited`], inherits the stylesheet of the parent.
+/// - By specifying [`Styled::StyleSheet`], it applies the given stylesheet to this entity and all descendants.
+/// - By using [`Styled::Block`] it blocks any inherited stylesheet to this entity or any descendant.
 ///
 /// It's not mandatory to include this component in all entities that uses [`Node`], since
-/// any instantiation of [`Node`] will insert automatically [`NodeStyleSheet::Inherited`].
+/// any instantiation of [`Node`] will insert automatically [`Styled::Inherited`].
 ///
 /// # Example
 /// ```
 /// # use bevy_ecs::prelude::*;
 /// # use bevy_asset::prelude::*;
 /// # use bevy_ui::Node;
-/// # use bevy_flair_style::components::NodeStyleSheet;
+/// # use bevy_flair_style::components::Styled;
 ///
 /// fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 ///     commands.spawn((
 ///             Node::default(),
-///             NodeStyleSheet::new(asset_server.load("my_style.css"))
+///             Styled::new(asset_server.load("my_style.css"))
 ///     )).with_children(|parent| {
-///         // Will use NodeStyleSheet::Inherited automatically and inherit my_style.css
+///         // Will use Styled::Inherited automatically and inherit my_style.css
 ///         parent.spawn(Node::default());
 ///         // Will not inherit any stylesheet
-///         parent.spawn((Node::default(), NodeStyleSheet::Block));
+///         parent.spawn((Node::default(), Styled::Block));
 ///     });
 /// }
 /// ```
 #[derive(Debug, Default, Component, Reflect)]
 #[reflect(Debug, Default, Component)]
 #[require(
-    NodeStyleData,
-    NodeStyleActiveRules,
-    NodeStyleSelectorFlags,
-    NodeStyleMarker,
-    NodeVars,
-    NodeProperties,
-    Siblings
+    StyleData,
+    StyleActiveRules,
+    StyleSelectorFlags,
+    StyleMarkers,
+    StyleVars,
+    StyleProperties
 )]
-pub enum NodeStyleSheet {
+pub enum Styled {
     /// Node will inherit the stylesheet from the closest parent.
     #[default]
     Inherited,
@@ -376,10 +335,10 @@ pub enum NodeStyleSheet {
     Block,
 }
 
-impl NodeStyleSheet {
-    /// Creates a new [`NodeStyleSheet::StyleSheet`] with the given style.
+impl Styled {
+    /// Creates a new [`Styled::StyleSheet`] with the given style.
     pub const fn new(style: Handle<StyleSheet>) -> Self {
-        NodeStyleSheet::StyleSheet(style)
+        Styled::StyleSheet(style)
     }
 }
 
@@ -387,10 +346,10 @@ impl NodeStyleSheet {
 /// Also contains active animations and transits
 #[derive(Clone, Debug, Default, Component, Reflect, Deref, DerefMut)]
 #[reflect(Debug, Default, Clone, Component)]
-// Note: Using HashMap instead of HashMap because it's reflectable
-pub struct NodeVars(std::collections::HashMap<Arc<str>, VarTokens>);
+// Note: Using std::collections::HashMap instead of FxHashMap because it's reflectable
+pub struct StyleVars(std::collections::HashMap<Arc<str>, VarTokens>);
 
-impl NodeVars {
+impl StyleVars {
     pub(crate) fn replace_vars(
         &mut self,
         new_vars: impl IntoIterator<Item = (Arc<str>, VarTokens)>,
@@ -439,8 +398,8 @@ impl FromWorld for StaticPropertyMaps {
 /// Contains all properties applied to the current Node.
 /// Also contains active animations and transits
 #[derive(Clone, Debug, Default, Component)]
-#[require(NodeStyleMarker)]
-pub struct NodeProperties {
+#[require(StyleMarkers)]
+pub struct StyleProperties {
     // Components that were inserted automatically, so they can be auto removed
     pub(crate) auto_inserted_components: TypeIdMap<()>,
 
@@ -491,7 +450,7 @@ fn get_reflect_animatable<'a>(
     }
 }
 
-impl NodeProperties {
+impl StyleProperties {
     #[cfg(debug_assertions)]
     fn compute_values_debug_assertions(&self, function_name: &str) {
         debug_assert!(
@@ -504,7 +463,7 @@ impl NodeProperties {
         );
         debug_assert!(
             self.pending_computed_animation_values.is_empty(),
-            "`{function_name}` expects `pending_computed_values` to be empty"
+            "`{function_name}` expects `pending_computed_animation_values` to be empty"
         );
     }
 
@@ -1274,8 +1233,8 @@ pub struct TypeName(pub &'static str);
 fn on_insert_type_name(mut world: DeferredWorld, context: HookContext) {
     let entity = context.entity;
     let new_type_name = world.get::<TypeName>(entity).unwrap().0;
-    let Some(mut style_data) = world.get_mut::<NodeStyleData>(entity) else {
-        tracing::error!("TypeName without NodeStyleData");
+    let Some(mut style_data) = world.get_mut::<StyleData>(entity) else {
+        tracing::error!("TypeName without StyleData");
         return;
     };
 
@@ -1302,8 +1261,8 @@ fn on_insert_pseudo_element(mut world: DeferredWorld, context: HookContext) {
     let entity = context.entity;
     let new_pseudo_element = *world.get::<PseudoElement>(entity).unwrap();
     let mut style_data = world
-        .get_mut::<NodeStyleData>(entity)
-        .expect("PseudoElement without NodeStyleData");
+        .get_mut::<StyleData>(entity)
+        .expect("PseudoElement without StyleData");
 
     style_data.is_pseudo_element = Some(new_pseudo_element);
 }
@@ -1722,8 +1681,8 @@ mod tests {
         }};
     }
 
-    fn default_node_properties() -> NodeProperties {
-        let mut properties = NodeProperties::default();
+    fn default_node_properties() -> StyleProperties {
+        let mut properties = StyleProperties::default();
         properties.reset(&STATIC_PROPERTY_MAPS);
         properties
     }

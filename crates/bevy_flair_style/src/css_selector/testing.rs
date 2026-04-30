@@ -1,4 +1,4 @@
-use crate::components::{NodeStyleData, PseudoElement};
+use crate::components::{PseudoElement, StyleData};
 use crate::css_selector::{
     CssPseudoElement, CssSelectorImpl, CssString, InternalPseudoStateSelector,
 };
@@ -14,24 +14,24 @@ use crate::css_selector::element::impl_element_commons;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TestElementRef<'a> {
-    data: &'a NodeStyleData,
+    data: &'a StyleData,
 }
 
 impl<'a> TestElementRef<'a> {
-    pub fn new(data: &'a NodeStyleData) -> Self {
+    pub fn new(data: &'a StyleData) -> Self {
         Self { data }
     }
 }
 
 impl Deref for TestElementRef<'_> {
-    type Target = NodeStyleData;
+    type Target = StyleData;
 
     fn deref(&self) -> &Self::Target {
         self.data
     }
 }
-impl Borrow<NodeStyleData> for TestElementRef<'_> {
-    fn borrow(&self) -> &NodeStyleData {
+impl Borrow<StyleData> for TestElementRef<'_> {
+    fn borrow(&self) -> &StyleData {
         self.data
     }
 }
@@ -130,10 +130,10 @@ impl Element for TestElementRef<'_> {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct TestNodeRef<'a>(NodeRef<'a, NodeStyleData>);
+pub(crate) struct TestNodeRef<'a>(NodeRef<'a, StyleData>);
 
-impl<'a> From<NodeRef<'a, NodeStyleData>> for TestNodeRef<'a> {
-    fn from(value: NodeRef<'a, NodeStyleData>) -> Self {
+impl<'a> From<NodeRef<'a, StyleData>> for TestNodeRef<'a> {
+    fn from(value: NodeRef<'a, StyleData>) -> Self {
         Self(value)
     }
 }

@@ -259,7 +259,7 @@ fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
             display: Display::None,
             ..default()
         },
-        NodeStyleSheet::new(asset_server.load("game_menu.css")),
+        Styled::new(asset_server.load("game_menu.css")),
         children![(
             Name::new("game_menu"),
             Node::default(),

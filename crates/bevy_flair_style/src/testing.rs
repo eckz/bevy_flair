@@ -47,7 +47,7 @@ macro_rules! entity {
     };
     ($($rest:tt)*) => {{
         #[allow(unused_mut)]
-        let mut entity = crate::components::NodeStyleData::default();
+        let mut entity = crate::components::StyleData::default();
         entity!(@consume (&mut entity) $($rest)*);
         entity
     }};

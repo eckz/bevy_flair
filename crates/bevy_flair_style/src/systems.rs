@@ -1,8 +1,8 @@
 use crate::components::{
-    AttributeList, ClassList, DependsOnMediaFeaturesFlags, NodeProperties, NodeStyleActiveRules,
-    NodeStyleData, NodeStyleMarker, NodeStyleSelectorFlags, NodeStyleSheet, NodeVars,
-    PropertyIdDebugHelper, PropertyIdDebugHelperParam, PseudoElement, PseudoElementsSupport,
-    RawInlineStyle, RecalculateOnChangeFlags, Siblings, StaticPropertyMaps, WindowMediaFeatures,
+    AttributeList, ClassList, DependsOnMediaFeaturesFlags, PropertyIdDebugHelper,
+    PropertyIdDebugHelperParam, PseudoElement, PseudoElementsSupport, RawInlineStyle,
+    RecalculateOnChangeFlags, StaticPropertyMaps, StyleActiveRules, StyleData, StyleMarkers,
+    StyleProperties, StyleSelectorFlags, StyleVars, Styled, WindowMediaFeatures,
 };
 use crate::{
     ColorScheme, GlobalChangeDetection, NodePseudoState, StyleSheet, VarResolver, VarTokens,
@@ -16,7 +16,7 @@ use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
 
 use crate::animations::{AnimationConfiguration, KeyframesResolver};
-use crate::custom_iterators::{CustomUiChildren, CustomUiRoots};
+use crate::custom_iterators::{StyledChildren, StyledRoots};
 use crate::media_selector::MediaFeaturesProvider;
 use crate::placeholder::{
     PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
@@ -38,7 +38,7 @@ use tracing::{debug, trace, warn};
 
 pub(crate) fn reset_properties(
     static_computed_properties: Res<StaticPropertyMaps>,
-    mut style_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
+    mut style_query: Query<(&mut StyleProperties, &mut StyleMarkers)>,
 ) {
     for (mut properties, mut marker) in &mut style_query {
         if marker.needs_reset() || properties.is_added() {
@@ -89,57 +89,17 @@ pub(crate) fn sort_pseudo_elements(
     }
 }
 
-pub(crate) fn sync_siblings_system(
-    mut siblings_param_set: ParamSet<(Query<(Entity, &mut Siblings)>, Query<&mut Siblings>)>,
-    ui_children: CustomUiChildren,
-    children_changed_query: Query<Entity, Changed<Children>>,
-
-    mut entities_recalculated: Local<EntityHashSet>,
-) {
-    for (entity, mut siblings) in &mut siblings_param_set.p0() {
-        let Some(parent) = ui_children.get_parent(entity) else {
-            continue;
-        };
-        if !siblings.is_added() && !ui_children.is_changed(parent) {
-            continue;
-        }
-
-        entities_recalculated.insert(entity);
-        siblings.recalculate_with(entity, ui_children.iter_ui_siblings(entity));
-    }
-
-    let mut siblings_query = siblings_param_set.p1();
-
-    for parent in &children_changed_query {
-        for entity in ui_children.iter_ui_children(parent) {
-            if entities_recalculated.contains(&parent) {
-                continue;
-            }
-
-            let Ok(mut siblings) = siblings_query.get_mut(entity) else {
-                continue;
-            };
-
-            siblings.recalculate_with(entity, ui_children.iter_ui_siblings(entity));
-
-            entities_recalculated.insert(entity);
-        }
-    }
-
-    entities_recalculated.clear();
-}
-
 pub(crate) fn calculate_effective_style_sheet(
-    changed_style_sheets_query: Query<Entity, Changed<NodeStyleSheet>>,
+    changed_style_sheets_query: Query<Entity, Changed<Styled>>,
     mut style_data_query: Query<(
         NameOrEntity,
-        &NodeStyleSheet,
-        &mut NodeStyleData,
-        &mut NodeStyleSelectorFlags,
-        &mut NodeStyleMarker,
+        &Styled,
+        &mut StyleData,
+        &mut StyleSelectorFlags,
+        &mut StyleMarkers,
     )>,
-    node_style_sheet_query: Query<&NodeStyleSheet>,
-    ui_children: CustomUiChildren,
+    styled_query: Query<&Styled>,
+    styled_children: StyledChildren,
 ) {
     const INVALID_STYLE_SHEET_ASSET_ID: AssetId<StyleSheet> = AssetId::invalid();
 
@@ -153,22 +113,22 @@ pub(crate) fn calculate_effective_style_sheet(
         };
 
         let effective_style_sheet = match style_sheet {
-            NodeStyleSheet::Inherited => ui_children
-                .iter_ui_ancestors(name_or_entity.entity)
+            Styled::Inherited => styled_children
+                .iter_ancestors(name_or_entity.entity)
                 .find_map(|e| {
-                    let style_sheet = node_style_sheet_query.get(e).ok()?;
+                    let style_sheet = styled_query.get(e).ok()?;
                     match style_sheet {
-                        NodeStyleSheet::Inherited => None,
-                        NodeStyleSheet::StyleSheet(style_sheet) => Some(style_sheet.id()),
-                        NodeStyleSheet::Block => Some(INVALID_STYLE_SHEET_ASSET_ID),
+                        Styled::Inherited => None,
+                        Styled::StyleSheet(style_sheet) => Some(style_sheet.id()),
+                        Styled::Block => Some(INVALID_STYLE_SHEET_ASSET_ID),
                     }
                 })
                 .unwrap_or(INVALID_STYLE_SHEET_ASSET_ID),
-            NodeStyleSheet::StyleSheet(style_sheet) => style_sheet.id(),
-            NodeStyleSheet::Block => INVALID_STYLE_SHEET_ASSET_ID,
+            Styled::StyleSheet(style_sheet) => style_sheet.id(),
+            Styled::Block => INVALID_STYLE_SHEET_ASSET_ID,
         };
 
-        if let NodeStyleSheet::StyleSheet(style_sheet_handle) = style_sheet {
+        if let Styled::StyleSheet(style_sheet_handle) = style_sheet {
             debug!(
                 "Stylesheet of {name_or_entity} and it's children set to: {:?}",
                 style_sheet_handle.path()
@@ -192,7 +152,7 @@ pub(crate) fn calculate_effective_style_sheet(
 
     // For all modified entities, we need to recursively recalculate all children
     for entity in modified_style_sheets {
-        for child in ui_children.iter_ui_descendants(entity) {
+        for child in styled_children.iter_descendants(entity) {
             set_effective_style_sheet(child);
         }
     }
@@ -237,10 +197,10 @@ pub(crate) fn compute_window_media_features(
 
 pub(crate) fn calculate_is_root(
     mut param_set_queries: ParamSet<(
-        Query<(Entity, &mut NodeStyleData)>,
-        Query<Entity, Or<(Added<NodeStyleData>, Changed<ChildOf>)>>,
+        Query<(Entity, &mut StyleData)>,
+        Query<Entity, Or<(Added<StyleData>, Changed<ChildOf>)>>,
     )>,
-    ui_root_nodes: CustomUiRoots,
+    styled_root_nodes: StyledRoots,
     mut removed_parent: RemovedComponents<ChildOf>,
 ) {
     let mut entities_to_recalculate = EntityHashSet::default();
@@ -257,12 +217,12 @@ pub(crate) fn calculate_is_root(
     let mut style_data_query = param_set_queries.p0();
 
     for (entity, mut data) in style_data_query.iter_many_unique_mut(entities_to_recalculate) {
-        data.is_root = ui_root_nodes.contains(entity);
+        data.is_root = styled_root_nodes.contains(entity);
     }
 }
 
 pub(crate) fn apply_classes(
-    mut classes_query: Query<(NameOrEntity, &ClassList, &mut NodeStyleData), Changed<ClassList>>,
+    mut classes_query: Query<(NameOrEntity, &ClassList, &mut StyleData), Changed<ClassList>>,
 ) {
     for (name, classes, mut style_data) in &mut classes_query {
         debug!("{name}.className = '{classes}'");
@@ -271,7 +231,7 @@ pub(crate) fn apply_classes(
 }
 
 pub(crate) fn apply_attributes(
-    mut attributes_query: Query<(&AttributeList, &mut NodeStyleData), Changed<AttributeList>>,
+    mut attributes_query: Query<(&AttributeList, &mut StyleData), Changed<AttributeList>>,
 ) {
     for (attributes, mut style_data) in &mut attributes_query {
         style_data.attributes.clone_from(&attributes.0);
@@ -280,8 +240,8 @@ pub(crate) fn apply_attributes(
 
 pub(crate) fn track_name_changes(
     mut data_queries: ParamSet<(
-        Query<(&Name, &mut NodeStyleData), Or<(Changed<Name>, Added<NodeStyleData>)>>,
-        Query<&mut NodeStyleData>,
+        Query<(&Name, &mut StyleData), Or<(Changed<Name>, Added<StyleData>)>>,
+        Query<&mut StyleData>,
     )>,
     mut name_removed: RemovedComponents<Name>,
 ) {
@@ -302,8 +262,8 @@ pub(crate) fn track_name_changes(
 pub(crate) fn sync_input_focus(
     input_focus: Option<Res<InputFocus>>,
     input_focus_visible: Option<Res<InputFocusVisible>>,
-    mut data_query: Query<&mut NodeStyleData>,
-    mut previous_focus: Local<InputFocus>,
+    mut data_query: Query<&mut StyleData>,
+    mut previous_focus: Local<Option<Entity>>,
 ) {
     let Some(input_focus) = input_focus else {
         return;
@@ -313,34 +273,34 @@ pub(crate) fn sync_input_focus(
         .as_deref()
         .is_some_and(|visible| visible.0);
 
-    if !input_focus.is_changed() || input_focus.0 == previous_focus.0 {
+    if !input_focus.is_changed() || input_focus.get() == *previous_focus {
         if input_focus_visible.is_some_and(|v| v.is_changed())
-            && let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok())
+            && let Some(mut style_data) = previous_focus.and_then(|e| data_query.get_mut(e).ok())
         {
             style_data.get_pseudo_state_mut().focused_and_visible = focus_visible;
         }
         return;
     }
 
-    if let Some(mut style_data) = previous_focus.0.and_then(|e| data_query.get_mut(e).ok()) {
+    if let Some(mut style_data) = previous_focus.and_then(|e| data_query.get_mut(e).ok()) {
         let pseudo_state = style_data.get_pseudo_state_mut();
         pseudo_state.focused = false;
         pseudo_state.focused_and_visible = false;
     }
 
-    if let Some(mut style_data) = input_focus.0.and_then(|e| data_query.get_mut(e).ok()) {
+    if let Some(mut style_data) = input_focus.get().and_then(|e| data_query.get_mut(e).ok()) {
         let pseudo_state = style_data.get_pseudo_state_mut();
         pseudo_state.focused = true;
         pseudo_state.focused_and_visible = focus_visible;
     }
 
-    *previous_focus = (*input_focus).clone()
+    *previous_focus = input_focus.get();
 }
 
 pub(crate) fn sync_marker_component_system<C: Component>(
     action: fn(&mut NodePseudoState, bool),
 ) -> impl FnMut(
-    Query<(Has<C>, &mut NodeStyleData)>,
+    Query<(Has<C>, &mut StyleData)>,
     Query<Entity, Added<C>>,
     RemovedComponents<C>,
     Local<EntityHashSet>,
@@ -362,7 +322,7 @@ pub(crate) fn sync_marker_component_system<C: Component>(
 }
 
 pub(crate) fn sync_hovered_system(
-    mut hovered_query: Query<(&Hovered, &mut NodeStyleData), Changed<Hovered>>,
+    mut hovered_query: Query<(&Hovered, &mut StyleData), Changed<Hovered>>,
 ) {
     for (hovered, mut data) in &mut hovered_query {
         let pseudo_state = data.get_pseudo_state_mut();
@@ -371,7 +331,7 @@ pub(crate) fn sync_hovered_system(
 }
 
 pub(crate) fn sync_interaction_system(
-    mut interaction_query: Query<(&Interaction, &mut NodeStyleData), Changed<Interaction>>,
+    mut interaction_query: Query<(&Interaction, &mut StyleData), Changed<Interaction>>,
 ) {
     for (interaction, mut data) in &mut interaction_query {
         let pseudo_state = data.get_pseudo_state_mut();
@@ -386,14 +346,14 @@ pub(crate) fn clear_global_change_detection(
     *global_change_detection = GlobalChangeDetection::default();
 }
 
-pub(crate) fn set_nodes_for_style_recalculation_on_window_media_features_change(
+pub(crate) fn set_entities_for_style_recalculation_on_window_media_features_change(
     primary_window: Option<Single<Entity, With<PrimaryWindow>>>,
     cameras_query: Query<(Entity, &RenderTarget)>,
     window_media_features_changed: Query<Entity, Changed<WindowMediaFeatures>>,
-    mut nodes_query: Query<(
-        &NodeStyleSelectorFlags,
+    mut markers_query: Query<(
+        &StyleSelectorFlags,
         &ComputedUiTargetCamera,
-        &mut NodeStyleMarker,
+        &mut StyleMarkers,
     )>,
 ) {
     let windows_changed = EntityHashSet::from_iter(window_media_features_changed.iter());
@@ -412,7 +372,7 @@ pub(crate) fn set_nodes_for_style_recalculation_on_window_media_features_change(
             continue;
         }
 
-        for (flags, ui_target_camera, mut marker) in &mut nodes_query {
+        for (flags, ui_target_camera, mut marker) in &mut markers_query {
             if ui_target_camera.get() != Some(camera_entity) {
                 continue;
             }
@@ -426,9 +386,9 @@ pub(crate) fn set_nodes_for_style_recalculation_on_window_media_features_change(
     }
 }
 
-pub(crate) fn set_nodes_for_style_recalculation_on_render_target_info_change(
+pub(crate) fn set_entities_for_style_recalculation_on_render_target_info_change(
     mut compute_node_target_changed_query: Query<
-        (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
+        (&StyleSelectorFlags, &mut StyleMarkers),
         Changed<ComputedUiRenderTargetInfo>,
     >,
 ) {
@@ -442,11 +402,11 @@ pub(crate) fn set_nodes_for_style_recalculation_on_render_target_info_change(
     }
 }
 
-pub(crate) fn set_related_nodes_for_style_recalculation(
+pub(crate) fn set_related_entities_for_style_recalculation(
     children_changed_query: Query<Entity, Changed<Children>>,
-    selector_flags_query: Query<&NodeStyleSelectorFlags>,
-    mut markers_query: Query<&mut NodeStyleMarker>,
-    ui_children: CustomUiChildren,
+    selector_flags_query: Query<&StyleSelectorFlags>,
+    mut markers_query: Query<&mut StyleMarkers>,
+    styled_children: StyledChildren,
     mut to_be_marked: Local<EntityHashSet>,
     mut removed_children: RemovedComponents<Children>,
 ) -> Result {
@@ -470,7 +430,7 @@ pub(crate) fn set_related_nodes_for_style_recalculation(
                 | ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR
                 | ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS,
         ) {
-            to_be_marked.extend(ui_children.iter_ui_descendants(entity));
+            to_be_marked.extend(styled_children.iter_descendants(entity));
         }
     }
 
@@ -483,30 +443,30 @@ pub(crate) fn set_related_nodes_for_style_recalculation(
     Ok(())
 }
 
-pub(crate) fn mark_changed_nodes_for_recalculation(
+pub(crate) fn mark_changed_entities_for_recalculation(
     mut queries: ParamSet<(
         Query<
             (
                 Entity,
-                Ref<NodeStyleData>,
+                Ref<StyleData>,
                 Option<Ref<RawInlineStyle>>,
-                &NodeStyleSelectorFlags,
-                &NodeStyleMarker,
+                &StyleSelectorFlags,
+                &StyleMarkers,
             ),
             Or<(
-                Changed<NodeStyleData>,
-                Changed<NodeStyleMarker>,
+                Changed<StyleData>,
+                Changed<StyleMarkers>,
                 Changed<RawInlineStyle>,
             )>,
         >,
-        Query<&mut NodeStyleMarker>,
+        Query<&mut StyleMarkers>,
     )>,
-    ui_children: CustomUiChildren,
+    styled_children: StyledChildren,
     mut to_be_marked: Local<EntityHashSet>,
 ) -> Result {
-    let nodes_changed_query = queries.p0();
+    let entities_changed_query = queries.p0();
 
-    for (entity, style_data, inline_style, selector_flags, marker) in &nodes_changed_query {
+    for (entity, style_data, inline_style, selector_flags, marker) in &entities_changed_query {
         let inline_style_changed = inline_style.is_some_and(|s| s.is_changed());
         if !style_data.is_changed() && !marker.needs_style_recalculation() && !inline_style_changed
         {
@@ -520,13 +480,13 @@ pub(crate) fn mark_changed_nodes_for_recalculation(
         let flags = selector_flags.recalculate_on_change_flags.load();
 
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS) {
-            to_be_marked.extend(ui_children.iter_ui_siblings(entity));
+            to_be_marked.extend(styled_children.iter_siblings(entity));
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
-            to_be_marked.extend(ui_children.iter_ui_descendants(entity));
+            to_be_marked.extend(styled_children.iter_descendants(entity));
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_ASCENDANTS) {
-            to_be_marked.extend(ui_children.iter_ui_ancestors(entity));
+            to_be_marked.extend(styled_children.iter_ancestors(entity));
         }
     }
 
@@ -545,17 +505,12 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
     mut asset_msg_reader: MessageReader<AssetEvent<StyleSheet>>,
     static_property_maps: Res<StaticPropertyMaps>,
     mut style_query: Query<(
-        EntityRefExcept<(
-            NodeStyleSelectorFlags,
-            NodeStyleMarker,
-            NodeProperties,
-            NodeVars,
-        )>,
-        &NodeStyleData,
-        &mut NodeStyleSelectorFlags,
-        &mut NodeStyleMarker,
-        &mut NodeProperties,
-        &mut NodeVars,
+        EntityRefExcept<(StyleSelectorFlags, StyleMarkers, StyleProperties, StyleVars)>,
+        &StyleData,
+        &mut StyleSelectorFlags,
+        &mut StyleMarkers,
+        &mut StyleProperties,
+        &mut StyleVars,
     )>,
 ) {
     let mut modified_stylesheets = FxHashSet::default();
@@ -613,13 +568,13 @@ pub(crate) fn mark_as_changed_on_style_sheet_change(
 
 #[derive(SystemParam)]
 pub(crate) struct VarResolverParam<'w, 's> {
-    ui_children: CustomUiChildren<'w, 's>,
-    vars_query: Query<'w, 's, &'static NodeVars>,
+    styled_children: StyledChildren<'w, 's>,
+    vars_query: Query<'w, 's, &'static StyleVars>,
 }
 
 impl<'w, 's> VarResolverParam<'w, 's> {
     fn iter_self_and_ancestors(&self, entity: Entity) -> impl Iterator<Item = Entity> {
-        iter::once(entity).chain(self.ui_children.iter_ui_ancestors(entity))
+        iter::once(entity).chain(self.styled_children.iter_ancestors(entity))
     }
 
     fn get_all_names(&self, entity: Entity) -> FxHashSet<Arc<str>> {
@@ -663,7 +618,7 @@ impl VarResolver for EntityVarResolver<'_, '_, '_> {
 
 #[derive(SystemParam)]
 pub(crate) struct MediaFeaturesParam<'w, 's> {
-    selector_flags_query: Query<'w, 's, &'static NodeStyleSelectorFlags>,
+    selector_flags_query: Query<'w, 's, &'static StyleSelectorFlags>,
     cameras_query: Query<'w, 's, &'static RenderTarget>,
     window_media_features_query: Query<'w, 's, &'static WindowMediaFeatures>,
     primary_window: Option<Single<'w, 's, Entity, With<PrimaryWindow>>>,
@@ -757,19 +712,19 @@ pub(crate) fn calculate_style_and_set_vars(
     mut param_set: ParamSet<(
         Query<(
             NameOrEntity,
-            &NodeStyleData,
+            &StyleData,
             Option<&RawInlineStyle>,
-            &mut NodeStyleActiveRules,
-            &NodeStyleMarker,
+            &mut StyleActiveRules,
+            &StyleMarkers,
             // TextSpan does not have ComputedUiTargetCamera or ComputedUiRenderTargetInfo
             Option<&ComputedUiTargetCamera>,
             Option<&ComputedUiRenderTargetInfo>,
-            &mut NodeVars,
+            &mut StyleVars,
         )>,
-        Query<&mut NodeStyleMarker>,
+        Query<&mut StyleMarkers>,
     )>,
     element_ref_system_param: css_selector::ElementRefSystemParam,
-    ui_children: CustomUiChildren,
+    styled_children: StyledChildren,
     media_features_param: MediaFeaturesParam,
     mut to_mark_descendants_parallel: Local<bevy_utils::Parallel<Vec<Entity>>>,
 ) {
@@ -828,7 +783,7 @@ pub(crate) fn calculate_style_and_set_vars(
     for to_mark_descendants in to_mark_descendants_parallel.iter_mut() {
         for entity in to_mark_descendants
             .drain(..)
-            .flat_map(|entity| ui_children.iter_ui_descendants(entity))
+            .flat_map(|entity| styled_children.iter_descendants(entity))
         {
             if let Ok(mut marker) = marker_query.get_mut(entity) {
                 marker.set_needs_style_recalculation();
@@ -843,11 +798,11 @@ pub(crate) fn set_property_values(
     var_resolver: VarResolverParam,
     mut styled_entities_query: Query<(
         NameOrEntity,
-        &NodeStyleData,
+        &StyleData,
         Option<&RawInlineStyle>,
-        &NodeStyleActiveRules,
-        &mut NodeStyleMarker,
-        &mut NodeProperties,
+        &StyleActiveRules,
+        &mut StyleMarkers,
+        &mut StyleProperties,
     )>,
     property_registry: Res<PropertyRegistry>,
     css_property_registry: Res<CssPropertyRegistry>,
@@ -926,7 +881,7 @@ pub(crate) fn auto_remove_components_condition(
 }
 
 #[inline]
-fn set_needs_property_application(properties: &NodeProperties, marker: &mut NodeStyleMarker) {
+fn set_needs_property_application(properties: &StyleProperties, marker: &mut StyleMarkers) {
     if !properties
         .pending_computed_values
         .ptr_eq(&properties.computed_values)
@@ -943,7 +898,7 @@ pub(crate) fn resolve_animations(
     static_property_maps: Res<StaticPropertyMaps>,
     debug_helper: PropertyIdDebugHelperParam,
     style_sheets: Res<Assets<StyleSheet>>,
-    mut node_properties_query: Query<(NameOrEntity, &mut NodeProperties, &NodeStyleData)>,
+    mut node_properties_query: Query<(NameOrEntity, &mut StyleProperties, &StyleData)>,
 ) {
     let type_registry = app_type_registry.read();
     for (name_or_entity, mut node_properties, style_data) in &mut node_properties_query {
@@ -989,7 +944,7 @@ pub(crate) fn resolve_animations(
 
 pub(crate) fn set_animation_computed_values(
     static_property_maps: Res<StaticPropertyMaps>,
-    mut node_properties_query: Query<(NameOrEntity, &mut NodeProperties, &mut NodeStyleMarker)>,
+    mut node_properties_query: Query<(NameOrEntity, &mut StyleProperties, &mut StyleMarkers)>,
     #[cfg(debug_assertions)] debug_helper: PropertyIdDebugHelperParam,
 ) {
     for (_name_or_entity, mut properties, mut marker) in &mut node_properties_query {
@@ -1011,7 +966,7 @@ pub(crate) fn set_animation_computed_values(
 
 // When we know no property_value has changed, we need just need to initialized `pending_computed_properties`
 pub(crate) fn set_pending_compute_property_values(
-    mut node_properties_query: Query<&mut NodeProperties>,
+    mut node_properties_query: Query<&mut StyleProperties>,
 ) {
     for mut properties in &mut node_properties_query {
         debug_assert!(properties.pending_computed_values.is_empty());
@@ -1021,9 +976,9 @@ pub(crate) fn set_pending_compute_property_values(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_property_values(
-    root_nodes: CustomUiRoots,
-    ui_children: CustomUiChildren,
-    mut node_properties_query: Query<(&mut NodeProperties, &mut NodeStyleMarker)>,
+    root_nodes: StyledRoots,
+    styled_children: StyledChildren,
+    mut node_properties_query: Query<(&mut StyleProperties, &mut StyleMarkers)>,
     static_property_maps: Res<StaticPropertyMaps>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
@@ -1033,7 +988,7 @@ pub(crate) fn compute_property_values(
     let type_registry = app_type_registry.0.read();
 
     #[cfg(debug_assertions)]
-    let trace_new_properties = |entity: Entity, properties: &NodeProperties| {
+    let trace_new_properties = |entity: Entity, properties: &StyleProperties| {
         if !tracing::enabled!(tracing::Level::TRACE) {
             return;
         }
@@ -1049,7 +1004,7 @@ pub(crate) fn compute_property_values(
         }
     };
     #[cfg(not(debug_assertions))]
-    let trace_new_properties = |_: Entity, _: &NodeProperties| {};
+    let trace_new_properties = |_: Entity, _: &StyleProperties| {};
 
     for root in root_nodes.iter() {
         let (mut root_properties, mut root_marker) = node_properties_query.get_mut(root)?;
@@ -1062,7 +1017,7 @@ pub(crate) fn compute_property_values(
         set_needs_property_application(&root_properties, &mut root_marker);
         trace_new_properties(root, &root_properties);
 
-        for (parent, entity) in ui_children.iter_ui_descendants_with_parent(root) {
+        for (parent, entity) in styled_children.iter_descendants_with_parent(root) {
             let Ok([(parent_properties, _), (mut properties, mut marker)]) =
                 node_properties_query.get_many_mut([parent, entity])
             else {
@@ -1084,7 +1039,7 @@ pub(crate) fn compute_property_values(
 
 pub(crate) fn tick_animations<T: Default + Send + Sync + 'static>(
     time: Res<Time<T>>,
-    mut properties_query: Query<&mut NodeProperties>,
+    mut properties_query: Query<&mut StyleProperties>,
     mut global_change_detection: ResMut<GlobalChangeDetection>,
 ) {
     let delta = time.delta();
@@ -1102,7 +1057,7 @@ pub(crate) fn tick_animations<T: Default + Send + Sync + 'static>(
 
 pub(crate) fn emit_animation_events(
     mut commands: Commands,
-    mut properties_query: Query<(Entity, &mut NodeProperties)>,
+    mut properties_query: Query<(Entity, &mut StyleProperties)>,
 ) {
     for (entity, mut properties) in &mut properties_query {
         if properties.has_pending_events() {
@@ -1112,7 +1067,7 @@ pub(crate) fn emit_animation_events(
 }
 
 pub(crate) fn emit_redraw_event(
-    properties_query: Query<&NodeProperties>,
+    properties_query: Query<&StyleProperties>,
     mut request_redraw_writer: MessageWriter<RequestRedraw>,
 ) {
     if properties_query
@@ -1126,7 +1081,7 @@ pub(crate) fn emit_redraw_event(
 // Right before `apply_computed_properties` we need to resolve placeholders
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_placeholders(
-    mut properties_query: Query<(&mut NodeProperties, &NodeStyleData, &NodeStyleMarker)>,
+    mut properties_query: Query<(&mut StyleProperties, &StyleData, &StyleMarkers)>,
     asset_server: Res<AssetServer>,
     style_sheets: Res<Assets<StyleSheet>>,
     app_type_registry: Res<AppTypeRegistry>,
@@ -1180,8 +1135,8 @@ pub(crate) fn apply_computed_properties(
     world: &mut World,
     properties_query_state: &mut QueryState<(
         NameOrEntity,
-        &mut NodeProperties,
-        &mut NodeStyleMarker,
+        &mut StyleProperties,
+        &mut StyleMarkers,
     )>,
     mut empty_computed_properties_local: Local<Option<PropertyMap<ComputedValue>>>,
     mut property_registry_local: Local<Option<PropertyRegistry>>,
@@ -1278,7 +1233,7 @@ pub(crate) fn apply_computed_properties(
 
 pub(crate) fn observe_on_component_auto_inserted(
     component_auto_inserted: On<ComponentAutoInserted>,
-    mut node_properties_query: Query<&mut NodeProperties>,
+    mut node_properties_query: Query<&mut StyleProperties>,
 ) {
     if let Ok(mut node_properties) = node_properties_query.get_mut(component_auto_inserted.entity) {
         node_properties
@@ -1290,7 +1245,7 @@ pub(crate) fn observe_on_component_auto_inserted(
 pub(crate) fn auto_remove_components(
     property_registry: Res<PropertyRegistry>,
     mut command_queue: Deferred<CommandQueue>,
-    mut query: Query<(EntityRefExcept<NodeProperties>, &mut NodeProperties)>,
+    mut query: Query<(EntityRefExcept<StyleProperties>, &mut StyleProperties)>,
 ) {
     for (entity_ref, mut properties) in &mut query {
         if properties.auto_inserted_components.is_empty() {
@@ -1346,14 +1301,14 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn((ClassList::new("test"), NodeStyleData::default()))
+            .spawn((ClassList::new("test"), StyleData::default()))
             .id();
 
         let was_data_changed_arc: Arc<Mutex<bool>> = Default::default();
 
         {
             let was_data_changed_arc_clone = Arc::clone(&was_data_changed_arc);
-            app.add_systems(Update, move |query: Query<Ref<NodeStyleData>>| {
+            app.add_systems(Update, move |query: Query<Ref<StyleData>>| {
                 let changed = query.get(entity).unwrap().is_changed();
                 *was_data_changed_arc_clone
                     .lock()
@@ -1369,7 +1324,7 @@ mod tests {
 
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.classes, vec!["test"]);
 
         app.world_mut()
@@ -1379,7 +1334,7 @@ mod tests {
             .add("test");
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.classes, vec!["test"]);
 
         let mut class = app
@@ -1392,7 +1347,7 @@ mod tests {
         app.update();
 
         assert!(is_data_changed());
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.classes, vec!["test2"]);
 
         // No changes
@@ -1423,7 +1378,7 @@ mod tests {
             .world_mut()
             .spawn((
                 AttributeList::from_iter([("attr1", "value1")]),
-                NodeStyleData::default(),
+                StyleData::default(),
             ))
             .id();
 
@@ -1431,7 +1386,7 @@ mod tests {
 
         {
             let was_data_changed_arc_clone = Arc::clone(&was_data_changed_arc);
-            app.add_systems(Update, move |query: Query<Ref<NodeStyleData>>| {
+            app.add_systems(Update, move |query: Query<Ref<StyleData>>| {
                 let changed = query.get(entity).unwrap().is_changed();
                 *was_data_changed_arc_clone
                     .lock()
@@ -1447,7 +1402,7 @@ mod tests {
 
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.attributes, map! {"attr1" => "value1"});
 
         app.world_mut()
@@ -1457,7 +1412,7 @@ mod tests {
             .set_attribute("attr2", "value2");
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(
             data.attributes,
             map! {"attr1" => "value1", "attr2" => "value2"}
@@ -1473,7 +1428,7 @@ mod tests {
         app.update();
 
         assert!(is_data_changed());
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(
             data.attributes,
             map! {"attr2" => "value2", "attr3" => "value3"}
@@ -1494,12 +1449,12 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn((Name::new("Test"), NodeStyleData::default()))
+            .spawn((Name::new("Test"), StyleData::default()))
             .id();
 
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, Some("Test".into()));
 
         *app.world_mut()
@@ -1508,16 +1463,16 @@ mod tests {
             .unwrap() = "TestChanged".into();
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, Some("TestChanged".into()));
 
         app.world_mut().entity_mut(entity).remove::<Name>();
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, None);
 
-        let entity = app.world_mut().spawn(NodeStyleData::default()).id();
+        let entity = app.world_mut().spawn(StyleData::default()).id();
 
         app.update();
         app.world_mut()
@@ -1526,7 +1481,7 @@ mod tests {
 
         app.update();
 
-        let data = app.world().entity(entity).get::<NodeStyleData>().unwrap();
+        let data = app.world().entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, Some("TestInserted".into()));
     }
 
@@ -1534,7 +1489,7 @@ mod tests {
     fn test_sort_pseudo_elements() {
         let mut app = App::new();
 
-        app.register_required_components::<Node, NodeStyleData>();
+        app.register_required_components::<Node, StyleData>();
         app.add_systems(Update, sort_pseudo_elements);
 
         let mut query_state = app.world_mut().query();
@@ -1632,7 +1587,7 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn((TestComponent::default(), NodeProperties::default()))
+            .spawn((TestComponent::default(), StyleProperties::default()))
             .id();
 
         app.update();
@@ -1647,7 +1602,7 @@ mod tests {
         assert!(
             app.world()
                 .entity(entity)
-                .get::<NodeProperties>()
+                .get::<StyleProperties>()
                 .unwrap()
                 .auto_inserted_components
                 .contains_key(&TypeId::of::<TestComponent>())
@@ -1660,7 +1615,7 @@ mod tests {
         assert!(
             !app.world()
                 .entity(entity)
-                .get::<NodeProperties>()
+                .get::<StyleProperties>()
                 .unwrap()
                 .auto_inserted_components
                 .contains_key(&TypeId::of::<TestComponent>())
@@ -1694,7 +1649,7 @@ mod tests {
         let entity = app
             .world_mut()
             .spawn((
-                NodeStyleSheet::new(TEST_STYLE_SHEET_HANDLE),
+                Styled::new(TEST_STYLE_SHEET_HANDLE),
                 TestComponent {
                     left: 20.0,
                     right: 30.0,
@@ -1708,7 +1663,7 @@ mod tests {
             let computed_values = &mut app
                 .world_mut()
                 .entity_mut(entity)
-                .into_mut::<NodeProperties>()
+                .into_mut::<StyleProperties>()
                 .unwrap()
                 .computed_values;
 
@@ -1742,7 +1697,7 @@ mod tests {
         app.insert_resource(property_registry.clone());
         app.init_resource::<StaticPropertyMaps>();
 
-        fn mark_all_for_property_application(mut query: Query<&mut NodeStyleMarker>) {
+        fn mark_all_for_property_application(mut query: Query<&mut StyleMarkers>) {
             for mut maker in &mut query {
                 maker.set_needs_property_application();
             }
@@ -1761,7 +1716,7 @@ mod tests {
         let entity_1 = app
             .world_mut()
             .spawn((
-                NodeStyleSheet::new(TEST_STYLE_SHEET_HANDLE),
+                Styled::new(TEST_STYLE_SHEET_HANDLE),
                 TestComponent {
                     left: 10.0,
                     right: 20.0,
@@ -1771,7 +1726,7 @@ mod tests {
 
         let entity_2 = app
             .world_mut()
-            .spawn((NodeStyleSheet::new(TEST_STYLE_SHEET_HANDLE),))
+            .spawn((Styled::new(TEST_STYLE_SHEET_HANDLE),))
             .id();
 
         app.update();
@@ -1782,7 +1737,7 @@ mod tests {
                 let mut properties = app
                     .world_mut()
                     .entity_mut(entity)
-                    .into_mut::<NodeProperties>()
+                    .into_mut::<StyleProperties>()
                     .unwrap();
 
                 let left_property = property_registry

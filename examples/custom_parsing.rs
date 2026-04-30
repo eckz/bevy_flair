@@ -70,7 +70,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     commands.spawn((
         Node::default(),
-        NodeStyleSheet::new(asset_server.load("custom_parsing.css")),
+        Styled::new(asset_server.load("custom_parsing.css")),
         children![(Node::default(), ClassList::new("child"),)],
     ));
 }

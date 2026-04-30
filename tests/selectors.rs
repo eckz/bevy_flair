@@ -101,7 +101,7 @@ fn common_selectors() {
     fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         commands.spawn((
             Root,
-            NodeStyleSheet::new(asset_server.load_style_sheet("common_selectors.css")),
+            Styled::new(asset_server.load_style_sheet("common_selectors.css")),
             children![
                 (
                     Element,
@@ -188,7 +188,7 @@ fn layers() {
     fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         commands.spawn((
             Root,
-            NodeStyleSheet::new(asset_server.load_style_sheet("layers.css")),
+            Styled::new(asset_server.load_style_sheet("layers.css")),
             children![
                 (
                     Element,
@@ -267,7 +267,7 @@ fn media_queries() {
 
         commands.spawn((
             Root,
-            NodeStyleSheet::new(asset_server.load_style_sheet("media_queries.css")),
+            Styled::new(asset_server.load_style_sheet("media_queries.css")),
             children![(Element, UniqueName::new("child"), ClassList::new("child"),)],
         ));
     }
@@ -304,7 +304,7 @@ fn imports() {
     fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         commands.spawn((
             Root,
-            NodeStyleSheet::new(asset_server.load_style_sheet("imports.css")),
+            Styled::new(asset_server.load_style_sheet("imports.css")),
             children![(UniqueName::new("text"), Text::new("t")),],
         ));
     }
@@ -365,7 +365,7 @@ fn inline_styles() {
         commands.spawn((
             Root,
             InlineStyle::default(),
-            NodeStyleSheet::new(asset_server.load_style_sheet("inline_styles.css")),
+            Styled::new(asset_server.load_style_sheet("inline_styles.css")),
             children![
                 (
                     Element,
@@ -450,7 +450,7 @@ fn inline_loader() {
         commands.spawn((
             Root,
             ClassList::new("test"),
-            NodeStyleSheet::new(assets.add(style_sheet)),
+            Styled::new(assets.add(style_sheet)),
         ));
 
         Ok(())

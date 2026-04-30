@@ -6,7 +6,7 @@ use std::cmp::PartialEq;
 use std::fmt::Display;
 
 use crate::animations::*;
-use crate::components::{NodeStyleData, RawInlineStyle};
+use crate::components::{RawInlineStyle, StyleData};
 
 use crate::animations::TransitionOptions;
 use crate::css_selector::CssSelector;
@@ -20,12 +20,12 @@ use std::sync::Arc;
 use tracing::{error, warn};
 
 pub(crate) trait StyleMatchableElement:
-    selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<NodeStyleData>
+    selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<StyleData>
 {
 }
 
 impl<T> StyleMatchableElement for T where
-    T: selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<NodeStyleData>
+    T: selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<StyleData>
 {
 }
 

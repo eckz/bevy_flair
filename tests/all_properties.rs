@@ -13,7 +13,7 @@ fn spawn_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Node::default(),
         UniqueName::new("Node"),
-        NodeStyleSheet::new(asset_server.load_style_sheet("all_properties.css")),
+        Styled::new(asset_server.load_style_sheet("all_properties.css")),
         children![
             (
                 UniqueName::new("NodeWithInheritedValues"),

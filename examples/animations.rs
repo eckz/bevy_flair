@@ -16,7 +16,7 @@ fn main() {
 fn observer_on_click(
     click: On<Pointer<Click>>,
     button_query: Query<(), With<Button>>,
-    mut marker_query: Query<&mut NodeStyleMarker>,
+    mut marker_query: Query<&mut StyleMarkers>,
 ) {
     if button_query.contains(click.entity) {
         for mut marker in &mut marker_query {
@@ -41,7 +41,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Name::new("Root"),
         Node::default(),
-        NodeStyleSheet::new(asset_server.load("animations.css")),
+        Styled::new(asset_server.load("animations.css")),
         children![
             (Button, children![Text::new("Reset all animations")]),
             animated("rotate-on-hover", "Rotate on hover"),

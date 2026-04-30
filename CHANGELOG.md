@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - Unreleased
+
+### Changed
+- **BREAKING**: `NodeStyleSheet` component renamed to `Styled`. Any entity can be styled, not just a Node.
+- **BREAKING**: Other internal components renamed for consistency
+  - `NodeStyleData` component renamed to `StyleData`.
+  - `NodeStyleMarker` -> `StyleMarkers`.
+  - `NodeStyleActiveRules` -> `StyleActiveRules`.
+  - `NodeStyleSelectorFlags` -> `StyleSelectorFlags`.
+  - `CustomUiRoots` -> `StyledRoots`.
+  - `CustomUiChildren` -> `StyledChildren`.
+- **BREAKING**: Removed `Siblings` component (no longer needed for hierarchy tracking).
+
+### Fixed
+- Fixed support for non-UI entities in the style hierarchy. This mainly affected hierarchies with Text. This was previously supported, but it stopped working at some point.
+
 ## [0.7.0] 03-Feb-2026
 
 ### Added

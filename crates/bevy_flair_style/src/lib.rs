@@ -162,19 +162,19 @@ pub enum StyleSystems {
     /// Any pre-requisite before start calculating any style.
     Prepare,
 
-    /// Apply changes to [`NodeStyleData`] and [`RawInlineStyle`] components.
+    /// Apply changes to [`StyleData`] and [`RawInlineStyle`] components.
     SetStyleData,
 
-    /// Mark all nodes that needs their style recalculated.
-    MarkNodesForRecalculation,
+    /// Mark all entities that needs their style recalculated.
+    MarkEntitiesForRecalculation,
 
     /// Moves transitions and animations forward.
     /// Happens before CalculateStyle, where new transitions and animations are added,
     /// so new animations are not moved on the frame they are added.
     TickAnimations,
 
-    /// Calculates active stylesheet sets for nodes that are marked for recalculation.
-    /// Also sets vars and further marks nodes as changed when a var changes.
+    /// Calculates active stylesheet sets for entities that are marked for recalculation.
+    /// Also sets vars and further marks entities as changed when a var changes.
     CalculateStyles,
 
     /// Sets the corresponding [`PropertyValue`]'s, depending on the styles calculated in [`StyleSystems::CalculateStyles`].
@@ -339,8 +339,8 @@ impl Plugin for FlairStylePlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<StyleSheet>()
             .init_resource::<GlobalChangeDetection>()
-            .register_required_components::<Node, NodeStyleSheet>()
-            .register_required_components::<TextSpan, NodeStyleSheet>()
+            .register_required_components::<Node, Styled>()
+            .register_required_components::<TextSpan, Styled>()
             .register_required_components_with::<Button, TypeName>(|| {
                 TypeName("button")
             })
@@ -361,7 +361,7 @@ impl Plugin for FlairStylePlugin {
                     (
                         StyleSystems::Prepare,
                         StyleSystems::SetStyleData,
-                        StyleSystems::MarkNodesForRecalculation,
+                        StyleSystems::MarkEntitiesForRecalculation,
                         StyleSystems::CalculateStyles,
                         StyleSystems::SetPropertyValues,
                         StyleSystems::ComputeProperties,
@@ -394,7 +394,7 @@ impl Plugin for FlairStylePlugin {
                     (
                         systems::calculate_effective_style_sheet,
                         systems::compute_window_media_features,
-                        (systems::sort_pseudo_elements, systems::sync_siblings_system).chain(),
+                        systems::sort_pseudo_elements,
                         systems::reset_properties,
                     )
                         .in_set(StyleSystems::Prepare),
@@ -412,15 +412,15 @@ impl Plugin for FlairStylePlugin {
                     )
                         .in_set(StyleSystems::SetStyleData),
                     (
-                        systems::set_related_nodes_for_style_recalculation,
-                        systems::mark_changed_nodes_for_recalculation,
+                        systems::set_related_entities_for_style_recalculation,
+                        systems::mark_changed_entities_for_recalculation,
                         (
-                            systems::set_nodes_for_style_recalculation_on_render_target_info_change,
-                            systems::set_nodes_for_style_recalculation_on_window_media_features_change
+                            systems::set_entities_for_style_recalculation_on_render_target_info_change,
+                            systems::set_entities_for_style_recalculation_on_window_media_features_change
                         ).after(bevy_ui::UiSystems::Propagate),
                     )
                         .chain()
-                        .in_set(StyleSystems::MarkNodesForRecalculation),
+                        .in_set(StyleSystems::MarkEntitiesForRecalculation),
                     systems::calculate_style_and_set_vars.in_set(StyleSystems::CalculateStyles),
                     systems::set_property_values.in_set(StyleSystems::SetPropertyValues),
                     (
@@ -472,10 +472,10 @@ mod tests {
     use bevy_ecs::system::RunSystemOnce;
     use bevy_ui::Node;
 
-    const TEST_STYLE_SHEET: NodeStyleSheet =
-        NodeStyleSheet::new(uuid_handle!("fe981062-17ce-46e4-999a-5a61ea8fe722"));
+    const TEST_STYLE_SHEET: Styled =
+        Styled::new(uuid_handle!("fe981062-17ce-46e4-999a-5a61ea8fe722"));
 
-    const ROOT: (TestNode, NodeStyleSheet) = (TestNode, TEST_STYLE_SHEET);
+    const ROOT: (TestNode, Styled) = (TestNode, TEST_STYLE_SHEET);
 
     #[derive(Copy, Clone, Component)]
     #[require(Node)]
@@ -528,7 +528,7 @@ mod tests {
 
     macro_rules! assert_world_snapshot {
         ($app:expr, ( $($components:path),*) ) => {{
-            let all_entities = query!($app, Entity, With<NodeStyleData>);
+            let all_entities = query!($app, Entity, With<StyleData>);
             let type_registry = $app.world().resource::<AppTypeRegistry>().0.read();
 
             let mut scene_builder = bevy_scene::DynamicSceneBuilder::from_world($app.world());
@@ -536,7 +536,7 @@ mod tests {
                 .allow_component::<Name>()
                 .allow_component::<ChildOf>()
                 .allow_component::<Children>()
-                .allow_component::<NodeStyleSheet>()
+                .allow_component::<Styled>()
                 $(.allow_component::<$components>())*
                 .extract_entities(all_entities.into_iter())
                 .remove_empty_entities()
@@ -565,9 +565,7 @@ mod tests {
         ));
 
         // Not registered, but needed for testing.
-        app.register_type::<NodeStyleSheet>()
-            .register_type::<NodeStyleData>()
-            .register_type::<Siblings>();
+        app.register_type::<Styled>().register_type::<StyleData>();
 
         // Bevy uses auto register for these, but auto register is not enable in testing.
         app.register_type::<ChildOf>()
@@ -591,7 +589,7 @@ mod tests {
             commands.spawn((ROOT, CustomType));
         });
         app.update();
-        assert_world_snapshot!(app, (CustomType, NodeStyleData));
+        assert_world_snapshot!(app, (CustomType, StyleData));
     }
 
     #[test]
@@ -601,16 +599,12 @@ mod tests {
             commands.spawn((ROOT, CustomButton));
         });
         app.update();
-        assert_world_snapshot!(app, (CustomButton, NodeStyleData));
+        assert_world_snapshot!(app, (CustomButton, StyleData));
     }
 
     macro_rules! node_pseudo_state {
         ($app:ident, $entity:ident) => {
-            &$app
-                .world()
-                .get::<NodeStyleData>($entity)
-                .unwrap()
-                .pseudo_state
+            &$app.world().get::<StyleData>($entity).unwrap().pseudo_state
         };
     }
 
@@ -676,7 +670,8 @@ mod tests {
         assert!(!pseudo_state.focused);
         assert!(!pseudo_state.focused_and_visible);
 
-        app.world_mut().insert_resource(InputFocus(Some(entity)));
+        app.world_mut()
+            .insert_resource(InputFocus::from_entity(entity));
         app.update();
 
         let pseudo_state = node_pseudo_state!(app, entity);
@@ -746,7 +741,7 @@ mod tests {
 
         app.update();
 
-        assert_world_snapshot!(app, (Child, Siblings));
+        assert_world_snapshot!(app, (Child));
     }
 
     #[test]
@@ -765,7 +760,7 @@ mod tests {
 
         app.update();
 
-        assert_world_snapshot!(app, (Child, Siblings, PseudoElement));
+        assert_world_snapshot!(app, (Child, PseudoElement));
     }
 
     #[test]
@@ -781,7 +776,7 @@ mod tests {
         app.world_mut().entity_mut(root_entity_id).with_child(Child);
         app.update();
 
-        assert_world_snapshot!(app, (Child, Siblings, NodeStyleData));
+        assert_world_snapshot!(app, (Child, StyleData));
     }
 
     #[test]
@@ -796,14 +791,14 @@ mod tests {
                 (Child,),
                 (
                     Child,
-                    NodeStyleSheet::Block,
+                    Styled::Block,
                     children![GrandChild, GrandChild, GrandChild]
                 )
             ],
         ));
 
         app.update();
-        assert_world_snapshot!(app, (Child, GrandChild, NodeStyleData, Siblings));
+        assert_world_snapshot!(app, (Child, GrandChild, StyleData));
     }
 
     #[test]
@@ -815,13 +810,13 @@ mod tests {
             .spawn((
                 Name::new("Root"),
                 ROOT,
-                children![(Child,), (Child, NodeStyleSheet::Block)],
+                children![(Child,), (Child, Styled::Block)],
             ))
             .id();
 
         app.update();
 
-        let num_children = query_len!(app, (With<NodeStyleSheet>, With<Child>));
+        let num_children = query_len!(app, (With<Styled>, With<Child>));
         assert_eq!(num_children, 2);
 
         app.world_mut()
@@ -839,10 +834,10 @@ mod tests {
 
         app.update();
 
-        let num_grand_children = query_len!(app, (With<NodeStyleSheet>, With<GrandChild>));
+        let num_grand_children = query_len!(app, (With<Styled>, With<GrandChild>));
         assert_eq!(num_grand_children, 4);
 
-        assert_world_snapshot!(app, (Child, GrandChild, NodeStyleData));
+        assert_world_snapshot!(app, (Child, GrandChild, StyleData));
     }
 
     #[test]
@@ -868,7 +863,7 @@ mod tests {
         });
 
         fn num_nodes_needs_style_recalculation(app: &mut App) -> usize {
-            let markers = query!(app, &NodeStyleMarker);
+            let markers = query!(app, &StyleMarkers);
             markers
                 .iter()
                 .filter(|c| c.needs_style_recalculation())
@@ -877,7 +872,7 @@ mod tests {
 
         fn clear_all_style_recalculation(app: &mut App) {
             app.world_mut()
-                .run_system_once(|mut query: Query<&mut NodeStyleMarker>| {
+                .run_system_once(|mut query: Query<&mut StyleMarkers>| {
                     for mut computed_style in &mut query {
                         computed_style.clear_style_recalculation();
                     }
@@ -901,7 +896,7 @@ mod tests {
 
         {
             app.world_mut()
-                .run_system_once(|mut query: Query<&mut NodeStyleMarker, Without<ChildOf>>| {
+                .run_system_once(|mut query: Query<&mut StyleMarkers, Without<ChildOf>>| {
                     query.single_mut().unwrap().set_needs_style_recalculation();
                 })
                 .unwrap();
@@ -919,7 +914,7 @@ mod tests {
             app.world_mut()
                 .run_system_once(
                     |mut query: Query<
-                        (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
+                        (&StyleSelectorFlags, &mut StyleMarkers),
                         With<FirstChild>,
                     >| {
                         let (selector_flags, mut marker) = query.single_mut().unwrap();
@@ -943,7 +938,7 @@ mod tests {
             app.world_mut()
                 .run_system_once(
                     |mut query: Query<
-                        (&NodeStyleSelectorFlags, &mut NodeStyleMarker),
+                        (&StyleSelectorFlags, &mut StyleMarkers),
                         Without<ChildOf>,
                     >| {
                         let (selector_flags, mut marker) = query.single_mut().unwrap();

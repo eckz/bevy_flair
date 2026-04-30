@@ -42,10 +42,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
 
     commands
-        .spawn((
-            Node::default(),
-            NodeStyleSheet::new(asset_server.load("grid.css")),
-        ))
+        .spawn((Node::default(), Styled::new(asset_server.load("grid.css"))))
         .with_children(|parent| {
             for _ in 0..(50 * 50) {
                 parent.spawn(Button);

@@ -8,7 +8,7 @@ Scene(
     4294967288: Entity(
       components: {
         "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967292),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
           ),
@@ -27,14 +27,14 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Styled": Inherited,
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
     4294967289: Entity(
       components: {
         "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967292),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
           ),
@@ -53,14 +53,14 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Styled": Inherited,
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
     4294967290: Entity(
       components: {
         "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967293),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           ),
@@ -79,14 +79,14 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Styled": Inherited,
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
     4294967291: Entity(
       components: {
         "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967293),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           ),
@@ -105,7 +105,7 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Styled": Inherited,
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
@@ -116,7 +116,7 @@ Scene(
           4294967289,
           4294967288,
         ]),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
           ),
@@ -135,7 +135,7 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": Block,
+        "bevy_flair_style::components::Styled": Block,
         "bevy_flair_style::tests::Child": Child(),
       },
     ),
@@ -146,7 +146,7 @@ Scene(
           4294967291,
           4294967290,
         ]),
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           ),
@@ -165,7 +165,7 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": Inherited,
+        "bevy_flair_style::components::Styled": Inherited,
         "bevy_flair_style::tests::Child": Child(),
       },
     ),
@@ -176,7 +176,7 @@ Scene(
           4294967292,
         ]),
         "bevy_ecs::name::Name": "Root",
-        "bevy_flair_style::components::NodeStyleData": NodeStyleData(
+        "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
           ),
@@ -195,7 +195,7 @@ Scene(
           ),
           is_pseudo_element: None,
         ),
-        "bevy_flair_style::components::NodeStyleSheet": StyleSheet(Uuid("fe981062-17ce-46e4-999a-5a61ea8fe722")),
+        "bevy_flair_style::components::Styled": StyleSheet(Uuid("fe981062-17ce-46e4-999a-5a61ea8fe722")),
       },
     ),
   },

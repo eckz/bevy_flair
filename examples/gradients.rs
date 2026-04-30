@@ -67,7 +67,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     commands.spawn((
         Root,
-        NodeStyleSheet::new(asset_server.load("gradients.css")),
+        Styled::new(asset_server.load("gradients.css")),
         children![(
             Text::new("Press space to show next gradient"),
             ClassList::new("bottom-text"),

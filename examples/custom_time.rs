@@ -65,7 +65,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Name::new("Root"),
         Node::default(),
-        NodeStyleSheet::new(asset_server.load("custom_time.css")),
+        Styled::new(asset_server.load("custom_time.css")),
         children![
             (BottomText, Text::new("?"),),
             (
