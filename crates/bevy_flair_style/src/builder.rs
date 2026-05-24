@@ -59,7 +59,7 @@ pub enum StyleSheetBuilderError {
 ///
 /// Example:
 /// ```rust
-/// # use bevy_flair_style::builder::StyleFontSource;
+/// # use bevy_flair_style::StyleFontSource;
 /// // Load a font asset from an asset path (e.g. "fonts/MyFont.ttf")
 /// let from_asset = StyleFontSource::Path("fonts/MyFont.ttf".into());
 ///
