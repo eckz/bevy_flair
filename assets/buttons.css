@@ -86,7 +86,8 @@ button {
     transition-property: border-radius, border-color, background, scale, outline-color;
     transition-duration: var(--duration-slow), var(--duration-medium), var(--duration-fast);
 
-    outline: initial;
+    outline-width: 3px;
+    outline-color: transparent;
     scale: 1.0;
 
     &:hover {

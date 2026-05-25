@@ -10,7 +10,8 @@ use crate::{
 use crate::css_selector::CssSelector;
 use crate::layers::LayersHierarchy;
 use crate::placeholder::{
-    PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
+    PlaceholderAssetLoader, ResolvePlaceholderContext, is_placeholder_value,
+    try_resolve_placeholder,
 };
 use crate::style_sheet::RulesetProperty;
 use bevy_asset::{AssetPath, ParseAssetPathError};
@@ -458,8 +459,8 @@ impl StyleSheetBuilder {
     }
 
     fn validate_all_properties(
+        type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
-        // animation_keyframes: &FxHashMap<Arc<str>, Vec<(ComponentPropertyId, AnimationKeyframes)>>,
         rulesets: &[Ruleset],
     ) -> Result<(), StyleSheetBuilderError> {
         struct InvalidPropertyError {
@@ -489,6 +490,7 @@ impl StyleSheetBuilder {
         }
 
         pub fn validate_property_value(
+            type_registry: &TypeRegistry,
             property_registry: &PropertyRegistry,
             property_id: ComponentPropertyId,
             property_value: &PropertyValue,
@@ -497,22 +499,28 @@ impl StyleSheetBuilder {
                 return Ok(());
             };
 
+            if is_placeholder_value(value, type_registry) {
+                // We skip validation for placeholder values, because they will be resolved at runtime and we don't have access to the resolved value here.
+                return Ok(());
+            }
+
             validate_value(property_registry, property_id, value)
         }
 
         for property in rulesets.iter().flat_map(|a| a.properties.iter()) {
             if let RulesetProperty::Specific { property_id, value } = property {
-                validate_property_value(property_registry, *property_id, value).map_err(
-                    |InvalidPropertyError {
-                         property,
-                         expected_value_type_path,
-                         found_value_type_path,
-                     }| StyleSheetBuilderError::InvalidProperty {
-                        property,
-                        expected_value_type_path,
-                        found_value_type_path,
-                    },
-                )?;
+                validate_property_value(type_registry, property_registry, *property_id, value)
+                    .map_err(
+                        |InvalidPropertyError {
+                             property,
+                             expected_value_type_path,
+                             found_value_type_path,
+                         }| StyleSheetBuilderError::InvalidProperty {
+                            property,
+                            expected_value_type_path,
+                            found_value_type_path,
+                        },
+                    )?;
             }
         }
 
@@ -612,6 +620,8 @@ impl StyleSheetBuilder {
         asset_loader: PlaceholderAssetLoader,
     ) -> Result<(), StyleSheetBuilderError> {
         let mut context = ResolvePlaceholderContext {
+            entity: None,
+            world: None,
             asset_loader,
             font_faces: resolved_font_faces,
         };
@@ -700,7 +710,7 @@ impl StyleSheetBuilder {
             .map(|keyframes| (keyframes.name().clone(), keyframes))
             .collect();
 
-        Self::validate_all_properties(property_registry, &rulesets)?;
+        Self::validate_all_properties(type_registry, property_registry, &rulesets)?;
 
         Ok(StyleSheet {
             font_faces,

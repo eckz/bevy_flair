@@ -19,7 +19,8 @@ use crate::animations::{AnimationConfiguration, KeyframesResolver};
 use crate::custom_iterators::{StyledChildren, StyledRoots};
 use crate::media_selector::MediaFeaturesProvider;
 use crate::placeholder::{
-    PlaceholderAssetLoader, ResolvePlaceholderContext, try_resolve_placeholder,
+    PlaceholderAssetLoader, ResolvePlaceholderContext, is_placeholder_value,
+    try_resolve_placeholder,
 };
 use bevy_camera::{NormalizedRenderTarget, RenderTarget};
 use bevy_ecs::relationship::RelationshipSourceCollection;
@@ -1081,53 +1082,94 @@ pub(crate) fn emit_redraw_event(
 // Right before `apply_computed_properties` we need to resolve placeholders
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_placeholders(
-    mut properties_query: Query<(&mut StyleProperties, &StyleData, &StyleMarkers)>,
+    mut queries_param_set: ParamSet<(
+        Query<(Entity, &StyleProperties, &StyleData, &StyleMarkers)>,
+        Query<&mut StyleProperties>,
+        &World,
+    )>,
     asset_server: Res<AssetServer>,
     style_sheets: Res<Assets<StyleSheet>>,
     app_type_registry: Res<AppTypeRegistry>,
     debug_helper: PropertyIdDebugHelperParam,
-) -> Result {
+    mut pending_computed_values_scratch: Local<
+        Vec<(
+            Entity,
+            AssetId<StyleSheet>,
+            ComponentPropertyId,
+            ReflectValue,
+        )>,
+    >,
+) {
     let type_registry = app_type_registry.read();
 
-    for (mut properties, style_data, marker) in &mut properties_query {
+    for (entity, properties, style_data, marker) in &queries_param_set.p0() {
         if !marker.needs_property_application() {
             continue;
         }
 
-        let Some(style_sheet) = style_sheets.get(style_data.effective_style_sheet_asset_id) else {
+        if !style_sheets.contains(style_data.effective_style_sheet_asset_id) {
             continue;
         };
 
-        let mut context = ResolvePlaceholderContext {
-            asset_loader: PlaceholderAssetLoader::from_asset_server(&asset_server),
-            font_faces: &style_sheet.resolved_font_faces,
-        };
-
         // Only done for `pending_computed_values` and not `pending_computed_animation_values` because it wouldn't make any sense.
-        for (property_id, mut computed_value) in properties.pending_computed_values.iter_mut() {
-            let ComputedValue::Value(reflect_value) = &*computed_value else {
+        for (property_id, computed_value) in properties.pending_computed_values.iter() {
+            let ComputedValue::Value(reflect_value) = computed_value else {
                 continue;
             };
 
-            match try_resolve_placeholder(reflect_value, &mut context, &type_registry) {
-                Ok(Some(resolved_placeholder)) => {
-                    computed_value.set_if_neq(ComputedValue::Value(resolved_placeholder));
-                }
-                Err(error) => {
-                    warn!(
-                        "Error resolving property '{property_name}': {error}",
-                        property_name = debug_helper
-                            .as_helper()
-                            .property_id_into_string(property_id)
-                    );
-                    computed_value.set_if_neq(ComputedValue::None);
-                }
-                _ => {}
+            if is_placeholder_value(reflect_value, &type_registry) {
+                pending_computed_values_scratch.push((
+                    entity,
+                    style_data.effective_style_sheet_asset_id,
+                    property_id,
+                    reflect_value.clone(),
+                ));
             }
         }
     }
 
-    Ok(())
+    for (entity, stylesheet_asset_id, property_id, reflect_value) in
+        pending_computed_values_scratch.drain(..)
+    {
+        let Some(style_sheet) = style_sheets.get(stylesheet_asset_id) else {
+            continue;
+        };
+
+        let mut context = ResolvePlaceholderContext {
+            entity: Some(entity),
+            world: Some(queries_param_set.p2()),
+            asset_loader: PlaceholderAssetLoader::from_asset_server(&asset_server),
+            font_faces: &style_sheet.resolved_font_faces,
+        };
+
+        let result = try_resolve_placeholder(&reflect_value, &mut context, &type_registry);
+
+        match result {
+            Ok(Some(resolved_placeholder)) => {
+                queries_param_set
+                    .p1()
+                    .get_mut(entity)
+                    .unwrap()
+                    .pending_computed_values
+                    .set_if_neq(property_id, ComputedValue::Value(resolved_placeholder));
+            }
+            Err(error) => {
+                warn!(
+                    "Error resolving property '{property_name}': {error}",
+                    property_name = debug_helper
+                        .as_helper()
+                        .property_id_into_string(property_id)
+                );
+                queries_param_set
+                    .p1()
+                    .get_mut(entity)
+                    .unwrap()
+                    .pending_computed_values
+                    .set_if_neq(property_id, ComputedValue::None);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
