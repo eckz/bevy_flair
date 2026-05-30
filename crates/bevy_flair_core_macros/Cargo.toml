@@ -1,0 +1,19 @@
+[package]
+name = "bevy_flair_core_macros"
+version = "0.8.0"
+description = "Bevy ECS Macros"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+proc-macro-crate = "3.5"
+
+
+[dev-dependencies]
+bevy_flair_core = { workspace = true }

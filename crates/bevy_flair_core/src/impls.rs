@@ -2,10 +2,11 @@ use crate::helper_components::TextDecoration;
 use crate::{
     CssPropertyRegistry, PropertyRegistry, PropertyValue, RegisterComponentPropertiesExt as _,
 };
-use crate::{impl_component_properties, impl_extract_component_properties};
+
 use bevy_app::{App, Plugin};
 use bevy_asset::Handle;
 use bevy_color::Color;
+use bevy_flair_core_macros::{impl_component_properties, impl_extract_component_properties};
 use bevy_math::{Rect, Rot2, Vec2};
 use bevy_text::prelude::*;
 use bevy_text::{FontFeatures, FontSmoothing, FontVariations, LetterSpacing, LineHeight};
@@ -88,8 +89,7 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
-    @tuple
-    pub struct BackgroundColor{ "0": Color }
+    pub struct BackgroundColor(Color);
 }
 
 impl_component_properties! {
@@ -102,7 +102,7 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
-    #[component(auto_insert_remove)]
+    #[properties(auto_insert_remove)]
     pub struct Outline {
         pub width: Val,
         pub offset: Val,
@@ -111,14 +111,12 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
-    @self
-    #[component(auto_insert_remove)]
-    pub struct BoxShadow
+    #[properties(auto_insert_remove)]
+    pub struct BoxShadow;
 }
 
 impl_component_properties! {
-    @self
-    pub struct ZIndex
+    pub struct ZIndex;
 }
 
 impl_component_properties! {
@@ -130,19 +128,17 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
-    @self
-    #[component(auto_insert_remove)]
-    pub struct BackgroundGradient
+    #[properties(auto_insert_remove)]
+    pub struct BackgroundGradient;
 }
 
 impl_component_properties! {
-    @self
-    #[component(auto_insert_remove)]
-    pub struct BorderGradient
+    #[properties(auto_insert_remove)]
+    pub struct BorderGradient;
 }
 
 impl_component_properties! {
-    #[component(auto_insert_remove)]
+    #[properties(auto_insert_remove)]
     pub struct ImageNode {
         pub color: Color,
         pub image: Handle<bevy_image::Image>,
@@ -155,18 +151,15 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
-    @tuple
-    pub struct TextColor{ "0": Color }
+    pub struct TextColor(Color);
 }
 
 impl_component_properties! {
-    @self
-    pub struct LineHeight
+    pub struct LineHeight;
 }
 
 impl_component_properties! {
-    @self
-    pub struct LetterSpacing
+    pub struct LetterSpacing;
 }
 
 impl_component_properties! {
@@ -190,14 +183,12 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
-    @tuple
-    pub struct TextSpan{ "0": String }
+    pub struct TextSpan(String);
 }
 
 impl_component_properties! {
-    @self
-    #[component(auto_insert_remove)]
-    pub struct TextShadow
+    #[properties(auto_insert_remove)]
+    pub struct TextShadow;
 }
 
 macro_rules! register_component_properties {
@@ -232,7 +223,10 @@ macro_rules! set_css_properties {
         let css_registry = $app.world_mut().resource_mut::<CssPropertyRegistry>();
 
         $({
-            let canonical_name = $crate::PropertyCanonicalName::from_component::<$ty>($path);
+            let canonical_name = $crate::PropertyCanonicalName::new(
+                <$ty as bevy_reflect::TypePath>::type_path(),
+                $crate::PropertyPath::parse($path)
+            );
             css_registry.register_property($css, canonical_name);
         })*
     }}

@@ -29,6 +29,7 @@ use bevy_ecs::world::{CommandQueue, EntityRefExcept};
 use bevy_flair_core::*;
 use bevy_input_focus::{InputFocus, InputFocusVisible};
 use bevy_picking::hover::Hovered;
+use bevy_reflect::TypeRegistryArc;
 use bevy_time::Time;
 use bevy_ui::prelude::*;
 use bevy_utils::once;
@@ -1182,6 +1183,7 @@ pub(crate) fn apply_computed_properties(
     )>,
     mut empty_computed_properties_local: Local<Option<PropertyMap<ComputedValue>>>,
     mut property_registry_local: Local<Option<PropertyRegistry>>,
+    mut type_registry_local: Local<Option<TypeRegistryArc>>,
     mut debug_helper_local: Local<Option<PropertyIdDebugHelper>>,
     mut modified_entities: Local<EntityHashSet>,
     mut pending_changes: Local<Vec<(Entity, PropertyMap<ComputedValue>)>>,
@@ -1189,6 +1191,9 @@ pub(crate) fn apply_computed_properties(
 ) -> Result {
     let property_registry =
         property_registry_local.get_or_insert_with(|| world.resource::<PropertyRegistry>().clone());
+
+    let type_registry =
+        type_registry_local.get_or_insert_with(|| world.resource::<AppTypeRegistry>().0.clone());
 
     let debug_helper = debug_helper_local.get_or_insert_with(|| {
         SystemState::<PropertyIdDebugHelperParam>::new(world)
@@ -1260,9 +1265,13 @@ pub(crate) fn apply_computed_properties(
                     &mut changes,
                     entity_command_queue.reborrow(),
                 ) {
+                    let type_registry = type_registry.read();
                     warn!(
                         "Error applying properties of '{component_type_path}': {err}",
-                        component_type_path = component.component_type_path()
+                        component_type_path = MaybeTypePath::from_type_registry(
+                            component.component_type_id(),
+                            &type_registry
+                        )
                     );
                 }
             }
@@ -1602,25 +1611,18 @@ mod tests {
         ));
     }
 
-    #[derive(Component, Reflect, Default)]
+    #[derive(Component, ComponentProperties, Reflect, Default)]
+    #[properties(auto_insert_remove)]
     pub struct TestComponent {
         pub left: f32,
         pub right: f32,
-    }
-
-    impl_component_properties! {
-        #[component(auto_insert_remove)]
-        pub struct TestComponent {
-            pub left: f32,
-            pub right: f32,
-        }
     }
 
     #[test]
     fn test_auto_remove_components() {
         let mut app = App::new();
 
-        let mut property_registry = PropertyRegistry::default();
+        let mut property_registry = PropertyRegistry::new();
         property_registry.register::<TestComponent>();
 
         app.insert_resource(property_registry);
@@ -1674,7 +1676,7 @@ mod tests {
 
         app.add_plugins(AssetPlugin::default());
         app.init_asset::<StyleSheet>();
-        let mut property_registry = PropertyRegistry::default();
+        let mut property_registry = PropertyRegistry::new();
         property_registry.register::<TestComponent>();
 
         app.insert_resource(property_registry.clone());
@@ -1711,7 +1713,7 @@ mod tests {
                 .computed_values;
 
             let left_property = property_registry
-                .resolve(TestComponent::property_ref("left"))
+                .resolve(TestComponent::property_field_ref("left"))
                 .unwrap();
 
             computed_values[left_property] = ReflectValue::Float(20.0).into();
@@ -1734,7 +1736,7 @@ mod tests {
     fn test_apply_computed_properties() {
         let mut app = App::new();
 
-        let mut property_registry = PropertyRegistry::default();
+        let mut property_registry = PropertyRegistry::new();
         property_registry.register::<TestComponent>();
 
         app.insert_resource(property_registry.clone());
@@ -1784,7 +1786,7 @@ mod tests {
                     .unwrap();
 
                 let left_property = property_registry
-                    .resolve(TestComponent::property_ref("left"))
+                    .resolve(TestComponent::property_field_ref("left"))
                     .unwrap();
 
                 assert!(!properties.computed_values.is_empty());

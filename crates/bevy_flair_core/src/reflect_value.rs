@@ -121,7 +121,7 @@ impl ReflectValue {
     /// Returns `true` if the underlying value is of type `T`, or `false`
     /// otherwise.
     pub fn value_is<T: ?Sized + 'static>(&self) -> bool {
-        TypeId::of::<T>() == self.value_type_info().type_id()
+        TypeId::of::<T>() == self.value_type_id()
     }
 
     /// Clones the underlying value, returning it as a `Box<dyn Reflect>`.
@@ -143,6 +143,17 @@ impl ReflectValue {
             Self::Color(_) => Color::type_info(),
             Self::Val(_) => Val::type_info(),
             Self::ReflectArc(reflect_arc) => (**reflect_arc).reflect_type_info(),
+        }
+    }
+
+    /// Gets the [`TypeId`] of the wrapped value.
+    pub fn value_type_id(&self) -> TypeId {
+        match self {
+            Self::Float(_) => TypeId::of::<f32>(),
+            Self::Usize(_) => TypeId::of::<usize>(),
+            Self::Color(_) => TypeId::of::<Color>(),
+            Self::Val(_) => TypeId::of::<Val>(),
+            Self::ReflectArc(reflect_arc) => (**reflect_arc).reflect_type_info().type_id(),
         }
     }
 }

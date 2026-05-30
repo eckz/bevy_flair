@@ -322,24 +322,18 @@ mod tests {
     use std::sync::LazyLock;
     use std::time::Duration;
 
-    #[derive(Component, Reflect, Default)]
+    #[derive(Component, ComponentProperties, Reflect, Default)]
     struct TestComponent {
         value: f32,
     }
 
-    impl_component_properties! {
-        pub struct TestComponent {
-            value: f32,
-        }
-    }
-
     const TEST_PROPERTY: PropertyCanonicalName =
-        PropertyCanonicalName::from_component::<TestComponent>(".value");
+        PropertyCanonicalName::from_component_field::<TestComponent>("value");
 
     const CSS_TEST_PROPERTY: &str = "test-property";
 
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
-        let mut registry = PropertyRegistry::default();
+        let mut registry = PropertyRegistry::new();
         registry.register::<TestComponent>();
         registry
     });

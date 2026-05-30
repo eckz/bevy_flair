@@ -4,6 +4,7 @@ mod keyframes;
 mod media_selectors;
 
 use bevy_flair_style::css_selector::CssSelector;
+use std::any::TypeId;
 use std::cell::RefCell;
 
 use cssparser::*;
@@ -14,7 +15,9 @@ use crate::utils::{ImportantLevel, try_parse_important_level};
 use crate::vars::parse_var_tokens;
 use crate::{CssParseResult, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
 use crate::{ReflectParseCss, error_codes};
-use bevy_flair_core::{ComponentPropertyId, CssPropertyRegistry, PropertyRegistry, PropertyValue};
+use bevy_flair_core::{
+    ComponentPropertyId, CssPropertyRegistry, MaybeTypePath, PropertyRegistry, PropertyValue,
+};
 use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, TransitionPropertyId};
 use bevy_flair_style::{DynamicParseVarTokens, MediaSelectors, StyleSheet, VarTokens};
 
@@ -125,8 +128,8 @@ impl CssPropertyParser<'_> {
             .ok()
     }
 
-    fn get_reflect_parse_css(&self, type_path: &'static str) -> Option<ReflectParseCss> {
-        let type_registry = self.type_registry.get_with_type_path(type_path)?;
+    fn get_reflect_parse_css(&self, type_id: TypeId) -> Option<ReflectParseCss> {
+        let type_registry = self.type_registry.get(type_id)?;
 
         type_registry
             .data::<ReflectParseCss>()
@@ -200,13 +203,16 @@ impl CssPropertyParser<'_> {
         };
 
         let property = &self.property_registry[property_id];
-        let value_type_path = property.value_type_info().type_path();
 
-        let Some(reflect_parse_css) = self.get_reflect_parse_css(value_type_path) else {
+        let Some(reflect_parse_css) = self.get_reflect_parse_css(property.value_type_id()) else {
             return CssRulesetProperty::Error(CssError::new_unlocated(
                 error_codes::basic::NON_PARSEABLE_TYPE,
                 format!(
                     "Property {property_name} of type '{value_type_path}' does not have a configured way of parsing it. It should implement ReflectParseCss or ReflectParseCssEnum",
+                    value_type_path = MaybeTypePath::from_type_registry(
+                        property.value_type_id(),
+                        self.type_registry
+                    )
                 ),
             ));
         };
@@ -778,19 +784,11 @@ mod tests {
         Value2,
     }
 
-    #[derive(Reflect, Component, Default)]
+    #[derive(Reflect, Component, ComponentProperties, Default)]
     struct TestComponent {
         pub width: i32,
         pub height: i32,
         pub property_enum: TestEnum,
-    }
-
-    impl_component_properties! {
-        struct TestComponent {
-            pub width: i32,
-            pub height: i32,
-            pub property_enum: TestEnum,
-        }
     }
 
     fn parse_i32_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
@@ -814,18 +812,18 @@ mod tests {
     }
 
     fn property_registry() -> PropertyRegistry {
-        let mut registry = PropertyRegistry::default();
+        let mut registry = PropertyRegistry::new();
         registry.register::<TestComponent>();
         registry
     }
 
     fn css_property_registry() -> CssPropertyRegistry {
         let registry = CssPropertyRegistry::default();
-        registry.register_property("width", TestComponent::property_ref("width"));
-        registry.register_property("height", TestComponent::property_ref("height"));
+        registry.register_property("width", TestComponent::property_field_ref("width"));
+        registry.register_property("height", TestComponent::property_field_ref("height"));
         registry.register_property(
             "property-enum",
-            TestComponent::property_ref("property_enum"),
+            TestComponent::property_field_ref("property_enum"),
         );
         registry
     }

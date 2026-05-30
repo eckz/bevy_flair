@@ -3,28 +3,19 @@ use bevy_flair::prelude::*;
 
 mod sound_effects {
     use bevy::prelude::*;
-    use bevy::reflect as bevy_reflect;
+    use bevy_flair::prelude::*;
     use std::any::TypeId;
 
     use bevy::ecs::lifecycle::HookContext;
     use bevy::ecs::world::DeferredWorld;
     use bevy_flair::core::ReflectStructPropertyRefExt;
-    use bevy_flair::core::{
-        CssPropertyRegistry, RegisterComponentPropertiesExt, impl_component_properties,
-    };
+    use bevy_flair::core::{CssPropertyRegistry, RegisterComponentPropertiesExt};
     use bevy_flair::parser::{ReflectParseCss, parse_asset_path, parse_property_value_with};
 
-    #[derive(Default, Component, Reflect)]
+    #[derive(Default, Component, ComponentProperties, Reflect)]
     #[component(immutable, on_insert = on_insert_sound_effect)]
     struct SoundEffect {
         audio: Handle<AudioSource>,
-    }
-
-    impl_component_properties! {
-        #[component(immutable)]
-        pub struct SoundEffect {
-            audio: Handle<AudioSource>,
-        }
     }
 
     fn on_insert_sound_effect(mut world: DeferredWorld, context: HookContext) {
@@ -68,7 +59,10 @@ mod sound_effects {
 
         // Associate css property `-custom-sound-effect` with `SoundEffect::audio`.
         let css_registry = app.world().resource::<CssPropertyRegistry>();
-        css_registry.register_property("-custom-sound-effect", SoundEffect::property_ref("audio"));
+        css_registry.register_property(
+            "-custom-sound-effect",
+            SoundEffect::property_field_ref("audio"),
+        );
     }
 }
 

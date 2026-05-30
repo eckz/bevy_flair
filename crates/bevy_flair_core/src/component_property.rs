@@ -1,10 +1,9 @@
-use crate::ComponentPropertyId;
+use crate::{ComponentPropertyId, PropertyPath};
 use bevy_ecs::component::{ComponentMutability, Mutable};
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::FilteredEntityRef;
 use bevy_reflect::*;
 use std::any::TypeId;
-use std::borrow::Cow;
 use std::{fmt, hash};
 
 type GetValueFn =
@@ -71,7 +70,7 @@ pub struct ComponentAutoInserted {
     pub type_id: TypeId,
 }
 
-fn contains_component<T: Component + Reflect>(entity: FilteredEntityRef<'_, '_>) -> bool {
+fn contains_component<T: Component>(entity: FilteredEntityRef<'_, '_>) -> bool {
     entity.contains::<T>()
 }
 
@@ -89,31 +88,29 @@ fn reflect_mut_component<T: Component<Mutability = Mutable> + Reflect>(
     Some(component.as_partial_reflect_mut())
 }
 
-fn reflect_mut_component_panic<T: TypePath>(
-    _entity: EntityMut<'_>,
-) -> Option<&mut dyn PartialReflect> {
+fn reflect_mut_component_panic<T>(_entity: EntityMut<'_>) -> Option<&mut dyn PartialReflect> {
     panic!(
         "Component '{}' is immutable and reflect_mut cannot be called",
-        T::type_path()
+        std::any::type_name::<T>()
     );
 }
 
-fn insert_component<T: Component + TypePath>(
+fn insert_component<T: Component>(
     mut entity_world_mut: EntityWorldMut<'_>,
     component: Box<dyn Reflect>,
 ) {
     let component = component
         .take::<T>()
         .unwrap_or_else(|e|
-            panic!("Expected a component of type '{expected_type_path}', but got one of type '{received_type_path}'",
-                   expected_type_path = T::type_path(), received_type_path = e.reflect_type_path())
+            panic!("Expected a component of type '{expected_type_name}', but got one of type '{received_type_path}'",
+                   expected_type_name = std::any::type_name::<T>(), received_type_path = e.reflect_type_path())
 
         );
 
     entity_world_mut.insert(component);
 }
 
-fn remove_component<T: Component + TypePath>(mut entity: EntityWorldMut<'_>) {
+fn remove_component<T: Component>(mut entity: EntityWorldMut<'_>) {
     entity.remove::<T>();
 }
 
@@ -134,7 +131,7 @@ pub struct ComponentFns {
 
 impl ComponentFns {
     /// Create `ComponentFns` for a mutable component type `T`.
-    pub fn new<T: Component<Mutability = Mutable> + Reflect + Default + TypePath>() -> Self {
+    pub fn new<T: Component<Mutability = Mutable> + Reflect + Default>() -> Self {
         Self {
             is_mutable: <T::Mutability as ComponentMutability>::MUTABLE,
             contains: contains_component::<T>,
@@ -147,7 +144,7 @@ impl ComponentFns {
     }
 
     /// Create `ComponentFns` for an immutable component type `T`.
-    pub fn new_immutable<T: Component + Reflect + Default + TypePath>() -> Self {
+    pub fn new_immutable<T: Component + Reflect + Default>() -> Self {
         Self {
             is_mutable: <T::Mutability as ComponentMutability>::MUTABLE,
             contains: contains_component::<T>,
@@ -165,12 +162,12 @@ impl ComponentFns {
 enum InternalCanonicalName {
     Defined {
         component_type_path: &'static str,
-        path: Cow<'static, str>,
+        property_path: PropertyPath,
     },
     // So we can call from_component from a const context.
     Deferred {
         component_type_path_deferred: fn() -> &'static str,
-        path: &'static str,
+        property_path: PropertyPath,
     },
 }
 
@@ -179,10 +176,10 @@ enum InternalCanonicalName {
 /// The canonical name is made of the component type path and the property path inside the component.
 /// # Example
 /// ```
-/// # use bevy_flair_core::PropertyCanonicalName;
-/// let canonical_name = PropertyCanonicalName::new("my_crate::MyComponent", ".my_field");
+/// # use bevy_flair_core::{PropertyCanonicalName, PropertyPath};
+/// let canonical_name = PropertyCanonicalName::new("my_crate::MyComponent", PropertyPath::from_field("my_field"));
 /// assert_eq!(canonical_name.component(), "my_crate::MyComponent");
-/// assert_eq!(canonical_name.path(), ".my_field");
+/// assert_eq!(canonical_name.path().to_string(), ".my_field");
 /// assert_eq!(format!("{canonical_name}"), "my_crate::MyComponent.my_field");
 /// ```
 #[derive(Clone)]
@@ -190,24 +187,32 @@ pub struct PropertyCanonicalName(InternalCanonicalName);
 
 const _: () = {
     // Verifies that we are able to call from_component from a const context
-    const _: PropertyCanonicalName = PropertyCanonicalName::from_component::<f32>("");
+    const _: PropertyCanonicalName = PropertyCanonicalName::self_reference::<f32>();
+    const _: PropertyCanonicalName = PropertyCanonicalName::from_component_field::<f32>("");
 };
 
 impl PropertyCanonicalName {
     /// Creates a new canonical name for a property inside a component.
-    pub fn new(component_type_path: &'static str, path: impl Into<Cow<'static, str>>) -> Self {
-        let path = path.into();
+    pub const fn new(component_type_path: &'static str, property_path: PropertyPath) -> Self {
         Self(InternalCanonicalName::Defined {
             component_type_path,
-            path,
+            property_path,
         })
     }
 
-    /// Creates a new canonical name for a property inside a component, using the type path of `T`.
-    pub const fn from_component<T: TypePath>(path: &'static str) -> Self {
+    /// Creates a new canonical name for a field property inside a component, using the type path of `T`.
+    pub const fn from_component_field<T: TypePath>(field: &'static str) -> Self {
         Self(InternalCanonicalName::Deferred {
             component_type_path_deferred: T::type_path,
-            path,
+            property_path: PropertyPath::from_field(field),
+        })
+    }
+
+    /// Creates a new canonical name for the type `T` itself.
+    pub const fn self_reference<T: TypePath>() -> Self {
+        Self(InternalCanonicalName::Deferred {
+            component_type_path_deferred: T::type_path,
+            property_path: PropertyPath::EMPTY,
         })
     }
 
@@ -226,10 +231,10 @@ impl PropertyCanonicalName {
     }
 
     /// Returns the path of this property inside the component.
-    pub fn path(&self) -> &str {
+    pub fn path(&self) -> &PropertyPath {
         match &self.0 {
-            InternalCanonicalName::Defined { path, .. } => path.as_ref(),
-            InternalCanonicalName::Deferred { path, .. } => path,
+            InternalCanonicalName::Defined { property_path, .. }
+            | InternalCanonicalName::Deferred { property_path, .. } => property_path,
         }
     }
 }
@@ -238,7 +243,7 @@ impl fmt::Debug for PropertyCanonicalName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PropertyCanonicalName")
             .field("component", &self.component())
-            .field("path", &self.path())
+            .field("property_path", &self.path())
             .finish()
     }
 }
@@ -287,8 +292,9 @@ impl Ord for PropertyCanonicalName {
 /// # Example
 ///
 /// ```
+/// # use std::any::TypeId;
 /// # use bevy_ecs::prelude::*;
-/// # use bevy_reflect::{ParsedPath, Typed};
+/// # use bevy_reflect::Typed;
 /// # use bevy_reflect::prelude::*;
 /// # use bevy_flair_core::*;
 ///
@@ -297,8 +303,8 @@ impl Ord for PropertyCanonicalName {
 ///     my_field: f32
 /// }
 ///
-/// let path = ParsedPath::parse(".my_field").unwrap();
-/// let property = ComponentProperty::new(MyComponent::type_info(), path, f32::type_info());
+/// let path = PropertyPath::EMPTY.with_field("my_field");
+/// let property = ComponentProperty::new(MyComponent::type_info(), path, TypeId::of::<f32>());
 ///
 /// let component = MyComponent {
 ///     my_field: 8.0
@@ -312,8 +318,9 @@ impl Ord for PropertyCanonicalName {
 #[derive(Clone)]
 pub struct ComponentProperty {
     canonical_name: PropertyCanonicalName,
+    property_path: PropertyPath,
     parsed_path: ParsedPath,
-    value_type_info: &'static TypeInfo,
+    value_type_id: TypeId,
     property_fns: PropertyFns,
 }
 
@@ -321,16 +328,18 @@ impl ComponentProperty {
     /// Creates a new component property.
     pub fn new(
         component_type_info: &'static TypeInfo,
-        parsed_path: ParsedPath,
-        value_type_info: &'static TypeInfo,
+        property_path: PropertyPath,
+        value_type_id: TypeId,
     ) -> Self {
+        let parsed_path = property_path.clone().into_parsed_path();
         Self {
             canonical_name: PropertyCanonicalName::new(
                 component_type_info.type_path(),
-                parsed_path.to_string(),
+                property_path.clone(),
             ),
             parsed_path,
-            value_type_info,
+            property_path,
+            value_type_id,
             property_fns: PropertyFns::new_using_reflect(),
         }
     }
@@ -342,10 +351,10 @@ impl ComponentProperty {
         &self.canonical_name
     }
 
-    /// Returns the [`TypeInfo`] of the value pointed by this property.
+    /// Returns the [`TypeId`] of the value pointed by this property.
     #[inline]
-    pub fn value_type_info(&self) -> &'static TypeInfo {
-        self.value_type_info
+    pub fn value_type_id(&self) -> TypeId {
+        self.value_type_id
     }
 
     /// Gets the value of this property from the component.
@@ -378,8 +387,8 @@ impl ComponentProperty {
             property = self.canonical_name,
         );
         debug_assert_eq!(
-            self.value_type_info.type_path(),
-            (value as &dyn DynamicTypePath).reflect_type_path(),
+            Some(self.value_type_id),
+            value.get_represented_type_info().map(|ty| ty.type_id()),
             "Value type mismatch when applying value for property '{property}'",
             property = self.canonical_name,
         );
@@ -391,8 +400,8 @@ impl fmt::Debug for ComponentProperty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ComponentProperty")
             .field("canonical_name", &self.canonical_name)
-            .field("parsed_path", &self.parsed_path)
-            .field("value_type_path", &self.value_type_info.type_path())
+            .field("property_path", &self.property_path)
+            .field("value_type_id", &self.value_type_id)
             .finish_non_exhaustive()
     }
 }
@@ -407,15 +416,15 @@ impl hash::Hash for ComponentProperty {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.canonical_name.hash(state);
         self.parsed_path.hash(state);
-        self.value_type_info.type_id().hash(state);
+        self.value_type_id.hash(state);
     }
 }
 
 impl PartialEq for ComponentProperty {
     fn eq(&self, other: &Self) -> bool {
         self.canonical_name == other.canonical_name
-            && self.parsed_path == other.parsed_path
-            && std::ptr::eq(self.value_type_info, other.value_type_info)
+            && self.property_path == other.property_path
+            && self.value_type_id == other.value_type_id
     }
 }
 

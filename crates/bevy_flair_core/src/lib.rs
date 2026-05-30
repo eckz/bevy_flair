@@ -10,6 +10,8 @@ mod component_properties;
 mod entity_command_queue;
 pub mod helper_components;
 mod impls;
+mod maybe_type_path;
+mod property_path;
 
 use bevy_app::{App, Plugin};
 
@@ -17,10 +19,17 @@ pub use component_properties::*;
 pub use component_property::*;
 pub use entity_command_queue::*;
 pub use impls::*;
+pub use maybe_type_path::*;
 pub use property_map::PropertyMap;
+pub use property_path::*;
 pub use property_value::*;
 pub use reflect_value::*;
 pub use registry::*;
+
+// Required to make proc macros work in the crate.
+// See https://github.com/bkchr/proc-macro-crate/issues/14
+#[doc(hidden)]
+extern crate self as bevy_flair_core;
 
 /// Extension trait for registering component properties in the [`PropertyRegistry`].
 pub trait RegisterComponentPropertiesExt {

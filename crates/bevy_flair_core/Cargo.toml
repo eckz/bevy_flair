@@ -23,6 +23,9 @@ thiserror = "2.0"
 serde = "1.0"
 tracing = "0.1"
 rustc-hash = "2.1"
+smallvec = { version = "1.15", features = ["const_new"] }
+
+bevy_flair_core_macros = { workspace = true }
 
 bevy_app = { workspace = true }
 bevy_color = { workspace = true }

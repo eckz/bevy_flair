@@ -76,10 +76,7 @@ impl From<String> for CssRef {
 
 impl CssRef {
     /// Resolves this css name.
-    pub fn resolve(
-        &self,
-        css_property_registry: &CssPropertyRegistry,
-    ) -> ComponentPropertyRef<'static> {
+    pub fn resolve(&self, css_property_registry: &CssPropertyRegistry) -> ComponentPropertyRef {
         css_property_registry
             .get_property(&self.0)
             .unwrap_or_else(|| {

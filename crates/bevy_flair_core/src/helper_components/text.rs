@@ -1,7 +1,7 @@
 //! Helper components related to text styling.
 //!
 //! See the documentation for each item for detailed behavior and examples.
-use crate::impl_component_properties;
+use crate::ComponentProperties;
 use bevy_color::Color;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
@@ -29,7 +29,7 @@ pub enum TextDecorationLine {
 /// When this component is inserted on an entity, it automatically manages the underlying
 /// Bevy text decoration components (`Underline`, `Strikethrough`, etc.) through its
 /// `on_insert` hook. This provides a convenient high-level API for text styling.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Component, Reflect)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Component, ComponentProperties, Reflect)]
 #[reflect(Debug, Clone, Default, Component)]
 #[component(immutable, on_insert = on_insert_text_decoration, on_remove = on_remove_text_decoration)]
 pub struct TextDecoration {
@@ -43,14 +43,6 @@ pub struct TextDecoration {
     /// [`text-decoration-color`](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/text-decoration-color)
     /// property.
     pub color: Option<Color>,
-}
-
-impl_component_properties! {
-    #[component(immutable)]
-    pub struct TextDecoration {
-        pub line: TextDecorationLine,
-        pub color: Option<Color>,
-    }
 }
 
 fn on_insert_text_decoration(mut world: DeferredWorld, context: HookContext) {

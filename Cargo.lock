@@ -816,6 +816,7 @@ dependencies = [
  "bevy_asset",
  "bevy_color",
  "bevy_ecs",
+ "bevy_flair_core_macros",
  "bevy_image",
  "bevy_math",
  "bevy_reflect",
@@ -823,8 +824,20 @@ dependencies = [
  "bevy_ui",
  "rustc-hash 2.1.2",
  "serde",
+ "smallvec",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "bevy_flair_core_macros"
+version = "0.8.0"
+dependencies = [
+ "bevy_flair_core",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -527,7 +527,7 @@ mod tests {
     use std::mem;
     use std::sync::LazyLock;
 
-    #[derive(Component, Reflect)]
+    #[derive(Component, ComponentProperties, Reflect)]
     struct AnimatableComponent {
         left: f32,
         right: f32,
@@ -542,18 +542,11 @@ mod tests {
         }
     }
 
-    impl_component_properties! {
-        pub struct AnimatableComponent {
-            left: f32,
-            right: f32,
-        }
-    }
-
     const LEFT: PropertyCanonicalName =
-        PropertyCanonicalName::from_component::<AnimatableComponent>(".left");
+        PropertyCanonicalName::from_component_field::<AnimatableComponent>("left");
 
     const RIGHT: PropertyCanonicalName =
-        PropertyCanonicalName::from_component::<AnimatableComponent>(".right");
+        PropertyCanonicalName::from_component_field::<AnimatableComponent>("right");
 
     static TYPE_REGISTRY: LazyLock<TypeRegistry> = LazyLock::new(|| {
         let mut registry = TypeRegistry::new();
@@ -563,7 +556,7 @@ mod tests {
     });
 
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
-        let mut registry = PropertyRegistry::default();
+        let mut registry = PropertyRegistry::new();
         registry.register::<AnimatableComponent>();
         registry
     });
@@ -591,11 +584,12 @@ mod tests {
     }
 
     #[track_caller]
-    fn resolve_keyframes<'a>(
+    fn resolve_keyframes(
         keyframes: &AnimationKeyframes,
-        property_ref: impl Into<ComponentPropertyRef<'a>>,
+        property_ref: impl Into<ComponentPropertyRef>,
         computed_values: &PropertyMap<ComputedValue>,
     ) -> Option<Vec<AnimationPropertyKeyframe>> {
+        let property_ref = property_ref.into();
         let property_id = PROPERTY_REGISTRY
             .resolve(property_ref)
             .expect("Invalid property_ref");

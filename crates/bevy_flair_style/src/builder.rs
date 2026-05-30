@@ -38,9 +38,9 @@ pub enum StyleSheetBuilderError {
         /// Name of the property
         property: String,
         /// Expected type of the value
-        expected_value_type_path: &'static str,
+        expected_value_type_path: MaybeTypePath,
         /// Found type of the value
-        found_value_type_path: &'static str,
+        found_value_type_path: MaybeTypePath,
     },
     /// Ruleset is orphan, it does not have any selector.
     #[error("Ruleset {0:?} is orphan. Did you forget to call .with_simple_selector() or similar?")]
@@ -98,7 +98,7 @@ pub enum StyleBuilderProperty {
     /// A statically typed style property.
     Specific {
         /// Reference to a specific component property.
-        property_ref: ComponentPropertyRef<'static>,
+        property_ref: ComponentPropertyRef,
         /// Value for the property.
         value: PropertyValue,
     },
@@ -116,7 +116,7 @@ pub enum StyleBuilderProperty {
 impl StyleBuilderProperty {
     /// Creates a new `StyleBuilderProperty::Specific` with the given property reference and value.
     pub fn new(
-        property_ref: impl Into<ComponentPropertyRef<'static>>,
+        property_ref: impl Into<ComponentPropertyRef>,
         value: impl Into<PropertyValue>,
     ) -> Self {
         Self::Specific {
@@ -171,19 +171,19 @@ impl From<RulesetProperty> for StyleBuilderProperty {
     }
 }
 
-impl<'a> From<(ComponentPropertyRef<'a>, ReflectValue)> for StyleBuilderProperty {
-    fn from((property_ref, value): (ComponentPropertyRef<'a>, ReflectValue)) -> Self {
+impl From<(ComponentPropertyRef, ReflectValue)> for StyleBuilderProperty {
+    fn from((property_ref, value): (ComponentPropertyRef, ReflectValue)) -> Self {
         Self::Specific {
-            property_ref: property_ref.into_static(),
+            property_ref,
             value: value.into(),
         }
     }
 }
 
-impl<'a> From<(ComponentPropertyRef<'a>, PropertyValue)> for StyleBuilderProperty {
-    fn from((property_ref, value): (ComponentPropertyRef<'a>, PropertyValue)) -> Self {
+impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
+    fn from((property_ref, value): (ComponentPropertyRef, PropertyValue)) -> Self {
         Self::Specific {
-            property_ref: property_ref.into_static(),
+            property_ref,
             value,
         }
     }
@@ -465,18 +465,20 @@ impl StyleSheetBuilder {
     ) -> Result<(), StyleSheetBuilderError> {
         struct InvalidPropertyError {
             property: String,
-            expected_value_type_path: &'static str,
-            found_value_type_path: &'static str,
+            expected_value_type_path: MaybeTypePath,
+            found_value_type_path: MaybeTypePath,
         }
 
         pub fn validate_value(
+            type_registry: &TypeRegistry,
             property_registry: &PropertyRegistry,
             property_id: ComponentPropertyId,
             value: &ReflectValue,
         ) -> Result<(), InvalidPropertyError> {
             let property = &property_registry[property_id];
-            let expected_value_type_path = property.value_type_info().type_path();
-            let found_value_type_path = value.value_type_info().type_path();
+            let expected_value_type_path =
+                MaybeTypePath::from_type_registry(property.value_type_id(), type_registry);
+            let found_value_type_path = MaybeTypePath::from_type_info(value.value_type_info());
 
             if expected_value_type_path != found_value_type_path {
                 Err(InvalidPropertyError {
@@ -504,7 +506,7 @@ impl StyleSheetBuilder {
                 return Ok(());
             }
 
-            validate_value(property_registry, property_id, value)
+            validate_value(type_registry, property_registry, property_id, value)
         }
 
         for property in rulesets.iter().flat_map(|a| a.properties.iter()) {

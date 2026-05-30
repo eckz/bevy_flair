@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0] - Unreleased
 
+### Added
+- Added derive macros for `ComponentProperties`. Many internals like `ComponentPropertyRef` have been rewritten 
+- Alternative, added support for registering Component properties using reflection only by calling `property_registry.register_using_reflection(..)`.
+
 ### Changed
 - Added support for Bevy 0.19.
 - Upgraded cssparser to 0.37.

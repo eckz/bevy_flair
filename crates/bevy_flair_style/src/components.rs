@@ -14,8 +14,8 @@ use crate::{
 
 use bevy_ecs::prelude::*;
 use bevy_flair_core::{
-    ComponentPropertyId, ComputedValue, CssPropertyRegistry, PropertiesHashMap, PropertyMap,
-    PropertyRegistry, PropertyValue, ReflectValue,
+    ComponentPropertyId, ComputedValue, CssPropertyRegistry, MaybeTypePath, PropertiesHashMap,
+    PropertyMap, PropertyRegistry, PropertyValue, ReflectValue,
 };
 use bevy_reflect::prelude::*;
 use bitflags::bitflags;
@@ -429,11 +429,11 @@ fn get_reflect_animatable<'a>(
     let property = &property_registry[property_id];
 
     let type_registration = type_registry
-        .get(property.value_type_info().type_id())
+        .get(property.value_type_id())
         .unwrap_or_else(|| {
             panic!(
                 "Type {:?} is not registered in the TypeRegistry",
-                property.value_type_info().ty()
+                MaybeTypePath::from_type_registry(property.value_type_id(), type_registry)
             )
         });
 
@@ -443,7 +443,7 @@ fn get_reflect_animatable<'a>(
         None => {
             warn!(
                 "Type '{:?}' is not ReflectAnimatable",
-                property.value_type_info().ty()
+                MaybeTypePath::from_type_registry(property.value_type_id(), type_registry)
             );
             None
         }
@@ -1140,10 +1140,10 @@ impl PropertyIdDebugHelper<'_> {
         let property = &self.property_registry[property_id];
 
         self.css_property_registry
-            .get_css_name_by_property_ref(property.canonical_name().into())
+            .get_css_name_by_property_ref(property.canonical_name())
             .or_else(|| {
                 self.css_property_registry
-                    .get_css_name_by_property_ref(property_id.into())
+                    .get_css_name_by_property_ref(property_id)
             })
             .unwrap_or_else(|| property.canonical_name().to_string().into())
     }
@@ -1496,11 +1496,11 @@ impl RawInlineStyle {
 mod tests {
     use super::*;
     use crate::animations::{AnimationOptions, AnimationPropertyKeyframe, EasingFunction};
-    use bevy_flair_core::{PropertyCanonicalName, PropertyValue, impl_component_properties};
+    use bevy_flair_core::{ComponentProperties, PropertyCanonicalName, PropertyValue};
     use bevy_reflect::TypeRegistry;
     use std::sync::LazyLock;
 
-    #[derive(Component, Reflect)]
+    #[derive(Component, ComponentProperties, Reflect)]
     struct TestComponent {
         property_1: f32,
         property_2: f32,
@@ -1519,27 +1519,18 @@ mod tests {
         }
     }
 
-    impl_component_properties! {
-        struct TestComponent {
-            property_1: f32,
-            property_2: f32,
-            property_3: f32,
-            inherited_property: f32,
-        }
-    }
-
     const PROPERTY_1: PropertyCanonicalName =
-        PropertyCanonicalName::from_component::<TestComponent>(".property_1");
+        PropertyCanonicalName::from_component_field::<TestComponent>("property_1");
     const PROPERTY_2: PropertyCanonicalName =
-        PropertyCanonicalName::from_component::<TestComponent>(".property_2");
+        PropertyCanonicalName::from_component_field::<TestComponent>("property_2");
     const PROPERTY_3: PropertyCanonicalName =
-        PropertyCanonicalName::from_component::<TestComponent>(".property_3");
+        PropertyCanonicalName::from_component_field::<TestComponent>("property_3");
 
     const INHERITED_PROPERTY: PropertyCanonicalName =
-        PropertyCanonicalName::from_component::<TestComponent>(".inherited_property");
+        PropertyCanonicalName::from_component_field::<TestComponent>("inherited_property");
 
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
-        let mut registry = PropertyRegistry::default();
+        let mut registry = PropertyRegistry::new();
         registry.register::<TestComponent>();
         registry.set_unset_value(INHERITED_PROPERTY, PropertyValue::Inherit);
         registry

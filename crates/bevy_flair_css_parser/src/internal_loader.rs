@@ -27,8 +27,7 @@ pub(crate) struct InternalStylesheetLoader<'a> {
 // This is temporal until https://github.com/tokio-rs/tracing/issues/3378 is fixed
 const NO_COLOR_REPORT_CONFIG: ariadne::Config = ariadne::Config::new().with_color(false);
 
-static EMPTY_PROPERTY_REGISTRY: LazyLock<PropertyRegistry> =
-    LazyLock::new(PropertyRegistry::default);
+static EMPTY_PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(PropertyRegistry::new);
 
 fn report_important_level(report_generator: &mut ErrorReportGenerator, level: ImportantLevel) {
     if let ImportantLevel::Important(location) = level {
