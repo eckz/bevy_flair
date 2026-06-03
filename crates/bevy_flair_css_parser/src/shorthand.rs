@@ -1,7 +1,7 @@
 use crate::calc::{Calculable, parse_calc_property_value_with};
 use crate::reflect::{
     parse_asset_path, parse_calc_angle, parse_calc_f32, parse_calc_val, parse_color,
-    parse_enum_as_property_value, parse_gradient, parse_grid_track_vec,
+    parse_enum_as_property_value, parse_enum_value, parse_gradient, parse_grid_track_vec,
     parse_repeated_grid_track_vec, parse_val,
 };
 use crate::utils::{
@@ -11,6 +11,7 @@ use crate::utils::{
 use crate::{CssError, ParserExt, error_codes};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
+use bevy_flair_core::helper_components::{TextDecoration, TextDecorationLine};
 use bevy_flair_core::{ComponentPropertyRef, CssPropertyRegistry, PropertyValue, ReflectValue};
 use bevy_flair_style::DynamicParseVarTokens;
 use bevy_image::Image;
@@ -18,7 +19,7 @@ use bevy_math::{Rot2, Vec2};
 use bevy_reflect::FromReflect;
 use bevy_ui::{
     AlignItems, BackgroundGradient, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis,
-    RepeatedGridTrack, Val, Val2,
+    RepeatedGridTrack, UiTransform, Val, Val2,
 };
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
@@ -732,8 +733,8 @@ define_css_properties! {
 
 /// Parses the `grid-template` shorthand into `grid-template-rows` / `grid-template-columns`.
 fn parse_grid_template(parser: &mut Parser) -> ShorthandParseResult {
-    if let Some(default_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
-        let default_property_value = PropertyValue::Value(ReflectValue::new(default_value));
+    if let Some(none_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
+        let default_property_value = PropertyValue::Value(ReflectValue::new(none_value));
         return Ok(vec![
             (GRID_TEMPLATE_ROWS, default_property_value.clone()),
             (GRID_TEMPLATE_COLUMNS, default_property_value),
@@ -951,9 +952,12 @@ fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssE
 }
 
 fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
-    if try_parse_none::<()>(parser).is_some() {
-        todo!("parser");
-        // return Ok(vec![]);
+    if let Some(none_value) = try_parse_none::<UiTransform>(parser) {
+        return Ok(vec![
+            (TRANSLATE, ReflectValue::new(none_value.translation).into()),
+            (SCALE, ReflectValue::new(none_value.scale).into()),
+            (ROTATE, ReflectValue::new(none_value.rotation).into()),
+        ]);
     }
 
     let Some((translation, scale, rotation)) = (
@@ -979,6 +983,39 @@ fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
     }
     if let Some(rotation) = rotation {
         result.push((ROTATE, ReflectValue::new(rotation).into()));
+    }
+
+    Ok(result)
+}
+
+define_css_properties! {
+    const TEXT_DECORATION_LINE = "text-decoration-line";
+    const TEXT_DECORATION_COLOR = "text-decoration-color";
+}
+
+fn parse_text_decoration(parser: &mut Parser) -> ShorthandParseResult {
+    if let Some(none_value) = try_parse_none::<TextDecoration>(parser) {
+        return Ok(vec![
+            (
+                TEXT_DECORATION_LINE,
+                ReflectValue::new(none_value.line).into(),
+            ),
+            (
+                TEXT_DECORATION_COLOR,
+                ReflectValue::new(none_value.color).into(),
+            ),
+        ]);
+    }
+
+    let mut result = Vec::new();
+    if let Ok(decoration_line) = parser.try_parse_with(parse_enum_value::<TextDecorationLine>) {
+        result.push((
+            TEXT_DECORATION_LINE,
+            ReflectValue::new(decoration_line).into(),
+        ));
+    }
+    if let Ok(color) = parser.try_parse_with(parse_color) {
+        result.push((TEXT_DECORATION_COLOR, ReflectValue::new(Some(color)).into()));
     }
 
     Ok(result)
@@ -1095,6 +1132,11 @@ pub(crate) fn register_default_shorthand_properties(registry: &mut ShorthandProp
         parse_grid,
     );
     registry.register_new("transform", [TRANSLATE, SCALE, ROTATE], parse_transform);
+    registry.register_new(
+        "text-decoration",
+        [TEXT_DECORATION_LINE, TEXT_DECORATION_COLOR],
+        parse_text_decoration,
+    );
 }
 
 /// A plugin that registers common CSS shorthand properties.
@@ -1166,6 +1208,18 @@ mod tests {
         }
     }
 
+    impl IntoReflectValue for Option<Srgba> {
+        fn into_reflect_value(self) -> ReflectValue {
+            ReflectValue::new(self.map(Color::from))
+        }
+    }
+
+    impl IntoReflectValue for ReflectValue {
+        fn into_reflect_value(self) -> ReflectValue {
+            self
+        }
+    }
+
     macro_rules! impl_into_reflect_value {
         ($($ty:ty),*) => {
             $(
@@ -1182,6 +1236,7 @@ mod tests {
         f32,
         Vec2,
         Color,
+        Option<Color>,
         Val,
         Val2,
         Rot2,
@@ -1191,7 +1246,8 @@ mod tests {
         Vec<RepeatedGridTrack>,
         Vec<GridTrack>,
         BackgroundGradient,
-        AssetPathPlaceholder<Image>
+        AssetPathPlaceholder<Image>,
+        TextDecorationLine
     );
 
     trait IntoPropertyValue {
@@ -1578,6 +1634,12 @@ mod tests {
 
     #[test]
     fn test_transform() {
+        test_shorthand_property!("transform", "none", {
+            "translate" => Val2::default(),
+            "rotate" => Rot2::default(),
+            "scale" => UiTransform::default().scale,
+        });
+
         test_shorthand_property!("transform", "translate(2px)", {
             "translate" => Val2::px(2.0, 0.0),
         });
@@ -1638,5 +1700,18 @@ mod tests {
 ---'
 "
         );
+    }
+
+    #[test]
+    fn test_text_decoration() {
+        test_shorthand_property!("text-decoration", "none", {
+            "text-decoration-line" => TextDecorationLine::None,
+            "text-decoration-color" => None::<Color>,
+        });
+
+        test_shorthand_property!("text-decoration", "underline red ", {
+            "text-decoration-line" => TextDecorationLine::Underline,
+            "text-decoration-color" => Some(Srgba::RED),
+        });
     }
 }

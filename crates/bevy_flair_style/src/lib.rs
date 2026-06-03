@@ -470,6 +470,7 @@ mod tests {
     use bevy_app::App;
     use bevy_asset::uuid_handle;
     use bevy_ecs::system::RunSystemOnce;
+    use bevy_input_focus::FocusCause;
     use bevy_ui::Node;
 
     const TEST_STYLE_SHEET: Styled =
@@ -531,8 +532,8 @@ mod tests {
             let all_entities = query!($app, Entity, With<StyleData>);
             let type_registry = $app.world().resource::<AppTypeRegistry>().0.read();
 
-            let mut scene_builder = bevy_scene::DynamicSceneBuilder::from_world($app.world());
-            scene_builder = scene_builder
+            let mut world_builder = bevy_world_serialization::DynamicWorldBuilder::from_world($app.world(), &type_registry);
+            world_builder = world_builder
                 .allow_component::<Name>()
                 .allow_component::<ChildOf>()
                 .allow_component::<Children>()
@@ -542,10 +543,10 @@ mod tests {
                 .remove_empty_entities()
             ;
 
-            let scene = scene_builder.build();
-            let scene_serializer = bevy_scene::serde::SceneSerializer::new(&scene, &type_registry);
+            let dynamic_world = world_builder.build();
+            let world_serializer = bevy_world_serialization::serde::DynamicWorldSerializer::new(&dynamic_world, &type_registry);
 
-            insta::assert_ron_snapshot!(scene_serializer);
+            insta::assert_ron_snapshot!(world_serializer);
         }};
     }
 
@@ -685,14 +686,16 @@ mod tests {
         assert!(pseudo_state.focused);
         assert!(pseudo_state.focused_and_visible);
 
-        app.world_mut().resource_mut::<InputFocus>().0 = None;
+        app.world_mut().resource_mut::<InputFocus>().clear();
         app.update();
 
         let pseudo_state = node_pseudo_state!(app, entity);
         assert!(!pseudo_state.focused);
         assert!(!pseudo_state.focused_and_visible);
 
-        app.world_mut().resource_mut::<InputFocus>().0 = Some(entity);
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(entity, FocusCause::Navigated);
         app.world_mut().resource_mut::<InputFocusVisible>().0 = false;
         app.update();
 

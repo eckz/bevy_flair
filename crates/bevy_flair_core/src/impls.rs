@@ -1,3 +1,4 @@
+use crate::helper_components::TextDecoration;
 use crate::{
     CssPropertyRegistry, PropertyRegistry, PropertyValue, RegisterComponentPropertiesExt as _,
 };
@@ -7,7 +8,7 @@ use bevy_asset::Handle;
 use bevy_color::Color;
 use bevy_math::{Rect, Rot2, Vec2};
 use bevy_text::prelude::*;
-use bevy_text::{FontSmoothing, LineHeight};
+use bevy_text::{FontFeatures, FontSmoothing, FontVariations, LetterSpacing, LineHeight};
 use bevy_ui::prelude::*;
 
 impl_extract_component_properties! {
@@ -60,6 +61,7 @@ impl_component_properties! {
         pub justify_self: JustifySelf,
         pub align_content: AlignContent,
         pub justify_content: JustifyContent,
+        pub direction: InlineDirection,
         #[nested]
         pub margin: UiRect,
         #[nested]
@@ -163,10 +165,20 @@ impl_component_properties! {
 }
 
 impl_component_properties! {
+    @self
+    pub struct LetterSpacing
+}
+
+impl_component_properties! {
     pub struct TextFont {
-        pub font: Handle<Font>,
-        pub font_size: f32,
+        pub font: FontSource,
+        pub font_size: FontSize,
+        pub weight: FontWeight,
+        pub width: FontWidth,
+        pub style: FontStyle,
         pub font_smoothing: FontSmoothing,
+        pub font_features: FontFeatures,
+        pub font_variations: FontVariations,
     }
 }
 
@@ -245,13 +257,23 @@ impl Plugin for ImplComponentPropertiesPlugin {
             ImageNode,
             TextColor,
             LineHeight,
+            LetterSpacing,
             TextFont,
             TextLayout,
             TextShadow,
             TextSpan,
+            // Custom components
+            TextDecoration,
         });
 
-        set_inherited_properties!(app => { TextColor, TextFont, TextLayout, LineHeight, });
+        set_inherited_properties!(app => {
+            TextColor,
+            TextFont,
+            TextLayout,
+            LineHeight,
+            LetterSpacing,
+            TextDecoration,
+        });
 
         set_css_properties!(app => {
             "display" => Node[".display"],
@@ -279,6 +301,7 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "justify-self" => Node[".justify_self"],
             "align-content" => Node[".align_content"],
             "justify-content" => Node[".justify_content"],
+            "direction" => Node[".direction"],
 
             "margin-top" => Node[".margin.top"],
             "margin-right" => Node[".margin.right"],
@@ -299,7 +322,6 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "flex-grow" => Node[".flex_grow"],
             "flex-shrink" => Node[".flex_shrink"],
             "flex-basis" => Node[".flex_basis"],
-
 
             "row-gap" => Node[".row_gap"],
             "column-gap" => Node[".column_gap"],
@@ -349,13 +371,22 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "color" => TextColor[".0"],
             "font-family" => TextFont[".font"],
             "font-size" => TextFont[".font_size"],
-            "line-height" => LineHeight[""],
-
+            "font-weight" => TextFont[".weight"],
+            "font-width" => TextFont[".width"],
+            "font-style" => TextFont[".style"],
+            "font-feature-settings" => TextFont[".font_features"],
+            "font-variation-settings" => TextFont[".font_variations"],
             // font-smooth is not css standard
             "-bevy-font-smooth" => TextFont[".font_smoothing"],
+
+            "line-height" => LineHeight[""],
+            "letter-spacing" => LetterSpacing[""],
             "text-align" => TextLayout[".justify"],
             // There is no equivalent in css for bevy LineBreak
             "-bevy-line-break" => TextLayout[".linebreak"],
+
+            "text-decoration-line" => TextDecoration[".line"],
+            "text-decoration-color" => TextDecoration[".color"],
 
             // Text span
             "content" => TextSpan[".0"],

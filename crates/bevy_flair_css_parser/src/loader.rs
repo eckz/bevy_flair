@@ -123,9 +123,8 @@ impl AssetLoader for CssStyleSheetLoader {
 
         for import_path in import_paths {
             let loaded_asset = load_context
-                .loader()
-                .immediate()
-                .load::<StyleSheet>(&import_path)
+                .load_builder()
+                .load_value::<StyleSheet>(&import_path)
                 .await?;
             imports.insert(import_path, loaded_asset.take());
         }

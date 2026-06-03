@@ -49,17 +49,17 @@
 
         width: 400px;
         height: 60px;
-        padding: 0 20px;
+        padding: 15px 20px;
         border: 2px var(--color-gray-950);
         border-radius: 20px;
 
         font-size: calc(var(--font-size) * 0.8);
-
         transition: border-color 0.3s;
 
         &:focus {
             border-color: var(--color-blue-500);
         }
+
     }
 
     .items-container {

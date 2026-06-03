@@ -44,7 +44,9 @@ impl ReflectValue {
     /// Otherwise, value will be wrapped into a `Box<dyn Reflect>`
     pub fn new<T: FromReflect>(value: T) -> Self {
         let dyn_value: &dyn Reflect = &value;
-        if TypeId::of::<T>() == TypeId::of::<f32>() {
+        if TypeId::of::<T>() == TypeId::of::<Self>() {
+            dyn_value.downcast_ref::<Self>().unwrap().clone()
+        } else if TypeId::of::<T>() == TypeId::of::<f32>() {
             Self::Float(*dyn_value.downcast_ref().unwrap())
         } else if TypeId::of::<T>() == TypeId::of::<f64>() {
             Self::Float(*dyn_value.downcast_ref::<f64>().unwrap() as f32)
@@ -64,7 +66,9 @@ impl ReflectValue {
     ///
     /// [`ReflectFromReflect`] implementation is required in order to be able to clone the value later.
     pub fn new_from_box(value: Box<dyn Reflect>) -> Self {
-        if value.is::<f32>() {
+        if value.is::<Self>() {
+            value.take().unwrap()
+        } else if value.is::<f32>() {
             Self::Float(value.take().unwrap())
         } else if value.is::<usize>() {
             Self::Usize(value.take().unwrap())
@@ -201,6 +205,56 @@ impl From<Color> for ReflectValue {
 mod tests {
     use super::*;
 
+    #[derive(Debug, Copy, Clone, PartialEq, Reflect)]
+    #[reflect(Debug)]
+    struct CustomReflectStruct {
+        value: f32,
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn reflect_value_new() {
+        assert_eq!(ReflectValue::new(1.0f32), ReflectValue::Float(1.));
+        assert_eq!(ReflectValue::new(2usize), ReflectValue::Usize(2));
+        assert_eq!(ReflectValue::new(Val::Px(3.0)), ReflectValue::Val(Val::Px(3.0)));
+        assert_eq!(
+            ReflectValue::new(CustomReflectStruct{ value: 4.0 }),
+            ReflectValue::ReflectArc(Arc::new(CustomReflectStruct{ value: 4.0 }))
+        );
+        assert_eq!(ReflectValue::new(Color::BLACK), ReflectValue::Color(Color::BLACK));
+        assert_eq!(ReflectValue::new(ReflectValue::new(Color::BLACK)), ReflectValue::Color(Color::BLACK));
+
+        assert_eq!(ReflectValue::new_from_box(Box::new(1.0f32)), ReflectValue::Float(1.));
+        assert_eq!(ReflectValue::new_from_box(Box::new(2usize)), ReflectValue::Usize(2));
+        assert_eq!(ReflectValue::new_from_box(Box::new(Val::Px(3.0))), ReflectValue::Val(Val::Px(3.0)));
+        assert_eq!(
+            ReflectValue::new_from_box(Box::new(CustomReflectStruct{ value: 4.0 })),
+            ReflectValue::ReflectArc(Arc::new(CustomReflectStruct{ value: 4.0 }))
+        );
+        assert_eq!(ReflectValue::new_from_box(Box::new(Color::BLACK)), ReflectValue::Color(Color::BLACK));
+        assert_eq!(ReflectValue::new_from_box(Box::new(ReflectValue::new(Color::BLACK))), ReflectValue::Color(Color::BLACK));
+    }
+
+    #[test]
+    fn reflect_clone() {
+        assert_eq!(
+            ReflectValue::new(1.0f32)
+                .reflect_clone()
+                .unwrap()
+                .downcast()
+                .unwrap(),
+            Box::new(1.0f32)
+        );
+        assert_eq!(
+            ReflectValue::new(CustomReflectStruct { value: 4.0 })
+                .reflect_clone()
+                .unwrap()
+                .downcast()
+                .unwrap(),
+            Box::new(CustomReflectStruct { value: 4.0 })
+        );
+    }
+
     #[test]
     fn size_of_reflect_value() {
         assert_eq!(size_of::<ReflectValue>(), 24);
@@ -208,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn float_reflect_value() {
+    fn reflect_value_f32() {
         let expected = 9.3f32;
 
         let reflect_value = ReflectValue::new(expected);
@@ -225,13 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_reflect_value() {
-        #[derive(Debug, Copy, Clone, PartialEq, Reflect)]
-        #[reflect(Debug)]
-        struct CustomReflectStruct {
-            value: f32,
-        }
-
+    fn reflect_value_custom() {
         let expected = CustomReflectStruct { value: 2.0 };
 
         let reflect_value = ReflectValue::new(expected);

@@ -7,6 +7,7 @@ use bevy_flair_style::animations::{
 };
 use cssparser::{ParseError, Parser, ParserInput, Token, match_ignore_ascii_case};
 
+use crate::parser::VAR_FUNCTION;
 use crate::utils::{try_parse_important_level, try_parse_none};
 use crate::vars::parse_var_tokens;
 use easing::parse_easing_function;
@@ -566,15 +567,15 @@ where
     T: Send + 'static,
 {
     let initial_state = parser.state();
-    parser.look_for_var_or_env_functions();
+    parser.look_for_arbitrary_substitution_functions(&VAR_FUNCTION);
 
     let result = parse_animation_values(parser, parse_one);
 
-    let seen_var_or_env_functions = parser.seen_var_or_env_functions();
+    let seen_var = parser.seen_arbitrary_substitution_functions();
 
     match result {
         Ok(values) => Ok(AnimationValues::Specific(values)),
-        Err(_) if seen_var_or_env_functions => {
+        Err(_) if seen_var => {
             parser.reset(&initial_state);
             let result = parser.parse_entirely(|parser| {
                 let var_tokens =

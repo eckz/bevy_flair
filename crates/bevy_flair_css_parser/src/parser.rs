@@ -30,6 +30,8 @@ use crate::parser::media_selectors::parse_media_selectors;
 pub(crate) use font_face::*;
 pub(crate) use keyframes::*;
 
+pub(crate) static VAR_FUNCTION: [&str; 1] = ["var"];
+
 #[derive(Clone, derive_more::Debug)]
 pub enum CssRulesetProperty {
     SingleProperty(ComponentPropertyId, PropertyValue, ImportantLevel),
@@ -143,7 +145,7 @@ impl CssPropertyParser<'_> {
     ) -> CssRulesetProperty {
         if let Some(shorthand_property) = self.get_shorthand_css(property_name) {
             let initial_state = parser.state();
-            parser.look_for_var_or_env_functions();
+            parser.look_for_arbitrary_substitution_functions(&VAR_FUNCTION);
 
             let result = parser.parse_entirely(|parser| {
                 let properties = shorthand_property
@@ -153,7 +155,7 @@ impl CssPropertyParser<'_> {
                 Ok((properties, important_level))
             });
 
-            let seen_var_or_env_functions = parser.seen_var_or_env_functions();
+            let seen_var = parser.seen_arbitrary_substitution_functions();
 
             return match result {
                 Ok((properties, important_level)) => CssRulesetProperty::MultipleProperties(
@@ -172,7 +174,7 @@ impl CssPropertyParser<'_> {
                         .collect(),
                     important_level,
                 ),
-                Err(_) if seen_var_or_env_functions => {
+                Err(_) if seen_var => {
                     parser.reset(&initial_state);
                     let result = consume_as_var_tokens(parser);
                     match result {
@@ -193,7 +195,7 @@ impl CssPropertyParser<'_> {
         let Some(property_id) = self.get_css_property(property_name) else {
             return CssRulesetProperty::Error(CssError::new_unlocated(
                 error_codes::basic::PROPERTY_NOT_RECOGNIZED,
-                format!("Property '{property_name}' is not recognized as a valid property",),
+                format!("Property '{property_name}' is not recognized as a valid property name",),
             ));
         };
 
@@ -209,7 +211,7 @@ impl CssPropertyParser<'_> {
             ));
         };
         let initial_state = parser.state();
-        parser.look_for_var_or_env_functions();
+        parser.look_for_arbitrary_substitution_functions(&VAR_FUNCTION);
 
         let parse_fn = reflect_parse_css.parse_fn();
         let result = parser.parse_entirely(|parser| {
@@ -218,13 +220,13 @@ impl CssPropertyParser<'_> {
             Ok((value, important_level))
         });
 
-        let seen_var_or_env_functions = parser.seen_var_or_env_functions();
+        let seen_var = parser.seen_arbitrary_substitution_functions();
 
         match result {
             Ok((value, important_level)) => {
                 CssRulesetProperty::SingleProperty(property_id, value, important_level)
             }
-            Err(_) if seen_var_or_env_functions => {
+            Err(_) if seen_var => {
                 parser.reset(&initial_state);
                 let result = consume_as_var_tokens(parser);
                 match result {
@@ -1531,7 +1533,7 @@ mod tests {
    |
  2 |     not-existing-property: 33;
    |     |^^^^^^^^^^^^^^^^^^^^^^^^^\x20\x20
-   |     `--------------------------- Property 'not-existing-property' is not recognized as a valid property
+   |     `--------------------------- Property 'not-existing-property' is not recognized as a valid property name
 ---'
 ");
 

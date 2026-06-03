@@ -42,9 +42,11 @@ pub(crate) trait LoadStyleSheet {
 
 impl LoadStyleSheet for AssetServer {
     fn load_style_sheet<'a>(&self, path: impl Into<AssetPath<'a>>) -> Handle<StyleSheet> {
-        self.load_with_settings(path, |settings: &mut CssStyleLoaderSetting| {
-            settings.error_mode = CssStyleLoaderErrorMode::ReturnError
-        })
+        self.load_builder()
+            .with_settings(|settings: &mut CssStyleLoaderSetting| {
+                settings.error_mode = CssStyleLoaderErrorMode::ReturnError
+            })
+            .load(path)
     }
 }
 

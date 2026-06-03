@@ -1,6 +1,13 @@
+@import "tailwind-colors.css";
+
 @font-face {
-    font-family: "FiraSans";
-    src: url("fonts/FiraSans-Regular.ttf");
+    font-family: "Poppins-SemiBold";
+    src: url("fonts/Poppins-SemiBold.ttf");
+}
+
+@font-face {
+    font-family: "RobotoFlex";
+    src: url("fonts/RobotoFlex.ttf");
 }
 
 @font-face {
@@ -16,65 +23,92 @@
     align-items: center;
     justify-content: center;
 
-    font-family: "FiraSans";
-    font-size: 18px;
+    --font-size-base: 1.6vh;
+    --spacing-base: 0.65vh;
+    --spacing-md: calc(var(--spacing-base) * 2);
+    --spacing-lg: calc(var(--spacing-base) * 3);
+    --spacing-xl: calc(var(--spacing-base) * 4);
+
+    font-size: var(--font-size-base);
+    font-family: "RobotoFlex";
+    color: var(--color-gray-900);
 }
 
 .text-container {
     display: flex;
+    flex-direction: column;
 
-    padding: 20px;
+    padding: var(--spacing-md);
     align-items: start;
     justify-content: start;
 
-    flex-direction: column;
-    gap: 20px;
+    gap: var(--spacing-lg);
 
-    min-width: 0;
     width: 100%;
-    min-height: 0;
     height: 100%;
 
-    @media (min-width: 600px) {
-        min-width: 600px;
-        width: 60vw;
-    }
-
-    @media (min-height: 450px) {
-        min-height: 450px;
-        height: 60vh;
-    }
-
-    background-color: #d68a4c;
-
-    color: white;
-
-    text:last-child {
-       text-align: center;
-    }
+    background-color: var(--color-gray-50);
 }
 
-.text-container::before, .text-container::after {
+.demo-section {
     display: flex;
-    background-color: #2f394c;
-    
-    width: 100%;
-    height: 10px;
-    
+    flex-direction: column;
+    padding: var(--spacing-md) var(--spacing-lg);
+
+    background: var(--color-gray-100);
+    border: 1px solid var(--color-gray-300);
     border-radius: 15px;
+    width: 100%;
+
+    .label {
+        font-family: "Poppins-SemiBold";
+        font-size: calc(var(--font-size-base) * 0.85);
+    }
+
+    .demo {
+        padding: var(--spacing-md);
+        display: flex;
+        gap: var(--spacing-md);
+        flex-direction: column;
+        text-align: left;
+    }
 }
 
-small {
-    font-size: 13px;
-    color: yellow;
-}
+.underlined { text-decoration: underline red; }
+.line-through { text-decoration: line-through red; }
+.aliased { -bevy-font-smooth: none; }
+.spaced { letter-spacing: 5px; }
 
 a {
-    color: blue;
+    color: var(--color-blue-500);
+    text-decoration: none;
+    &:hover {
+        text-decoration: underline var(--color-blue-500);
+    }
 }
 
 a::before {
     font-family: "NotoEmoji";
     font-size: 12px;
     content: "🔗";
+    text-decoration: none;
 }
+
+.small { font-size: calc(var(--font-size-base) * 0.6); }
+
+.weight-300 { font-weight: 300; }
+.weight-500 { font-weight: 500; }
+.weight-800 { font-weight: 800; }
+
+.width-50 { font-width: 50%; }
+.width-100 { font-width: 100%; }
+.width-200 { font-width: 200%; }
+
+.var-slnt { font-variation-settings: "slnt" -10;  }
+.var-wght { font-variation-settings: "wght" 900; }
+
+.features-liga-off, .features-liga-on {
+    font-size: calc(var(--font-size-base) * 1.9);
+}
+.features-liga-off { font-feature-settings: "liga" off; }
+.features-liga-on { font-feature-settings: "liga" on; }

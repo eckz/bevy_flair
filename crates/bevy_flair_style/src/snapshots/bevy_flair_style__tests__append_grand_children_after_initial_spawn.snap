@@ -1,13 +1,13 @@
 ---
 source: crates/bevy_flair_style/src/lib.rs
-expression: scene_serializer
+expression: world_serializer
 ---
-Scene(
+World(
   resources: {},
   entities: {
-    4294967288: Entity(
+    4294967235: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967292),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967240),
         "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
@@ -31,9 +31,9 @@ Scene(
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
-    4294967289: Entity(
+    4294967236: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967292),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967240),
         "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "51928a2e-91ad-413c-a910-d02c6a716cc8",
@@ -57,9 +57,9 @@ Scene(
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
-    4294967290: Entity(
+    4294967237: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967293),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967241),
         "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -83,9 +83,9 @@ Scene(
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
-    4294967291: Entity(
+    4294967238: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967293),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967241),
         "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
             uuid: "fe981062-17ce-46e4-999a-5a61ea8fe722",
@@ -109,12 +109,12 @@ Scene(
         "bevy_flair_style::tests::GrandChild": GrandChild(),
       },
     ),
-    4294967292: Entity(
+    4294967240: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967242),
         "bevy_ecs::hierarchy::Children": Children([
-          4294967289,
-          4294967288,
+          4294967236,
+          4294967235,
         ]),
         "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
@@ -139,12 +139,12 @@ Scene(
         "bevy_flair_style::tests::Child": Child(),
       },
     ),
-    4294967293: Entity(
+    4294967241: Entity(
       components: {
-        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967294),
+        "bevy_ecs::hierarchy::ChildOf": ChildOf(4294967242),
         "bevy_ecs::hierarchy::Children": Children([
-          4294967291,
-          4294967290,
+          4294967238,
+          4294967237,
         ]),
         "bevy_flair_style::components::StyleData": StyleData(
           effective_style_sheet_asset_id: Uuid(
@@ -169,11 +169,11 @@ Scene(
         "bevy_flair_style::tests::Child": Child(),
       },
     ),
-    4294967294: Entity(
+    4294967242: Entity(
       components: {
         "bevy_ecs::hierarchy::Children": Children([
-          4294967293,
-          4294967292,
+          4294967241,
+          4294967240,
         ]),
         "bevy_ecs::name::Name": "Root",
         "bevy_flair_style::components::StyleData": StyleData(

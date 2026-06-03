@@ -1,7 +1,6 @@
 use bevy_ecs::bundle::{Bundle, InsertMode};
 use bevy_ecs::entity::Entity;
-use bevy_ecs::error::CommandWithEntity;
-use bevy_ecs::error::HandleError;
+use bevy_ecs::system::Command;
 use bevy_ecs::system::{EntityCommand, entity_command};
 use bevy_ecs::world::CommandQueue;
 
@@ -42,10 +41,7 @@ impl EntityCommandQueue<'_> {
     ///
     /// This method handles attaching the entity to the command and recording
     /// any potential handle errors using Bevy's default error handler.
-    pub fn push<C: EntityCommand<T> + CommandWithEntity<M>, T, M>(
-        &mut self,
-        command: C,
-    ) -> &mut Self {
+    pub fn push<C: EntityCommand>(&mut self, command: C) -> &mut Self {
         self.command_queue
             .push(command.with_entity(self.entity).handle_error());
         self

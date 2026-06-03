@@ -6,7 +6,7 @@ use bevy_color::Color;
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
 use bevy_reflect::FromType;
-use bevy_text::LineHeight;
+use bevy_text::{LetterSpacing, LineHeight};
 use bevy_ui::widget::TextShadow;
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 
@@ -43,7 +43,34 @@ fn parse_line_height(parser: &mut Parser) -> Result<LineHeight, CssError> {
             return Err(CssError::new_located(
                 &next,
                 error_codes::ui::UNEXPECTED_LINE_HEIGHT_TOKEN,
-                "This is not valid Val token. 'auto', 3px, 44.2% are valid examples",
+                "This is not valid LineHeight token. 3px, 2em, 44.2% are valid examples",
+            ));
+        }
+    })
+}
+
+fn parse_letter_spacing(parser: &mut Parser) -> Result<LetterSpacing, CssError> {
+    let next = parser.located_next()?;
+    Ok(match &*next {
+        Token::Ident(ident) if ident.as_ref() == "normal" => LetterSpacing::default(),
+        Token::Dimension { value, unit, .. } => {
+            match_ignore_ascii_case! { unit.as_ref(),
+                "px" => LetterSpacing::Px(*value),
+                "rem" => LetterSpacing::Rem(*value),
+                _ => {
+                    return Err(CssError::new_located(
+                        &next,
+                        error_codes::ui::UNEXPECTED_LETTER_SPACING_TOKEN,
+                        format!("Dimension '{unit}' is not recognized for LetterSpacing. Valid dimensions are 'rem' | 'px'")
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(CssError::new_located(
+                &next,
+                error_codes::ui::UNEXPECTED_LETTER_SPACING_TOKEN,
+                "This is not valid LetterSpacing token. 'normal', 10px are valid examples",
             ));
         }
     })
@@ -79,8 +106,16 @@ fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
 
 impl FromType<LineHeight> for ReflectParseCss {
     fn from_type() -> Self {
+        Self(
+            |parser| Ok(parse_property_value_with(parser, parse_line_height)?.into_reflect_value()),
+        )
+    }
+}
+
+impl FromType<LetterSpacing> for ReflectParseCss {
+    fn from_type() -> Self {
         Self(|parser| {
-            Ok(parse_property_value_with(parser, parse_line_height)?.map(ReflectValue::new))
+            Ok(parse_property_value_with(parser, parse_letter_spacing)?.into_reflect_value())
         })
     }
 }
@@ -102,7 +137,7 @@ mod tests {
     use crate::reflect::reflect_test_utils::test_parse_reflect;
     use bevy_color::palettes::css;
     use bevy_math::Vec2;
-    use bevy_text::LineHeight;
+    use bevy_text::{LetterSpacing, LineHeight};
     use bevy_ui::widget::TextShadow;
 
     #[test]
@@ -127,6 +162,17 @@ mod tests {
         assert_eq!(
             test_parse_reflect::<LineHeight>("120%"),
             LineHeight::RelativeToFont(1.2),
+        );
+    }
+    #[test]
+    fn test_letter_spacing() {
+        assert_eq!(
+            test_parse_reflect::<LetterSpacing>("10px"),
+            LetterSpacing::Px(10.0)
+        );
+        assert_eq!(
+            test_parse_reflect::<LetterSpacing>("5rem"),
+            LetterSpacing::Rem(5.0)
         );
     }
 

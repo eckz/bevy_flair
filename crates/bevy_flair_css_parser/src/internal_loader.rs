@@ -193,7 +193,7 @@ impl InternalStylesheetLoader<'_> {
                     for error in font_face.errors {
                         report_generator.add_error(error);
                     }
-                    builder.register_font_face(font_face.family_name, font_face.source);
+                    builder.register_font_face(font_face.family_name, font_face.source.into());
                 }
                 CssStyleSheetItem::AnimationKeyFrames(keyframes) => {
                     let mut keyframes_builder = AnimationKeyframes::builder(keyframes.name);

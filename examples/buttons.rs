@@ -1,8 +1,9 @@
 //! This examples illustrates how to create a button that changes color and text based on its
 //! interaction state.
 
+use bevy::picking::hover::Hovered;
+use bevy::ui_widgets::{Activate, ActivateOnPress, Button};
 use bevy::{
-    input_focus::InputDispatchPlugin,
     input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
     prelude::*,
     text::TextWriter,
@@ -12,53 +13,68 @@ use bevy_flair::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins((
-            DefaultPlugins,
-            InputDispatchPlugin,
-            TabNavigationPlugin,
-            FlairPlugin,
-        ))
+        .add_plugins((DefaultPlugins, TabNavigationPlugin, FlairPlugin))
         .add_systems(Startup, setup)
         .add_systems(PostStartup, force_window_theme)
         .run();
 }
 
-#[derive(Component)]
+#[derive(Clone, Default, Component)]
 struct DarkLightButton;
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    fn button() -> impl Bundle {
-        (Button, TabIndex::default(), children![Text::new("Button")])
+fn base_button() -> impl Scene {
+    bsn! {
+        Node
+        Button
+        TypeName("button")
+        Hovered
+        ActivateOnPress
+        TabIndex
     }
+}
 
-    fn dark_light_button() -> impl Bundle {
-        (
-            Button,
-            ClassList::new("dark-light-button"),
-            DarkLightButton,
-            children![Text::new("???TO_BE_REPLACED???")],
-        )
+fn button() -> impl Scene {
+    bsn! {
+        base_button()
+        Children [
+            Text("Button")
+        ]
     }
+}
 
+fn dark_light_button() -> impl Scene {
+    bsn! {
+        base_button()
+        ClassList::new("dark-light-button")
+        DarkLightButton
+        on(dark_light_button_observer)
+        Children [
+            Text("???TO_BE_REPLACED???")
+        ]
+    }
+}
+
+fn buttons_scene() -> impl Scene {
+    bsn! {
+        Node
+        Styled::StyleSheet("buttons.css")
+        ClassList
+        TabGroup::new(0)
+        Children [
+            ( :button ),
+            ( :button ),
+            ( :button ),
+            ( :button ),
+            ( :dark_light_button )
+        ]
+    }
+}
+
+fn setup(mut commands: Commands) {
     // ui camera
     commands.spawn(Camera2d);
 
-    commands
-        .spawn((
-            Node::default(),
-            Styled::new(asset_server.load("buttons.css")),
-            ClassList::empty(),
-            TabGroup::new(0),
-        ))
-        .with_children(|root| {
-            root.spawn(button());
-            root.spawn(button());
-            root.spawn(button());
-            root.spawn(button());
-
-            root.spawn(dark_light_button())
-                .observe(dark_light_button_observer);
-        });
+    commands.spawn_scene(buttons_scene());
 }
 
 fn force_window_theme(
@@ -79,7 +95,7 @@ fn force_window_theme(
 }
 
 fn dark_light_button_observer(
-    _trigger: On<Pointer<Click>>,
+    _activate: On<Activate>,
     mut primary_window: Single<&mut Window, With<PrimaryWindow>>,
     dark_light_button: Single<&Children, With<DarkLightButton>>,
     mut text_writer: TextWriter<Text>,
