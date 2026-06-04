@@ -49,7 +49,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 - Use of custom `Time` for transitions and animations (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_time.rs>).
 - Support for the use of [`GhostNode`] in the hierarchy. Ghost nodes are simply ignored.
   - Enable `experimental_ghost_nodes` feature for better support of Ghost nodes.
-- Supports for custom properties. (Example TBA).
+- Supports for custom properties. (See <https://github.com/eckz/bevy_flair/blob/main/examples/sound_effects.rs>).
 - Supports for custom parsing. (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_parsing.rs>)
 
 [`Node`]: https://docs.rs/bevy/0.17.0-rc.1/bevy/ui/struct.Node.html
