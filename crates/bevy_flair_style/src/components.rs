@@ -955,7 +955,7 @@ This can cause other issues. Is recommended to spawn nodes before StyleSystems::
             for (property_id, animation) in animations.iter_mut() {
                 let property_id = *property_id;
                 if !animation.can_be_ticked() {
-                    return;
+                    continue;
                 }
                 let was_pending = animation.state == AnimationState::Pending;
                 let was_running = was_pending || animation.state == AnimationState::Running;
