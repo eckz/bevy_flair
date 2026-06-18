@@ -92,71 +92,59 @@ fn hash_32<T: Hash>(value: T) -> u32 {
     FxBuildHasher.hash_one(value) as u32
 }
 
-macro_rules! str_wrapper {
-    ($($id:ident),*) => {
-        $(
-            #[derive(Clone, Default, Debug)]
-            pub(crate) struct $id(SmolStr, u32);
+#[derive(Clone, Default, Debug)]
+pub(crate) struct CssString(SmolStr, u32);
 
-            impl $id {
-                #[allow(dead_code)]
-                pub(crate) fn as_str(&self) -> &str {
-                    self.0.as_str()
-                }
+impl CssString {
+    pub(crate) fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
 
-                pub const EMPTY: $id = $id(SmolStr::new_static(""), 838452008);
-            }
-
-            impl PartialEq for $id {
-                fn eq(&self, other: &Self) -> bool {
-                    self.0 == other.0
-                }
-            }
-
-            impl Eq for $id {}
-
-            impl <'a> From<&'a str> for $id {
-                fn from(value: &'a str) -> Self {
-                    Self(SmolStr::new(value), hash_32(value))
-                }
-            }
-
-            impl Display for $id {
-                fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-                    <SmolStr as Display>::fmt(&self.0, f)
-                }
-            }
-
-            impl AsRef<[u8]> for $id {
-                fn as_ref(&self) -> &[u8] {
-                    self.0.as_bytes()
-                }
-            }
-
-            impl AsRef<str> for $id {
-                fn as_ref(&self) -> &str {
-                    self.0.as_str()
-                }
-            }
-
-            impl cssparser::ToCss for $id {
-                fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
-                    dest.write_str(self.0.as_str())
-                }
-            }
-
-            impl precomputed_hash::PrecomputedHash for $id {
-                fn precomputed_hash(&self) -> u32 {
-                    self.1
-                }
-            }
-
-        )*
-    };
+    pub const EMPTY: CssString = CssString(SmolStr::new_static(""), 838452008);
 }
 
-str_wrapper! {
-    CssString
+impl PartialEq for CssString {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for CssString {}
+
+impl<'a> From<&'a str> for CssString {
+    fn from(value: &'a str) -> Self {
+        Self(SmolStr::new(value), hash_32(value))
+    }
+}
+
+impl Display for CssString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <SmolStr as Display>::fmt(&self.0, f)
+    }
+}
+
+impl AsRef<[u8]> for CssString {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl AsRef<str> for CssString {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl cssparser::ToCss for CssString {
+    fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
+        dest.write_str(self.0.as_str())
+    }
+}
+
+impl precomputed_hash::PrecomputedHash for CssString {
+    fn precomputed_hash(&self) -> u32 {
+        self.1
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]

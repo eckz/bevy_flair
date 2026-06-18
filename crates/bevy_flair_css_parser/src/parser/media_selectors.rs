@@ -153,7 +153,7 @@ pub(super) fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelector
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::CssRulesetProperty;
+    use crate::parser::CssDeclaration;
     use bevy_flair_style::{ColorScheme, MediaRangeSelector, MediaSelector, ToCss};
     use indoc::indoc;
 
@@ -275,10 +275,10 @@ mod tests {
 
         assert_selector_is_class_selector!(selector, "rule");
 
-        let mut properties = ruleset.properties;
+        let mut properties = ruleset.declaration_block;
         assert_eq!(properties.len(), 1);
 
-        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(0) else {
+        let CssDeclaration::NestedRuleset(nested_ruleset) = properties.remove(0) else {
             panic!("Expected nested ruleset")
         };
 

@@ -28,10 +28,12 @@ mod testing;
 
 pub mod css_selector;
 
+pub mod asset_loader;
 pub(crate) mod custom_iterators;
 mod layers;
 mod media_selector;
 pub mod placeholder;
+mod style_block;
 mod systems;
 mod to_css;
 mod vars;
@@ -41,6 +43,7 @@ use crate::components::*;
 
 pub use builder::*;
 pub use media_selector::*;
+pub use style_block::*;
 pub use style_sheet::*;
 pub use to_css::*;
 pub use vars::*;
@@ -152,8 +155,14 @@ impl From<bevy_window::WindowTheme> for ColorScheme {
 
 #[derive(Resource, Default, Debug)]
 pub(crate) struct GlobalChangeDetection {
-    pub any_property_value_changed: bool,
-    pub any_animation_active: bool,
+    pub properties_that_inherit: PropertyBloomFilter,
+    pub property_values_changed_this_frame: PropertyBloomFilter,
+}
+
+impl GlobalChangeDetection {
+    pub(crate) fn clear(&mut self) {
+        self.property_values_changed_this_frame.clear();
+    }
 }
 
 /// System sets for the [`FlairStylePlugin`] plugin.
@@ -166,7 +175,7 @@ pub enum StyleSystems {
     SetStyleData,
 
     /// Mark all entities that needs their style recalculated.
-    MarkEntitiesForRecalculation,
+    MarkEntitiesForStyleRecalculation,
 
     /// Moves transitions and animations forward.
     /// Happens before CalculateStyle, where new transitions and animations are added,
@@ -174,11 +183,11 @@ pub enum StyleSystems {
     TickAnimations,
 
     /// Calculates active stylesheet sets for entities that are marked for recalculation.
-    /// Also sets vars and further marks entities as changed when a var changes.
+    /// Also sets vars and further marks entities as changed in the hierarchy when a var changes.
     CalculateStyles,
 
     /// Sets the corresponding [`PropertyValue`]'s, depending on the styles calculated in [`StyleSystems::CalculateStyles`].
-    SetPropertyValues,
+    ResolvePropertyValues,
 
     /// Converts properties from [`PropertyValue`] into [`ComputedValue`].
     ComputeProperties,
@@ -337,23 +346,19 @@ pub struct FlairStylePlugin;
 
 impl Plugin for FlairStylePlugin {
     fn build(&self, app: &mut App) {
-        app.init_asset::<StyleSheet>()
+        app.init_asset::<StyleBlock>()
+            .init_asset::<StyleSheet>()
             .init_resource::<GlobalChangeDetection>()
             .register_required_components::<Node, Styled>()
             .register_required_components::<TextSpan, Styled>()
-            .register_required_components_with::<Button, TypeName>(|| {
-                TypeName("button")
-            })
-            .register_required_components_with::<Text, TypeName>(|| {
-                TypeName("text")
-            })
-            .register_required_components_with::<TextSpan, TypeName>(|| {
-                TypeName("span")
-            })
-            .register_required_components_with::<Label, TypeName>(|| {
-                TypeName("label")
-            })
-            .add_plugins((ReflectAnimationsPlugin, placeholder::PlaceholderResolvePlugin))
+            .register_required_components_with::<Button, TypeName>(|| TypeName("button"))
+            .register_required_components_with::<Text, TypeName>(|| TypeName("text"))
+            .register_required_components_with::<TextSpan, TypeName>(|| TypeName("span"))
+            .register_required_components_with::<Label, TypeName>(|| TypeName("label"))
+            .add_plugins((
+                ReflectAnimationsPlugin,
+                placeholder::PlaceholderResolvePlugin,
+            ))
             .add_observer(systems::observe_on_component_auto_inserted)
             .configure_sets(
                 PostUpdate,
@@ -361,9 +366,9 @@ impl Plugin for FlairStylePlugin {
                     (
                         StyleSystems::Prepare,
                         StyleSystems::SetStyleData,
-                        StyleSystems::MarkEntitiesForRecalculation,
+                        StyleSystems::MarkEntitiesForStyleRecalculation,
                         StyleSystems::CalculateStyles,
-                        StyleSystems::SetPropertyValues,
+                        StyleSystems::ResolvePropertyValues,
                         StyleSystems::ComputeProperties,
                         StyleSystems::ResolveAnimations,
                         StyleSystems::SetAnimationValues,
@@ -371,7 +376,7 @@ impl Plugin for FlairStylePlugin {
                         StyleSystems::EmitRedrawEvent,
                     )
                         .chain(),
-                    StyleSystems::TickAnimations.before(StyleSystems::SetPropertyValues),
+                    StyleSystems::TickAnimations.before(StyleSystems::ResolvePropertyValues),
                     StyleSystems::EmitAnimationEvents.after(StyleSystems::SetAnimationValues),
                 ),
             )
@@ -382,7 +387,7 @@ impl Plugin for FlairStylePlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    systems::mark_as_changed_on_style_sheet_change,
+                    systems::reset_on_style_sheet_change,
                     systems::clear_global_change_detection,
                     systems::set_window_theme_on_change_event,
                 ),
@@ -392,43 +397,54 @@ impl Plugin for FlairStylePlugin {
                 PostUpdate,
                 (
                     (
-                        systems::calculate_effective_style_sheet,
                         systems::compute_window_media_features,
                         systems::sort_pseudo_elements,
-                        systems::reset_properties,
+                        (
+                            systems::calculate_effective_style_sheet,
+                            systems::reset_properties,
+                        )
+                            .chain(),
                     )
                         .in_set(StyleSystems::Prepare),
                     (
                         systems::calculate_is_root,
                         systems::apply_classes,
                         systems::apply_attributes,
-                        systems::sync_marker_component_system::<bevy_ui::Pressed>(|state, value| { state.pressed = value; }),
-                        systems::sync_marker_component_system::<bevy_ui::InteractionDisabled>(|state, value| { state.disabled = value; }),
-                        systems::sync_marker_component_system::<bevy_ui::Checked>(|state, value| { state.checked = value; }),
-                        systems::sync_hovered_system,
-                        systems::sync_interaction_system,
+                        systems::sync_marker_component_system::<bevy_ui::Pressed>(
+                            |state, value| {
+                                state.pressed = value;
+                            },
+                        ),
+                        systems::sync_marker_component_system::<bevy_ui::InteractionDisabled>(
+                            |state, value| {
+                                state.disabled = value;
+                            },
+                        ),
+                        systems::sync_marker_component_system::<bevy_ui::Checked>(
+                            |state, value| {
+                                state.checked = value;
+                            },
+                        ),
+                        systems::sync_hovered,
+                        systems::sync_interaction,
                         systems::track_name_changes,
                         systems::sync_input_focus,
                     )
                         .in_set(StyleSystems::SetStyleData),
                     (
-                        systems::set_related_entities_for_style_recalculation,
-                        systems::mark_changed_entities_for_recalculation,
+                        systems::recalculate_style_on_changed_children,
+                        systems::recalculate_style_on_related_entities_changes,
                         (
-                            systems::set_entities_for_style_recalculation_on_render_target_info_change,
-                            systems::set_entities_for_style_recalculation_on_window_media_features_change
-                        ).after(bevy_ui::UiSystems::Propagate),
+                            systems::recalculate_style_on_render_target_info_change,
+                            systems::recalculate_style_on_window_media_features_changes,
+                        )
+                            .after(bevy_ui::UiSystems::Propagate),
                     )
                         .chain()
-                        .in_set(StyleSystems::MarkEntitiesForRecalculation),
-                    systems::calculate_style_and_set_vars.in_set(StyleSystems::CalculateStyles),
-                    systems::set_property_values.in_set(StyleSystems::SetPropertyValues),
-                    (
-                        systems::compute_property_values
-                            .run_if(systems::compute_property_values_condition),
-                        systems::set_pending_compute_property_values
-                            .run_if(not(systems::compute_property_values_condition))
-                    ).in_set(StyleSystems::ComputeProperties),
+                        .in_set(StyleSystems::MarkEntitiesForStyleRecalculation),
+                    systems::calculate_styles_and_set_vars.in_set(StyleSystems::CalculateStyles),
+                    systems::resolve_property_values.in_set(StyleSystems::ResolvePropertyValues),
+                    systems::compute_property_values.in_set(StyleSystems::ComputeProperties),
                     systems::resolve_animations.in_set(StyleSystems::ResolveAnimations),
                     systems::set_animation_computed_values.in_set(StyleSystems::SetAnimationValues),
                     systems::emit_animation_events.in_set(StyleSystems::EmitAnimationEvents),
@@ -437,7 +453,7 @@ impl Plugin for FlairStylePlugin {
                         systems::resolve_placeholders,
                         systems::apply_computed_properties,
                         systems::auto_remove_components
-                            .run_if(systems::auto_remove_components_condition)
+                            .run_if(systems::auto_remove_components_condition),
                     )
                         .chain()
                         .in_set(StyleSystems::ApplyComputedProperties),
@@ -470,7 +486,6 @@ mod tests {
     use bevy_app::App;
     use bevy_asset::uuid_handle;
     use bevy_ecs::system::RunSystemOnce;
-    use bevy_input_focus::FocusCause;
     use bevy_ui::Node;
 
     const TEST_STYLE_SHEET: Styled =
@@ -495,24 +510,6 @@ mod tests {
     #[require(Node)]
     struct GrandChild;
 
-    #[derive(Copy, Clone, Component, Reflect)]
-    #[reflect(Component)]
-    #[require(Node, TypeName("custom-type"))]
-    struct CustomType;
-
-    #[derive(Copy, Clone, Component, Reflect)]
-    #[reflect(Component)]
-    #[require(Button, TypeName("custom-button"))]
-    struct CustomButton;
-
-    macro_rules! query_len {
-        ($app:expr, $filter:ty) => {{
-            let world = $app.world_mut();
-            let mut query_state = world.query_filtered::<(), $filter>();
-            query_state.iter(world).len()
-        }};
-    }
-
     macro_rules! query {
         ($app:expr, $components:ty) => {{
             let world: &mut World = $app.world_mut();
@@ -524,29 +521,6 @@ mod tests {
             let world: &mut World = $app.world_mut();
             let mut query_state = world.query_filtered::<$components, $filter>();
             query_state.iter(world).collect::<Vec<_>>()
-        }};
-    }
-
-    macro_rules! assert_world_snapshot {
-        ($app:expr, ( $($components:path),*) ) => {{
-            let all_entities = query!($app, Entity, With<StyleData>);
-            let type_registry = $app.world().resource::<AppTypeRegistry>().0.read();
-
-            let mut world_builder = bevy_world_serialization::DynamicWorldBuilder::from_world($app.world(), &type_registry);
-            world_builder = world_builder
-                .allow_component::<Name>()
-                .allow_component::<ChildOf>()
-                .allow_component::<Children>()
-                .allow_component::<Styled>()
-                $(.allow_component::<$components>())*
-                .extract_entities(all_entities.into_iter())
-                .remove_empty_entities()
-            ;
-
-            let dynamic_world = world_builder.build();
-            let world_serializer = bevy_world_serialization::serde::DynamicWorldSerializer::new(&dynamic_world, &type_registry);
-
-            insta::assert_ron_snapshot!(world_serializer);
         }};
     }
 
@@ -564,283 +538,8 @@ mod tests {
             ImplComponentPropertiesPlugin,
             FlairStylePlugin,
         ));
-
-        // Not registered, but needed for testing.
-        app.register_type::<Styled>().register_type::<StyleData>();
-
-        // Bevy uses auto register for these, but auto register is not enable in testing.
-        app.register_type::<ChildOf>()
-            .register_type::<Children>()
-            .register_type::<Name>();
-
-        app.register_type::<Child>()
-            .register_type::<GrandChild>()
-            .register_type::<CustomType>()
-            .register_type::<CustomButton>();
-
         app.finish();
-
         app
-    }
-
-    #[test]
-    fn custom_type_name() {
-        let mut app = app();
-        app.add_systems(Startup, |mut commands: Commands| {
-            commands.spawn((ROOT, CustomType));
-        });
-        app.update();
-        assert_world_snapshot!(app, (CustomType, StyleData));
-    }
-
-    #[test]
-    fn custom_button() {
-        let mut app = app();
-        app.add_systems(Startup, |mut commands: Commands| {
-            commands.spawn((ROOT, CustomButton));
-        });
-        app.update();
-        assert_world_snapshot!(app, (CustomButton, StyleData));
-    }
-
-    macro_rules! node_pseudo_state {
-        ($app:ident, $entity:ident) => {
-            &$app.world().get::<StyleData>($entity).unwrap().pseudo_state
-        };
-    }
-
-    #[test]
-    fn state_marker_components() {
-        use bevy_ui::{Checked, InteractionDisabled, Pressed};
-        let mut app = app();
-
-        let entity = app.world_mut().spawn(ROOT).id();
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(!pseudo_state.disabled);
-        assert!(!pseudo_state.checked);
-        assert!(!pseudo_state.pressed);
-
-        app.world_mut()
-            .entity_mut(entity)
-            .insert((Pressed, Checked));
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(!pseudo_state.disabled);
-        assert!(pseudo_state.checked);
-        assert!(pseudo_state.pressed);
-
-        app.world_mut()
-            .entity_mut(entity)
-            .remove::<(Pressed, Checked)>()
-            .insert(InteractionDisabled);
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(pseudo_state.disabled);
-        assert!(!pseudo_state.checked);
-        assert!(!pseudo_state.pressed);
-
-        app.world_mut()
-            .entity_mut(entity)
-            .remove::<(InteractionDisabled,)>()
-            .insert(Checked);
-        app.world_mut()
-            .entity_mut(entity)
-            .remove::<(Checked,)>()
-            .insert((InteractionDisabled, Pressed));
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(pseudo_state.disabled);
-        assert!(!pseudo_state.checked);
-        assert!(pseudo_state.pressed);
-    }
-
-    #[test]
-    fn focus_state() {
-        use bevy_input_focus::{InputFocus, InputFocusVisible};
-        let mut app = app();
-
-        let entity = app.world_mut().spawn(ROOT).id();
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(!pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
-
-        app.world_mut()
-            .insert_resource(InputFocus::from_entity(entity));
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
-
-        app.world_mut().insert_resource(InputFocusVisible(true));
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(pseudo_state.focused);
-        assert!(pseudo_state.focused_and_visible);
-
-        app.world_mut().resource_mut::<InputFocus>().clear();
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(!pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
-
-        app.world_mut()
-            .resource_mut::<InputFocus>()
-            .set(entity, FocusCause::Navigated);
-        app.world_mut().resource_mut::<InputFocusVisible>().0 = false;
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
-    }
-
-    #[test]
-    fn hovered_state() {
-        use bevy_picking::hover::Hovered;
-        let mut app = app();
-
-        let entity = app.world_mut().spawn(ROOT).id();
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(!pseudo_state.hovered);
-
-        app.world_mut().entity_mut(entity).insert(Hovered(true));
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(pseudo_state.hovered);
-
-        app.world_mut().entity_mut(entity).insert(Hovered(false));
-        app.update();
-
-        let pseudo_state = node_pseudo_state!(app, entity);
-        assert!(!pseudo_state.hovered);
-    }
-
-    #[test]
-    fn spawn_many_children() {
-        let mut app = app();
-
-        app.add_systems(Startup, |mut commands: Commands| {
-            commands
-                .spawn((Name::new("Root"), ROOT))
-                .with_children(|children| {
-                    children.spawn(Child);
-                    children.spawn(Child);
-                    children.spawn(Child);
-                });
-        });
-
-        app.update();
-
-        assert_world_snapshot!(app, (Child));
-    }
-
-    #[test]
-    fn spawn_with_pseudo_elements() {
-        let mut app = app();
-
-        app.add_systems(Startup, |mut commands: Commands| {
-            commands
-                .spawn((Name::new("Root"), ROOT))
-                .with_children(|children| {
-                    children.spawn(Child);
-                    children.spawn((Child, PseudoElementsSupport, children![GrandChild]));
-                    children.spawn((Child, PseudoElementsSupport));
-                });
-        });
-
-        app.update();
-
-        assert_world_snapshot!(app, (Child, PseudoElement));
-    }
-
-    #[test]
-    fn append_child_after_initial_spawn() {
-        let mut app = app();
-
-        let root_entity_id = app
-            .world_mut()
-            .spawn((Name::new("Root"), ROOT, children![(Child,), (Child,)]))
-            .id();
-
-        app.update();
-        app.world_mut().entity_mut(root_entity_id).with_child(Child);
-        app.update();
-
-        assert_world_snapshot!(app, (Child, StyleData));
-    }
-
-    #[test]
-    fn spawn_many_children_and_grandchildren() {
-        let mut app = app();
-
-        app.world_mut().spawn((
-            Name::new("Root"),
-            ROOT,
-            children![
-                (Child, children![GrandChild, GrandChild, GrandChild]),
-                (Child,),
-                (
-                    Child,
-                    Styled::Block,
-                    children![GrandChild, GrandChild, GrandChild]
-                )
-            ],
-        ));
-
-        app.update();
-        assert_world_snapshot!(app, (Child, GrandChild, StyleData));
-    }
-
-    #[test]
-    fn append_grand_children_after_initial_spawn() {
-        let mut app = app();
-
-        let root_entity_id = app
-            .world_mut()
-            .spawn((
-                Name::new("Root"),
-                ROOT,
-                children![(Child,), (Child, Styled::Block)],
-            ))
-            .id();
-
-        app.update();
-
-        let num_children = query_len!(app, (With<Styled>, With<Child>));
-        assert_eq!(num_children, 2);
-
-        app.world_mut()
-            .run_system_once(
-                move |mut commands: Commands, children_query: Query<&Children>| {
-                    for child in children_query.iter_leaves(root_entity_id) {
-                        commands
-                            .entity(child)
-                            .with_child(GrandChild)
-                            .with_child(GrandChild);
-                    }
-                },
-            )
-            .unwrap();
-
-        app.update();
-
-        let num_grand_children = query_len!(app, (With<Styled>, With<GrandChild>));
-        assert_eq!(num_grand_children, 4);
-
-        assert_world_snapshot!(app, (Child, GrandChild, StyleData));
     }
 
     #[test]
@@ -867,17 +566,16 @@ mod tests {
 
         fn num_nodes_needs_style_recalculation(app: &mut App) -> usize {
             let markers = query!(app, &StyleMarkers);
-            markers
-                .iter()
-                .filter(|c| c.needs_style_recalculation())
-                .count()
+            markers.iter().filter(|c| c.needs_calculate_style()).count()
         }
 
         fn clear_all_style_recalculation(app: &mut App) {
             app.world_mut()
                 .run_system_once(|mut query: Query<&mut StyleMarkers>| {
-                    for mut computed_style in &mut query {
-                        computed_style.clear_style_recalculation();
+                    for mut marker in &mut query {
+                        if marker.needs_calculate_style() {
+                            marker.set_to_none();
+                        }
                     }
                 })
                 .unwrap();
@@ -900,7 +598,7 @@ mod tests {
         {
             app.world_mut()
                 .run_system_once(|mut query: Query<&mut StyleMarkers, Without<ChildOf>>| {
-                    query.single_mut().unwrap().set_needs_style_recalculation();
+                    query.single_mut().unwrap().recalculate_style();
                 })
                 .unwrap();
 
@@ -916,13 +614,10 @@ mod tests {
         {
             app.world_mut()
                 .run_system_once(
-                    |mut query: Query<
-                        (&StyleSelectorFlags, &mut StyleMarkers),
-                        With<FirstChild>,
-                    >| {
-                        let (selector_flags, mut marker) = query.single_mut().unwrap();
-                        marker.set_needs_style_recalculation();
-                        selector_flags
+                    |mut query: Query<(&StyleFlags, &mut StyleMarkers), With<FirstChild>>| {
+                        let (flags, mut marker) = query.single_mut().unwrap();
+                        marker.recalculate_style();
+                        flags
                             .recalculate_on_change_flags
                             .insert(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS);
                     },
@@ -940,13 +635,10 @@ mod tests {
         {
             app.world_mut()
                 .run_system_once(
-                    |mut query: Query<
-                        (&StyleSelectorFlags, &mut StyleMarkers),
-                        Without<ChildOf>,
-                    >| {
-                        let (selector_flags, mut marker) = query.single_mut().unwrap();
-                        marker.set_needs_style_recalculation();
-                        selector_flags
+                    |mut query: Query<(&StyleFlags, &mut StyleMarkers), Without<ChildOf>>| {
+                        let (flags, mut marker) = query.single_mut().unwrap();
+                        marker.recalculate_style();
+                        flags
                             .recalculate_on_change_flags
                             .insert(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS);
                     },

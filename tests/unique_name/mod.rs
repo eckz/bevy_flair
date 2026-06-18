@@ -5,10 +5,11 @@ use bevy_ecs::system::command::insert_resource;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-#[derive(Debug, Component)]
+#[derive(Debug, Default, Clone, Component)]
 #[component(immutable, on_insert = on_insert_unique_name, on_remove = on_remove_unique_name)]
-pub(crate) struct UniqueName(Cow<'static, str>);
+pub(crate) struct UniqueName(pub Cow<'static, str>);
 impl UniqueName {
+    #[allow(unused)]
     pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
         Self(name.into())
     }
@@ -49,23 +50,48 @@ fn on_remove_unique_name(mut world: DeferredWorld, context: HookContext) {
     map.remove(&name);
 }
 
-pub(crate) trait FindByUniqueName {
-    fn find_by_unique_name(&self, name: &str) -> Entity;
+#[allow(dead_code)]
+pub(crate) trait UniqueNameExt {
+    fn get_entity_by_unique_name(&self, name: &str) -> Entity;
+    fn get_by_unique_name<T: Component + TypePath>(&self, name: &str) -> &T;
+
+    fn entity_mut_by_unique_name(&mut self, name: &str) -> EntityWorldMut<'_>;
 }
 
-impl FindByUniqueName for World {
-    fn find_by_unique_name(&self, name: &str) -> Entity {
-        self.get_resource::<UniqueNamesMap>()
-            .and_then(|map| map.get(name))
-            .copied()
-            .unwrap_or_else(|| {
-                panic!("No entity with name '{name}'");
-            })
+impl UniqueNameExt for World {
+    fn get_entity_by_unique_name(&self, name: &str) -> Entity {
+        let unique_names = self.resource::<UniqueNamesMap>();
+        unique_names.get(name).copied().unwrap_or_else(|| {
+            panic!("No entity with name '{name}' found");
+        })
+    }
+
+    fn get_by_unique_name<T: Component + TypePath>(&self, name: &str) -> &T {
+        let entity = self.get_entity_by_unique_name(name);
+        self.get(entity).unwrap_or_else(|| {
+            panic!(
+                "Entity '{name}' doesn't have component '{component_name}'",
+                component_name = T::type_path()
+            );
+        })
+    }
+
+    fn entity_mut_by_unique_name(&mut self, name: &str) -> EntityWorldMut<'_> {
+        let entity = self.get_entity_by_unique_name(name);
+        self.entity_mut(entity)
     }
 }
 
-impl FindByUniqueName for App {
-    fn find_by_unique_name(&self, name: &str) -> Entity {
-        self.world().find_by_unique_name(name)
+impl UniqueNameExt for App {
+    fn get_entity_by_unique_name(&self, name: &str) -> Entity {
+        self.world().get_entity_by_unique_name(name)
+    }
+
+    fn get_by_unique_name<T: Component + TypePath>(&self, name: &str) -> &T {
+        self.world().get_by_unique_name(name)
+    }
+
+    fn entity_mut_by_unique_name(&mut self, name: &str) -> EntityWorldMut<'_> {
+        self.world_mut().entity_mut_by_unique_name(name)
     }
 }

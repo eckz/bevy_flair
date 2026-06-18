@@ -5,8 +5,13 @@
     height: 100%;
 }
 
-:root > * {
+:not(:root) {
     width: 20px;
     height: 20px;
     background-color: black;
+
+    &.bigger {
+        width: 30px;
+        height: 30px;
+    }
 }

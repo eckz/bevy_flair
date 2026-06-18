@@ -48,6 +48,8 @@ jobs:
           sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: cargo check
         run: cargo check --workspace --target ${{ matrix.target }}
+      - name: cargo check --all-features
+        run: cargo check --all-features --workspace --target ${{ matrix.target }}
       - name: cargo check --release
         run: cargo check --release --workspace --target ${{ matrix.target }}
 
@@ -73,6 +75,10 @@ jobs:
         run: cargo check --workspace --target wasm32-unknown-unknown
         env:
           RUSTFLAGS: --cfg getrandom_backend="wasm_js"
+      - name: cargo check --all-features
+        run: cargo check --all-features --workspace --target wasm32-unknown-unknown
+        env:
+          RUSTFLAGS: --cfg getrandom_backend="wasm_js
       - name: cargo check --release
         run: cargo check --release --workspace --target wasm32-unknown-unknown
         env:
@@ -106,6 +112,8 @@ jobs:
           sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: cargo clippy
         run: cargo clippy --workspace  --all-targets  -- -D warnings
+      - name: cargo clippy --all-features
+        run: cargo clippy --all-features --workspace  --all-targets  -- -D warnings
       - name: cargo clippy --release
         run: cargo clippy --release --workspace  --all-targets  -- -D warnings
 
@@ -199,5 +207,7 @@ jobs:
           sudo apt-get install -y libwayland-dev libudev-dev libasound2-dev
       - name: cargo check
         run: cargo check --all-targets
+      - name: cargo check --all-features
+        run: cargo check --all-features --all-targets
       - name: cargo check --release
         run: cargo check --release --all-targets

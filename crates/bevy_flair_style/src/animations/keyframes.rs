@@ -2,12 +2,12 @@ use crate::animations::{
     AnimationSpecificValue, AnimationValues, EasingFunction, ReflectAnimatable,
 };
 use crate::components::{PropertyIdDebugHelper, StaticPropertyMaps};
-use crate::style_sheet::RulesetProperty;
 use crate::{StyleBuilderProperty, VarResolver};
 use bevy_flair_core::*;
 use rustc_hash::FxHashSet;
 use std::borrow::Cow;
 
+use crate::style_block::StyleProperty;
 use bevy_math::{Curve, FloatExt};
 use bevy_reflect::TypeRegistry;
 use std::sync::Arc;
@@ -90,7 +90,7 @@ pub(crate) struct AnimationKeyframe {
     /// Time of the keyframe. It's a value between 0.0 and 1.0, 1.0 being 100%.
     pub time: f32,
     /// All properties defined in this keyframe
-    properties: Vec<RulesetProperty>,
+    properties: Vec<StyleProperty>,
     /// Optional animation timing function
     animation_timing_function: Option<AnimationValues<AnimationSpecificValue>>,
 }
@@ -214,7 +214,7 @@ impl KeyframesResolver<'_> {
             ));
         }
 
-        // Resolve
+        // Resolves
         //  - `PropertyValue` into `ComputedValue`
         //  - `Option<AnimationValues<AnimationSpecificValue>>` into EasingFunction
         let mut tmp_resolved_keyframes = tmp_keyframes
@@ -225,8 +225,12 @@ impl KeyframesResolver<'_> {
                     .map(|(k, v)| {
                         (
                             k,
-                            /* compute_with_parent would resolve inherit, but it's not supported yet */
-                            v.compute_as_root(&self.static_property_maps.unset[k], &self.static_property_maps.initial[k]),
+                            // TODO: We could provide ancestors to add `inherit` support in keyframes
+                            v.compute(PropertyValueComputeContext {
+                                unset: &self.static_property_maps.unset[k],
+                                initial: &self.static_property_maps.initial[k],
+                                ancestors: &|| []
+                            })
                         )
                     })
                     .collect::<PropertiesHashMap<_>>();

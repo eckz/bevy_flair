@@ -1,7 +1,7 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 
-use crate::components::{PseudoElement, RecalculateOnChangeFlags, StyleData, StyleSelectorFlags};
+use crate::components::{PseudoElement, RecalculateOnChangeFlags, StyleData, StyleFlags};
 use crate::css_selector::{
     CssPseudoElement, CssSelectorImpl, CssString, InternalPseudoStateSelector,
 };
@@ -71,7 +71,7 @@ macro_rules! impl_element_commons {
 
 #[derive(SystemParam)]
 pub(crate) struct ElementRefSystemParam<'w, 's> {
-    style_data_query: Query<'w, 's, (&'static StyleData, &'static StyleSelectorFlags)>,
+    style_data_query: Query<'w, 's, (&'static StyleData, &'static StyleFlags)>,
     styled_children: StyledChildren<'w, 's>,
 }
 
@@ -86,7 +86,7 @@ impl fmt::Debug for ElementRefSystemParam<'_, '_> {
 pub(crate) struct ElementRef<'a> {
     entity: Entity,
     data: &'a StyleData,
-    selector_flags: &'a StyleSelectorFlags,
+    flags: &'a StyleFlags,
     params: &'a ElementRefSystemParam<'a, 'a>,
 }
 
@@ -106,7 +106,7 @@ impl<'a> ElementRef<'a> {
         Self {
             entity,
             data,
-            selector_flags,
+            flags: selector_flags,
             params,
         }
     }
@@ -122,7 +122,7 @@ impl<'a> ElementRef<'a> {
         Some(Self {
             entity,
             data,
-            selector_flags,
+            flags: selector_flags,
             params: queries,
         })
     }
@@ -196,7 +196,7 @@ impl Element for ElementRef<'_> {
         Self::related_new(
             first_child,
             self.params,
-            RecalculateOnChangeFlags::RECALCULATE_ASCENDANTS,
+            RecalculateOnChangeFlags::RECALCULATE_ANCESTORS,
         )
     }
 
@@ -278,7 +278,7 @@ impl Element for ElementRef<'_> {
             self.entity,
             flags.iter_names().map(|(s, _)| s).collect::<Vec<_>>()
         );
-        self.selector_flags.css_selector_flags.insert(flags);
+        self.flags.css_selector_flags.insert(flags);
     }
 
     fn is_pseudo_element(&self) -> bool {

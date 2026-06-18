@@ -189,15 +189,15 @@ fn all_properties() {
         )
     }
 
-    assert_expected_node(app.world().entity(app.find_by_unique_name("Node")));
+    assert_expected_node(app.world().entity(app.get_entity_by_unique_name("Node")));
     assert_expected_node(
         app.world()
-            .entity(app.find_by_unique_name("NodeWithInheritedValues")),
+            .entity(app.get_entity_by_unique_name("NodeWithInheritedValues")),
     );
 
     let with_unset_values_entity = app
         .world()
-        .entity(app.find_by_unique_name("NodeWithUnsetValues"));
+        .entity(app.get_entity_by_unique_name("NodeWithUnsetValues"));
 
     let (node, border_color, background_color) =
         with_unset_values_entity.components::<(&Node, &BorderColor, &BackgroundColor)>();
@@ -219,7 +219,7 @@ fn all_properties() {
 
     let with_initial_values_entity = app
         .world()
-        .entity(app.find_by_unique_name("NodeWithInitialValues"));
+        .entity(app.get_entity_by_unique_name("NodeWithInitialValues"));
     let (
         node,
         border_color,
@@ -260,7 +260,7 @@ fn all_properties() {
     assert_eq!(background_gradient, &BackgroundGradient(vec![]));
     assert_eq!(border_gradient, &BorderGradient(vec![]));
 
-    let text_entity = app.world().entity(app.find_by_unique_name("Text"));
+    let text_entity = app.world().entity(app.get_entity_by_unique_name("Text"));
 
     let (text_color, text_font, text_layout, text_shadow, line_height) =
         text_entity.components::<(&TextColor, &TextFont, &TextLayout, &TextShadow, &LineHeight)>();

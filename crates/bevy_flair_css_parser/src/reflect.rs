@@ -181,7 +181,7 @@ pub(crate) mod reflect_test_utils {
     use crate::{PropertyValueParseFn, ReflectParseCss};
     use bevy_app::App;
     use bevy_ecs::reflect::AppTypeRegistry;
-    use bevy_flair_core::{PropertyValue, ReflectValue};
+    use bevy_flair_core::{PropertyValue, PropertyValueComputeContext, ReflectValue};
     use bevy_reflect::FromReflect;
     use std::any::TypeId;
 
@@ -237,11 +237,16 @@ pub(crate) mod reflect_test_utils {
     {
         let property_value = parse_property_content_with(contents, parse_fn);
 
-        let computed_value =
-            property_value.compute_as_root(&PropertyValue::None, &ReflectValue::Usize(0));
+        let context = PropertyValueComputeContext {
+            unset: &PropertyValue::None,
+            initial: &ReflectValue::Usize(0),
+            ancestors: &|| [],
+        };
+
+        let computed_value = property_value.compute(context);
         computed_value
-            .expect("Invalid value generated")
+            .expect("ComputedValue::None generated")
             .downcast_value()
-            .expect("Invalid value generated")
+            .expect("Invalid type value generated")
     }
 }

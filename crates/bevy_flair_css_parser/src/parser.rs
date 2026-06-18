@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 pub use animations::*;
 
+use crate::internal_loader::{ImportMapping, Imports};
 use crate::parser::media_selectors::parse_media_selectors;
 pub(crate) use font_face::*;
 pub(crate) use keyframes::*;
@@ -36,7 +37,7 @@ pub(crate) use keyframes::*;
 pub(crate) static VAR_FUNCTION: [&str; 1] = ["var"];
 
 #[derive(Clone, derive_more::Debug)]
-pub enum CssRulesetProperty {
+pub enum CssDeclaration {
     SingleProperty(ComponentPropertyId, PropertyValue, ImportantLevel),
     MultipleProperties(Vec<(ComponentPropertyId, PropertyValue)>, ImportantLevel),
     DynamicProperty(
@@ -52,16 +53,16 @@ pub enum CssRulesetProperty {
     Error(CssError),
 }
 
-impl From<CssError> for CssRulesetProperty {
+impl From<CssError> for CssDeclaration {
     fn from(error: CssError) -> Self {
-        CssRulesetProperty::Error(error)
+        CssDeclaration::Error(error)
     }
 }
 
-impl CssRulesetProperty {
-    fn into_parse_result(self) -> Result<CssRulesetProperty, ParseError<'static, CssError>> {
+impl CssDeclaration {
+    fn into_parse_result(self) -> Result<CssDeclaration, ParseError<'static, CssError>> {
         match self {
-            CssRulesetProperty::Error(err) => Err(err.into_parse_error()),
+            CssDeclaration::Error(err) => Err(err.into_parse_error()),
             other => Ok(other),
         }
     }
@@ -70,12 +71,12 @@ impl CssRulesetProperty {
 #[derive(Clone, Debug)]
 pub struct CssRuleset {
     pub selectors: CssParseResult<Vec<CssSelector>>,
-    pub properties: Vec<CssRulesetProperty>,
+    pub declaration_block: Vec<CssDeclaration>,
 }
 
 #[derive(Debug)]
 pub(crate) enum CssStyleSheetItem {
-    EmbedStylesheet(StyleSheet, Option<String>),
+    EmbedStylesheet(StyleSheet, ImportMapping, Option<String>),
     Inner(Vec<CssStyleSheetItem>),
     RuleSet(CssRuleset),
     FontFace(FontFace),
@@ -111,8 +112,8 @@ pub(crate) struct CssPropertyParser<'a> {
 #[derive(Clone)]
 struct CssParserContext<'a, 'i> {
     property_parser: CssPropertyParser<'a>,
-    declared_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
-    imports: &'a FxHashMap<String, StyleSheet>,
+    defined_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
+    imports: &'a Imports,
     media_selectors: MediaSelectors,
     current_layer: String,
 }
@@ -145,7 +146,7 @@ impl CssPropertyParser<'_> {
         &self,
         property_name: &str,
         parser: &mut Parser,
-    ) -> CssRulesetProperty {
+    ) -> CssDeclaration {
         if let Some(shorthand_property) = self.get_shorthand_css(property_name) {
             let initial_state = parser.state();
             parser.look_for_arbitrary_substitution_functions(&VAR_FUNCTION);
@@ -161,7 +162,7 @@ impl CssPropertyParser<'_> {
             let seen_var = parser.seen_arbitrary_substitution_functions();
 
             return match result {
-                Ok((properties, important_level)) => CssRulesetProperty::MultipleProperties(
+                Ok((properties, important_level)) => CssDeclaration::MultipleProperties(
                     properties
                         .into_iter()
                         .map(|(css_ref, value)| {
@@ -181,22 +182,22 @@ impl CssPropertyParser<'_> {
                     parser.reset(&initial_state);
                     let result = consume_as_var_tokens(parser);
                     match result {
-                        Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
+                        Ok((var_tokens, important_level)) => CssDeclaration::DynamicProperty(
                             shorthand_property.css_name.as_ref().into(),
                             shorthand_property
                                 .as_dynamic_parse_var_tokens(self.css_property_registry),
                             var_tokens,
                             important_level,
                         ),
-                        Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+                        Err(err) => CssDeclaration::Error(CssError::from(err)),
                     }
                 }
-                Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+                Err(err) => CssDeclaration::Error(CssError::from(err)),
             };
         }
 
         let Some(property_id) = self.get_css_property(property_name) else {
-            return CssRulesetProperty::Error(CssError::new_unlocated(
+            return CssDeclaration::Error(CssError::new_unlocated(
                 error_codes::basic::PROPERTY_NOT_RECOGNIZED,
                 format!("Property '{property_name}' is not recognized as a valid property name",),
             ));
@@ -205,7 +206,7 @@ impl CssPropertyParser<'_> {
         let property = &self.property_registry[property_id];
 
         let Some(reflect_parse_css) = self.get_reflect_parse_css(property.value_type_id()) else {
-            return CssRulesetProperty::Error(CssError::new_unlocated(
+            return CssDeclaration::Error(CssError::new_unlocated(
                 error_codes::basic::NON_PARSEABLE_TYPE,
                 format!(
                     "Property {property_name} of type '{value_type_path}' does not have a configured way of parsing it. It should implement ReflectParseCss or ReflectParseCssEnum",
@@ -230,22 +231,22 @@ impl CssPropertyParser<'_> {
 
         match result {
             Ok((value, important_level)) => {
-                CssRulesetProperty::SingleProperty(property_id, value, important_level)
+                CssDeclaration::SingleProperty(property_id, value, important_level)
             }
             Err(_) if seen_var => {
                 parser.reset(&initial_state);
                 let result = consume_as_var_tokens(parser);
                 match result {
-                    Ok((var_tokens, important_level)) => CssRulesetProperty::DynamicProperty(
+                    Ok((var_tokens, important_level)) => CssDeclaration::DynamicProperty(
                         property_name.into(),
                         reflect_parse_css.as_dynamic_parse_var_tokens(property_id),
                         var_tokens,
                         important_level,
                     ),
-                    Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+                    Err(err) => CssDeclaration::Error(CssError::from(err)),
                 }
             }
-            Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+            Err(err) => CssDeclaration::Error(CssError::from(err)),
         }
     }
 }
@@ -294,7 +295,7 @@ struct CssRulesetBodyParser<'a, 'i> {
 
 impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
     type Prelude = AtRuleType<'i>;
-    type AtRule = CssRulesetProperty;
+    type AtRule = CssDeclaration;
     type Error = CssError;
 
     fn parse_prelude<'t>(
@@ -342,9 +343,9 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     .unwrap()
                     .with_media_selectors(media_selectors);
 
-                CssRulesetProperty::NestedRuleset(CssRuleset {
+                CssDeclaration::NestedRuleset(CssRuleset {
                     selectors: Ok(vec![parent_selector]),
-                    properties,
+                    declaration_block: properties,
                 })
             }
             AtRuleType::Layer(layers) => {
@@ -365,9 +366,9 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     .unwrap()
                     .with_layer(layer.as_ref().into());
 
-                CssRulesetProperty::NestedRuleset(CssRuleset {
+                CssDeclaration::NestedRuleset(CssRuleset {
                     selectors: Ok(vec![parent_selector]),
-                    properties,
+                    declaration_block: properties,
                 })
             }
             _unexpected => {
@@ -379,7 +380,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
 
 impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
     type Prelude = CssParseResult<Vec<CssSelector>>;
-    type QualifiedRule = CssRulesetProperty;
+    type QualifiedRule = CssDeclaration;
     type Error = CssError;
 
     fn parse_prelude<'t>(
@@ -408,9 +409,9 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
         let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
         let properties = collect_parser(body_parser);
 
-        Ok(CssRulesetProperty::NestedRuleset(CssRuleset {
+        Ok(CssDeclaration::NestedRuleset(CssRuleset {
             selectors,
-            properties,
+            declaration_block: properties,
         }))
     }
 }
@@ -424,7 +425,7 @@ pub fn prefix_eq_ignore_ascii_case(s: &str, prefix: &str) -> bool {
 }
 
 impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
-    type Declaration = CssRulesetProperty;
+    type Declaration = CssDeclaration;
     type Error = CssError;
 
     fn parse_value<'t>(
@@ -441,17 +442,15 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
             });
 
             Ok(match result {
-                Ok(value) => CssRulesetProperty::Var(var_name.into(), value),
-                Err(err) => CssRulesetProperty::Error(CssError::from(err)),
+                Ok(value) => CssDeclaration::Var(var_name.into(), value),
+                Err(err) => CssDeclaration::Error(CssError::from(err)),
             })
         } else if self.parse_transition && prefix_eq_ignore_ascii_case(&property_name, "transition")
         {
             let result = parse_transition_property(&property_name, input);
             Ok(match result {
-                Ok(transition_property) => {
-                    CssRulesetProperty::TransitionProperty(transition_property)
-                }
-                Err(err) => CssRulesetProperty::Error(err),
+                Ok(transition_property) => CssDeclaration::TransitionProperty(transition_property),
+                Err(err) => CssDeclaration::Error(err),
             })
         } else if self.parse_animation == ParseAnimationProperties::All
             && prefix_eq_ignore_ascii_case(&property_name, "animation")
@@ -460,8 +459,8 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
         {
             let result = parse_animation_property(&property_name, input);
             Ok(match result {
-                Ok(animation_property) => CssRulesetProperty::AnimationProperty(animation_property),
-                Err(err) => CssRulesetProperty::Error(err),
+                Ok(animation_property) => CssDeclaration::AnimationProperty(animation_property),
+                Err(err) => CssDeclaration::Error(err),
             })
         } else {
             self.inner
@@ -472,7 +471,7 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
     }
 }
 
-impl<'i> RuleBodyItemParser<'i, CssRulesetProperty, CssError> for CssRulesetBodyParser<'_, 'i> {
+impl<'i> RuleBodyItemParser<'i, CssDeclaration, CssError> for CssRulesetBodyParser<'_, 'i> {
     fn parse_declarations(&self) -> bool {
         true
     }
@@ -576,11 +575,16 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
     ) -> Result<CssStyleSheetItem, ()> {
         match at_rule_type {
             AtRuleType::Import(url, layer) => {
-                let style = self.inner.imports.get(url.as_ref()).unwrap_or_else(|| {
-                    panic!("Import '{url}' not found in imports. This should not happen");
-                });
+                let (style_sheet, mapping) =
+                    self.inner.imports.get(url.as_ref()).unwrap_or_else(|| {
+                        panic!("Import '{url}' not found in imports. This should not happen");
+                    });
 
-                Ok(CssStyleSheetItem::EmbedStylesheet(style.clone(), layer))
+                Ok(CssStyleSheetItem::EmbedStylesheet(
+                    style_sheet.clone(),
+                    mapping.clone(),
+                    layer,
+                ))
             }
             AtRuleType::Layer(layers) => Ok(CssStyleSheetItem::LayersDefinition(
                 layers
@@ -684,7 +688,7 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
 
         Ok(CssStyleSheetItem::RuleSet(CssRuleset {
             selectors,
-            properties,
+            declaration_block: properties,
         }))
     }
 }
@@ -692,7 +696,7 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
 pub fn parse_inline_properties(
     contents: &str,
     property_parser: CssPropertyParser,
-) -> Vec<CssRulesetProperty> {
+) -> Vec<CssDeclaration> {
     let mut input = ParserInput::new(contents);
     let mut parser = Parser::new(&mut input);
 
@@ -705,7 +709,7 @@ pub fn parse_inline_properties(
         parse_nested: false,
         inner: CssParserContext {
             property_parser,
-            declared_animations: Default::default(),
+            defined_animations: Default::default(),
             imports: &empty_imports,
             media_selectors: MediaSelectors::empty(),
             current_layer: String::new(),
@@ -720,7 +724,7 @@ pub fn parse_css<F>(
     property_registry: &PropertyRegistry,
     css_property_registry: &CssPropertyRegistry,
     shorthand_property_registry: &ShorthandPropertyRegistry,
-    imports: &FxHashMap<String, StyleSheet>,
+    imports: &FxHashMap<String, (StyleSheet, ImportMapping)>,
     contents: &str,
     mut processor: F,
 ) where
@@ -738,7 +742,7 @@ pub fn parse_css<F>(
                 css_property_registry,
                 shorthand_property_registry,
             },
-            declared_animations: Default::default(),
+            defined_animations: Default::default(),
             imports,
             media_selectors: MediaSelectors::empty(),
             current_layer: String::new(),
@@ -861,19 +865,15 @@ mod tests {
         }};
     }
 
-    static DEPENDENCIES: LazyLock<FxHashMap<String, StyleSheet>> = LazyLock::new(|| {
+    static IMPORTS: LazyLock<Imports> = LazyLock::new(|| {
         FxHashMap::from_iter([
             (
                 "dependency1.css".into(),
-                StyleSheet::builder()
-                    .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
-                    .unwrap(),
+                (StyleSheet::empty(), FxHashMap::default()),
             ),
             (
                 "dependency2.css".into(),
-                StyleSheet::builder()
-                    .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
-                    .unwrap(),
+                (StyleSheet::empty(), FxHashMap::default()),
             ),
         ])
     });
@@ -887,7 +887,7 @@ mod tests {
             &PROPERTY_REGISTRY,
             &CSS_PROPERTY_REGISTRY,
             &SHORTHAND_PROPERTY_REGISTRY,
-            &DEPENDENCIES,
+            &IMPORTS,
             contents,
             |item| {
                 let item = match item {
@@ -1003,9 +1003,9 @@ mod tests {
 
     macro_rules! expect_property_name {
         ($property:expr, $property_name:literal) => {{
-            use $crate::parser::CssRulesetProperty;
+            use $crate::parser::CssDeclaration;
             match $property {
-                CssRulesetProperty::SingleProperty(id, value, important_level) => {
+                CssDeclaration::SingleProperty(id, value, important_level) => {
                     assert_eq!(
                         id,
                         property_id!($property_name),
@@ -1014,7 +1014,7 @@ mod tests {
                     );
                     (value, important_level)
                 }
-                CssRulesetProperty::Error(error) => {
+                CssDeclaration::Error(error) => {
                     panic!("{}", error.into_context_less_report());
                 }
                 other => {
@@ -1035,7 +1035,7 @@ mod tests {
     macro_rules! expect_dynamic_property_name {
         ($property:expr, $property_name:literal, { $($k:expr => $v:expr),* $(,)? }) => {
             match $property {
-                CssRulesetProperty::DynamicProperty(_, parser, tokens, _) => {
+                CssDeclaration::DynamicProperty(_, parser, tokens, _) => {
                     let vars = rustc_hash::FxHashMap::from_iter([$((
                         $k,
                         crate::test_utils::expects_parse_ok(&$v, crate::test_utils::parse_content_with(&$v, crate::vars::parse_var_tokens))
@@ -1057,7 +1057,7 @@ mod tests {
                     );
                     value
                 }
-                CssRulesetProperty::Error(error) => {
+                CssDeclaration::Error(error) => {
                     panic!("{}", error.into_context_less_report());
                 }
                 other => {
@@ -1125,7 +1125,7 @@ mod tests {
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
 
-        assert_single_property!(ruleset.properties, "width", 3);
+        assert_single_property!(ruleset.declaration_block, "width", 3);
     }
 
     #[test]
@@ -1138,7 +1138,7 @@ mod tests {
 
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
-        assert_single_property!(ruleset.properties, "height", 18);
+        assert_single_property!(ruleset.declaration_block, "height", 18);
     }
 
     #[test]
@@ -1150,9 +1150,9 @@ mod tests {
         let items = parse(contents);
         let rule = items.expect_one_rule_set();
         assert_single_class_selector!(rule, "rule");
-        let property = rule.properties.expect_one();
+        let property = rule.declaration_block.expect_one();
 
-        let CssRulesetProperty::MultipleProperties(values, important_level) = property else {
+        let CssDeclaration::MultipleProperties(values, important_level) = property else {
             panic!("Expected MultipleProperties");
         };
         assert_eq!(important_level, ImportantLevel::Default);
@@ -1183,13 +1183,13 @@ mod tests {
         let items = parse(contents);
         let [rule1, rule2, rule3] = items.expect_n_rule_set();
         assert_single_class_selector!(rule1, "rule1");
-        assert_single_property!(rule1.properties, "height", inherit);
+        assert_single_property!(rule1.declaration_block, "height", inherit);
 
         assert_single_class_selector!(rule2, "rule2");
-        assert_single_property!(rule2.properties, "height", initial);
+        assert_single_property!(rule2.declaration_block, "height", initial);
 
         assert_single_class_selector!(rule3, "rule3");
-        assert_single_property!(rule3.properties, "height", unset);
+        assert_single_property!(rule3.declaration_block, "height", unset);
     }
 
     #[test]
@@ -1203,21 +1203,21 @@ mod tests {
         let items = parse(contents);
         let [rule1, rule2, rule3] = items.expect_n_rule_set();
         assert_single_class_selector!(rule1, "rule1");
-        let property = rule1.properties.expect_one();
+        let property = rule1.declaration_block.expect_one();
         let (value, important_level) = expect_property_name!(property, "height");
         assert_eq!(value, PropertyValue::Value(ReflectValue::new(1)));
         assert!(matches!(important_level, ImportantLevel::Important(_)));
 
         assert_single_class_selector!(rule2, "rule2");
-        let property = rule2.properties.expect_one();
+        let property = rule2.declaration_block.expect_one();
         let (value, important_level) = expect_property_name!(property, "height");
         assert_eq!(value, PropertyValue::Value(ReflectValue::new(2)));
         assert!(matches!(important_level, ImportantLevel::Important(_)));
 
         assert_single_class_selector!(rule3, "rule3");
-        let property = rule3.properties.expect_one();
+        let property = rule3.declaration_block.expect_one();
 
-        let CssRulesetProperty::MultipleProperties(values, important_level) = property else {
+        let CssDeclaration::MultipleProperties(values, important_level) = property else {
             panic!("Expected MultipleProperties");
         };
         assert!(matches!(important_level, ImportantLevel::Important(_)));
@@ -1246,14 +1246,14 @@ mod tests {
         let items = parse(contents);
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
-        let property = ruleset.properties.expect_one();
+        let property = ruleset.declaration_block.expect_one();
         let value = expect_dynamic_property_name!(property, "width", { "some-var" => "4" });
         assert_eq!(value, PropertyValue::Value(ReflectValue::new(4)));
     }
 
     macro_rules! assert_var_tokens {
         ($property:ident, $name:literal, $tokens:expr) => {{
-            let CssRulesetProperty::Var(var_name, tokens) = $property else {
+            let CssDeclaration::Var(var_name, tokens) = $property else {
                 panic!("Expected Var value. Found {:?}", $property);
             };
 
@@ -1273,7 +1273,7 @@ mod tests {
         let items = parse(contents);
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
-        let var_property = ruleset.properties.expect_one();
+        let var_property = ruleset.declaration_block.expect_one();
         assert_var_tokens!(
             var_property,
             "some-var",
@@ -1295,7 +1295,7 @@ mod tests {
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "colors");
 
-        let [some_val, some_color, other_color] = ruleset.properties.expect_n();
+        let [some_val, some_color, other_color] = ruleset.declaration_block.expect_n();
         assert_var_tokens!(
             some_val,
             "some-val",
@@ -1334,11 +1334,11 @@ mod tests {
 
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
-        let property = ruleset.properties.expect_one();
+        let property = ruleset.declaration_block.expect_one();
 
         assert!(matches!(
             property,
-            CssRulesetProperty::TransitionProperty(AnimationProperty::Shorthand(_))
+            CssDeclaration::TransitionProperty(AnimationProperty::Shorthand(_))
         ));
     }
 
@@ -1354,11 +1354,11 @@ mod tests {
 
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
-        let property = ruleset.properties.expect_one();
+        let property = ruleset.declaration_block.expect_one();
 
         assert!(matches!(
             property,
-            CssRulesetProperty::TransitionProperty(AnimationProperty::SingleProperty {
+            CssDeclaration::TransitionProperty(AnimationProperty::SingleProperty {
                 property_id: TransitionPropertyId::Delay,
                 ..
             })
@@ -1377,9 +1377,9 @@ mod tests {
 
         let ruleset = items.expect_one_rule_set();
         assert_single_class_selector!(ruleset, "rule1");
-        let property = ruleset.properties.expect_one();
+        let property = ruleset.declaration_block.expect_one();
 
-        let CssRulesetProperty::Error(css_error) = property else {
+        let CssDeclaration::Error(css_error) = property else {
             panic!("Expected error");
         };
 
@@ -1416,11 +1416,11 @@ mod tests {
         };
 
         assert_single_class_selector!(ruleset, "rule1");
-        let property = ruleset.properties.expect_one();
+        let property = ruleset.declaration_block.expect_one();
 
         assert!(matches!(
             property,
-            CssRulesetProperty::AnimationProperty(AnimationProperty::Shorthand(_))
+            CssDeclaration::AnimationProperty(AnimationProperty::Shorthand(_))
         ));
     }
 
@@ -1442,7 +1442,7 @@ mod tests {
         assert_single_class_selector!(ruleset_1, "rule1");
         assert_single_class_selector!(ruleset_2, "rule2");
 
-        assert_single_property!(ruleset_2.properties, "width", 42);
+        assert_single_property!(ruleset_2.declaration_block, "width", 42);
     }
 
     #[test]
@@ -1477,9 +1477,9 @@ mod tests {
 
         assert_single_class_selector!(ruleset, "test");
 
-        let [width_property, property_height] = ruleset.properties.expect_n();
+        let [width_property, property_height] = ruleset.declaration_block.expect_n();
 
-        let CssRulesetProperty::Error(property_error) = width_property else {
+        let CssDeclaration::Error(property_error) = width_property else {
             panic!("Expected 'width' to be an error");
         };
 
@@ -1516,9 +1516,9 @@ mod tests {
 
         assert_single_class_selector!(ruleset, "test");
 
-        let [error_property, property_height] = ruleset.properties.expect_n();
+        let [error_property, property_height] = ruleset.declaration_block.expect_n();
 
-        let CssRulesetProperty::Error(property_error) = error_property else {
+        let CssDeclaration::Error(property_error) = error_property else {
             panic!("Expected 'not-existing-property' to be an error");
         };
 
@@ -1567,7 +1567,7 @@ mod tests {
         );
 
         // Contents are still parsed
-        assert_single_property!(ruleset.properties, "width", 999);
+        assert_single_property!(ruleset.declaration_block, "width", 999);
     }
 
     #[test]
@@ -1587,19 +1587,16 @@ mod tests {
         assert_eq!(selectors.len(), 1);
         assert_selector_is_class_selector!(selectors[0], "parent");
 
-        let mut properties = ruleset.properties;
+        let mut properties = ruleset.declaration_block;
         assert_eq!(properties.len(), 2);
 
         assert!(matches!(
             properties[0],
-            CssRulesetProperty::SingleProperty(_, _, _)
+            CssDeclaration::SingleProperty(_, _, _)
         ));
-        assert!(matches!(
-            properties[1],
-            CssRulesetProperty::NestedRuleset(_)
-        ));
+        assert!(matches!(properties[1], CssDeclaration::NestedRuleset(_)));
 
-        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(1) else {
+        let CssDeclaration::NestedRuleset(nested_ruleset) = properties.remove(1) else {
             panic!("Expected nested ruleset")
         };
 
@@ -1627,19 +1624,16 @@ mod tests {
         assert_eq!(selectors.len(), 1);
         assert_selector_is_class_selector!(selectors[0], "parent");
 
-        let mut properties = ruleset.properties;
+        let mut properties = ruleset.declaration_block;
         assert_eq!(properties.len(), 2);
 
         assert!(matches!(
             properties[0],
-            CssRulesetProperty::SingleProperty(_, _, _)
+            CssDeclaration::SingleProperty(_, _, _)
         ));
-        assert!(matches!(
-            properties[1],
-            CssRulesetProperty::NestedRuleset(_)
-        ));
+        assert!(matches!(properties[1], CssDeclaration::NestedRuleset(_)));
 
-        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(1) else {
+        let CssDeclaration::NestedRuleset(nested_ruleset) = properties.remove(1) else {
             panic!("Expected nested ruleset")
         };
 
@@ -1660,8 +1654,14 @@ mod tests {
         let items = parse(contents);
         let [import1, import2] = items.expect_n();
 
-        assert!(matches!(import1, CssStyleSheetItem::EmbedStylesheet(_, _)));
-        assert!(matches!(import2, CssStyleSheetItem::EmbedStylesheet(_, _)));
+        assert!(matches!(
+            import1,
+            CssStyleSheetItem::EmbedStylesheet(_, _, _)
+        ));
+        assert!(matches!(
+            import2,
+            CssStyleSheetItem::EmbedStylesheet(_, _, _)
+        ));
     }
 
     #[test]
@@ -1675,10 +1675,10 @@ mod tests {
         let [import1, import2] = items.expect_n();
 
         assert!(
-            matches!(import1, CssStyleSheetItem::EmbedStylesheet(_, Some(layer)) if layer == "some-layer")
+            matches!(import1, CssStyleSheetItem::EmbedStylesheet(_, _, Some(layer)) if layer == "some-layer")
         );
         assert!(
-            matches!(import2, CssStyleSheetItem::EmbedStylesheet(_, Some(layer)) if layer == "some-layer")
+            matches!(import2, CssStyleSheetItem::EmbedStylesheet(_, _, Some(layer)) if layer == "some-layer")
         );
     }
 
@@ -1749,10 +1749,10 @@ mod tests {
 
         assert_selector_is_class_selector!(selector, "rule");
 
-        let mut properties = ruleset.properties;
+        let mut properties = ruleset.declaration_block;
         assert_eq!(properties.len(), 1);
 
-        let CssRulesetProperty::NestedRuleset(nested_ruleset) = properties.remove(0) else {
+        let CssDeclaration::NestedRuleset(nested_ruleset) = properties.remove(0) else {
             panic!("Expected nested ruleset")
         };
 

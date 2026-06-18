@@ -48,7 +48,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 - Different stylesheets per subtree. With the use of a different [`Styled`] per subtree. It's even possible to not apply any style for a given subtree.
 - Use of custom `Time` for transitions and animations (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_time.rs>).
 - Support for the use of [`GhostNode`] in the hierarchy. Ghost nodes are simply ignored.
-  - Enable `experimental_ghost_nodes` feature for better support of Ghost nodes.
+  - Enable `ghost_nodes` feature for better support of Ghost nodes.
 - Supports for custom properties. (See <https://github.com/eckz/bevy_flair/blob/main/examples/sound_effects.rs>).
 - Supports for custom parsing. (See <https://github.com/eckz/bevy_flair/blob/main/examples/custom_parsing.rs>)
 

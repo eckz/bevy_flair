@@ -6,6 +6,7 @@ mod property_value;
 mod reflect_value;
 mod registry;
 
+mod bloom_filter;
 mod component_properties;
 mod entity_command_queue;
 pub mod helper_components;
@@ -15,6 +16,7 @@ mod property_path;
 
 use bevy_app::{App, Plugin};
 
+pub use bloom_filter::*;
 pub use component_properties::*;
 pub use component_property::*;
 pub use entity_command_queue::*;

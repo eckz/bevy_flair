@@ -23,9 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `CustomUiRoots` -> `StyledRoots`.
   - `CustomUiChildren` -> `StyledChildren`.
 - Removed `Siblings` component.
+- Some class names were rewritten to look similar to css standards (e.g. Ruleset => Block ).
+- Some internal reworks make some changes for internal interfaces and structs. This should not affect most users. Performance should have been improved in most cases.
+- Renamed feature `experimental_ghost_nodes` to `ghost_nodes`.
 
 ### Fixed
 - Fixed support for non-UI entities in the style hierarchy. This mainly affected hierarchies with Text. This was previously supported, but it stopped working at some point.
+- Fixed an issue where properties depending on vars were not recomputed when the UI tree changed. Added a test to validate these use cases.
+- Fixed an issue where multiple animations were not properly handled when one was disabled (https://github.com/eckz/bevy_flair/pull/48)
 
 ## [0.7.0] 03-Feb-2026
 

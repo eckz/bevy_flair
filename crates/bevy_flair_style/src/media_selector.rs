@@ -141,6 +141,8 @@ impl MediaSelectors {
     pub fn merge_with(&self, other: MediaSelectors) -> Self {
         if self.is_empty() {
             other
+        } else if other.is_empty() {
+            self.clone()
         } else {
             MediaSelectors(Arc::from_iter(self.iter().chain(other.iter()).cloned()))
         }

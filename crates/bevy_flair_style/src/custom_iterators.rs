@@ -1,7 +1,9 @@
 use bevy_ecs::entity::Entity;
 use bevy_ecs::hierarchy::{ChildOf, Children};
+use bevy_ecs::prelude::Without;
 use bevy_ecs::query::Has;
 use bevy_ecs::system::{Query, SystemParam};
+use bevy_ui::Node;
 use bevy_ui::experimental::{UiChildren, UiRootNodes};
 use bevy_ui::widget::Text;
 use itertools::Either;
@@ -12,22 +14,19 @@ use std::collections::VecDeque;
 /// Uses [`UiRootNodes`] internally, so it will skip over any ghost nodes when traversing the hierarchy.
 #[derive(SystemParam)]
 pub(crate) struct StyledRoots<'w, 's> {
+    non_ui_roots_query: Query<'w, 's, Entity, (Without<Node>, Without<ChildOf>)>,
     ui_roots: UiRootNodes<'w, 's>,
 }
 
 impl<'w, 's> StyledRoots<'w, 's> {
-    pub fn iter(&'s self) -> impl Iterator<Item = Entity> + 's {
-        self.ui_roots.iter()
+    #[cfg(not(feature = "ghost_nodes"))]
+    pub fn contains(&self, entity: Entity) -> bool {
+        self.ui_roots.contains(entity) || self.non_ui_roots_query.contains(entity)
     }
 
-    #[cfg(not(feature = "experimental_ghost_nodes"))]
+    #[cfg(feature = "ghost_nodes")]
     pub fn contains(&self, entity: Entity) -> bool {
-        self.ui_roots.contains(entity)
-    }
-
-    #[cfg(feature = "experimental_ghost_nodes")]
-    pub fn contains(&self, entity: Entity) -> bool {
-        self.ui_roots.iter().any(|root| root == entity)
+        self.ui_roots.iter().any(|root| root == entity) || self.non_ui_roots_query.contains(entity)
     }
 }
 
@@ -62,6 +61,7 @@ impl<'w, 's> StyledChildren<'w, 's> {
 
     /// Returns the parent entity of the given entity, or [`None`] if it has no parent.
     pub fn get_parent(&self, entity: Entity) -> Option<Entity> {
+        #[cfg(feature = "ghost_nodes")]
         if self.ui_children.is_ui_node(entity) {
             self.ui_children.get_parent(entity)
         } else {
@@ -70,10 +70,16 @@ impl<'w, 's> StyledChildren<'w, 's> {
                 .ok()
                 .map(|child_of| child_of.0)
         }
+        // Performance improvement if ghost nodes are disabled
+        #[cfg(not(feature = "ghost_nodes"))]
+        self.child_of_query
+            .get(entity)
+            .ok()
+            .map(|child_of| child_of.0)
     }
 
     /// Returns a breadth-first iterator over descendants with their direct parent.
-    pub fn iter_descendants_with_parent(
+    pub(crate) fn iter_descendants_with_parent(
         &'s self,
         entity: Entity,
     ) -> StyledDescendantWithParentIter<'w, 's> {
@@ -168,15 +174,18 @@ mod tests {
     use bevy_ecs::system::RunSystemOnce;
     use bevy_text::TextSpan;
     use bevy_ui::Node;
-    #[cfg(feature = "experimental_ghost_nodes")]
+    #[cfg(feature = "ghost_nodes")]
     use bevy_ui::experimental::GhostNode;
     use bevy_ui::widget::Text;
+
+    #[derive(Component, Copy, Clone, PartialEq, Debug)]
+    struct NonUiComponent(usize);
 
     #[derive(Component, Copy, Clone, PartialEq, Debug)]
     #[require(Node)]
     struct TestNode(usize);
 
-    #[cfg(feature = "experimental_ghost_nodes")]
+    #[cfg(feature = "ghost_nodes")]
     #[derive(Component, Copy, Clone, PartialEq, Debug)]
     struct TestNodeOrGhost(usize);
 
@@ -208,6 +217,29 @@ mod tests {
             .unwrap()
     }
 
+    fn get_all_roots<C: Component + Clone>(
+        query: Query<(Entity, &C)>,
+        roots: StyledRoots,
+    ) -> Vec<C> {
+        query
+            .iter()
+            .filter(|(e, _)| roots.contains(*e))
+            .map(|(_, component)| component.clone())
+            .collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn non_ui_roots() {
+        let mut world = World::new();
+
+        world.spawn(NonUiComponent(1));
+        world.spawn(NonUiComponent(2));
+
+        let all_roots: Vec<NonUiComponent> = world.run_system_cached(get_all_roots).unwrap();
+
+        assert_eq!(all_roots, [NonUiComponent(1), NonUiComponent(2)]);
+    }
+
     #[test]
     fn ui_roots_without_ghost_nodes() {
         let mut world = World::new();
@@ -215,19 +247,12 @@ mod tests {
         world.spawn(TestNode(1));
         world.spawn((TestNode(2), children![(TestNode(3),), (TestNode(4),),]));
 
-        let all_roots = world
-            .run_system_once(|n_query: Query<&TestNode>, ui_roots: StyledRoots| {
-                n_query
-                    .iter_many(ui_roots.iter())
-                    .copied()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap();
+        let all_roots: Vec<TestNode> = world.run_system_cached(get_all_roots).unwrap();
 
         assert_eq!(all_roots, [TestNode(1), TestNode(2)]);
     }
 
-    #[cfg(feature = "experimental_ghost_nodes")]
+    #[cfg(feature = "ghost_nodes")]
     #[test]
     fn ui_roots_with_ghost_nodes() {
         let mut world = World::new();
@@ -253,7 +278,7 @@ mod tests {
         let all_roots = world
             .run_system_once(|n_query: Query<&TestNodeOrGhost>, ui_roots: StyledRoots| {
                 n_query
-                    .iter_many(ui_roots.iter())
+                    .iter_many(ui_roots.ui_roots.iter())
                     .copied()
                     .collect::<Vec<_>>()
             })
@@ -418,7 +443,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "experimental_ghost_nodes")]
+    #[cfg(feature = "ghost_nodes")]
     #[test]
     fn iter_ancestors_with_ghost_nodes() {
         let mut world = World::new();
@@ -517,7 +542,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "experimental_ghost_nodes")]
+    #[cfg(feature = "ghost_nodes")]
     #[test]
     fn iter_descendants_with_ghost_nodes() {
         let mut world = World::new();

@@ -1,0 +1,19 @@
+* {
+    content: initial;
+}
+
+:root {
+    --value-var: "root-var-value-h2";
+}
+
+.content-from-class {
+    content: "value-from-class-h2";
+}
+
+.content-from-var {
+    content: var(--value-var);
+}
+
+.content-inherits {
+    content: inherit;
+}

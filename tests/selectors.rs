@@ -26,7 +26,7 @@ macro_rules! assert_background_color_eq {
     ($app:ident, $name:literal, $expected_color:expr) => {{
         let name = $name;
         let world = $app.world();
-        let entity = world.find_by_unique_name(name);
+        let entity = world.get_entity_by_unique_name(name);
 
         let Some(BackgroundColor(color)) = world.get::<BackgroundColor>(entity) else {
             panic!("No background color set for entity '{name}' ({entity})");
@@ -44,7 +44,7 @@ macro_rules! assert_node_attr_eq {
     ($app:ident, $name:literal, $attr:ident, $expected_value:expr) => {{
         let name = $name;
         let world = $app.world();
-        let entity = world.find_by_unique_name(name);
+        let entity = world.get_entity_by_unique_name(name);
 
         let Some(Node { $attr, .. }) = world.get::<Node>(entity) else {
             panic!("No node set for entity '{name}' ({entity})");
@@ -63,7 +63,7 @@ macro_rules! assert_image_node_path {
     ($app:ident, $name:literal, $expected_path:expr) => {{
         let name = $name;
         let world = $app.world();
-        let entity = world.find_by_unique_name(name);
+        let entity = world.get_entity_by_unique_name(name);
 
         let Some(ImageNode { image, .. }) = world.get::<ImageNode>(entity) else {
             panic!("No ImageNode set for entity '{name}' ({entity})");
@@ -313,7 +313,7 @@ fn imports() {
     app.add_systems(Startup, spawn_test_scene);
     app.update();
 
-    let root = app.find_by_unique_name("root");
+    let root = app.get_entity_by_unique_name("root");
 
     let Some(BackgroundColor(color)) = app.world().get::<BackgroundColor>(root) else {
         panic!("No background color set for entity {root}");
@@ -327,7 +327,7 @@ fn imports() {
     // This comes from _import_2.css
     assert_eq!(node.margin.left, Val::Px(10.0));
 
-    let text = app.find_by_unique_name("text");
+    let text = app.get_entity_by_unique_name("text");
     let Some(font) = app.world().get::<TextFont>(text) else {
         panic!("No TextFont set for entity {text}");
     };
@@ -345,7 +345,7 @@ macro_rules! set_inline_style {
     ($app:ident, $name:literal, $css:literal) => {{
         let name = $name;
         let world = $app.world_mut();
-        let entity = world.find_by_unique_name(name);
+        let entity = world.get_entity_by_unique_name(name);
 
         let Some(mut inline_style) = world.get_mut::<InlineStyle>(entity) else {
             panic!("No InlineStyle set for entity '{name}' ({entity})");

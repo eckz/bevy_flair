@@ -1,23 +1,18 @@
-use crate::{StyleFontFace, VarName, VarToken, VarTokens, builder::StyleSheetBuilder};
+use crate::{StyleBlock, StyleFontFace, VarTokens, builder::StyleSheetBuilder};
 
-use bevy_flair_core::*;
 use std::borrow::Borrow;
-use std::cmp::PartialEq;
-use std::fmt::Display;
 
 use crate::animations::*;
-use crate::components::{RawInlineStyle, StyleData};
+use crate::components::StyleData;
 
-use crate::animations::TransitionOptions;
 use crate::css_selector::CssSelector;
 
 use crate::media_selector::MediaFeaturesProvider;
-use bevy_asset::Asset;
-use bevy_reflect::{Reflect, TypePath};
+use bevy_asset::{Asset, AssetId, Handle};
+use bevy_reflect::TypePath;
 use bevy_text::FontSource;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::sync::Arc;
-use tracing::{error, warn};
 
 pub(crate) trait StyleMatchableElement:
     selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<StyleData>
@@ -27,105 +22,6 @@ pub(crate) trait StyleMatchableElement:
 impl<T> StyleMatchableElement for T where
     T: selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<StyleData>
 {
-}
-
-/// A parser function for dynamically parsing a list of [`VarToken`]s.
-///
-/// This parser is used to convert a sequence of var tokens into a list of defined properties.
-///
-/// The result is a `Vec` of `(ComponentPropertyRef, PropertyValue)` pairs, or an error if parsing fails.
-pub type DynamicParseVarTokens = Arc<
-    dyn Fn(
-            &[VarToken],
-        )
-            -> Result<Vec<(ComponentPropertyRef, PropertyValue)>, Box<dyn core::error::Error>>
-        + Send
-        + Sync,
->;
-
-#[derive(derive_more::Debug, Clone)]
-pub(crate) enum RulesetProperty {
-    Specific {
-        property_id: ComponentPropertyId,
-        value: PropertyValue,
-    },
-    Dynamic {
-        css_name: Arc<str>,
-        #[debug(skip)]
-        parser: DynamicParseVarTokens,
-        tokens: VarTokens,
-    },
-}
-
-impl RulesetProperty {
-    pub(crate) fn resolve(
-        &self,
-        property_registry: &PropertyRegistry,
-        var_resolver: &dyn VarResolver,
-        mut resolved: impl FnMut(ComponentPropertyId, PropertyValue),
-    ) {
-        match self {
-            RulesetProperty::Specific { property_id, value } => {
-                resolved(*property_id, value.clone());
-            }
-            RulesetProperty::Dynamic {
-                css_name,
-                parser,
-                tokens,
-            } => {
-                let tokens_resolved = match tokens
-                    .resolve_recursively(|var_name| var_resolver.get_var_tokens(var_name))
-                {
-                    Ok(v) => v,
-                    Err(err) => {
-                        let err = err.enhance_error(var_resolver);
-                        error!("Error parsing '{css_name}': {err}");
-                        return;
-                    }
-                };
-                match parser(&tokens_resolved) {
-                    Ok(values) => {
-                        for (property_ref, value) in values {
-                            let property_id = property_registry.resolve(&property_ref).expect(
-                                "Error resolving ref of a dynamic property. This is probably a bug",
-                            );
-                            resolved(property_id, value);
-                        }
-                    }
-                    Err(err) => {
-                        error!("Property '{css_name}' cannot parse var tokens:\n{err}");
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// A collection of style rules, including variable definitions and property settings.
-/// Represents a body of a ruleset defined in css.
-/// It includes the properties, variables, animation and transition properties.
-///
-/// For example:
-/// ```css
-///  --my-variable: 10px;
-///  color: var(--my-variable);
-/// ```
-#[derive(Debug, Clone, Default)]
-pub struct Ruleset {
-    pub(super) vars: FxHashMap<Arc<str>, VarTokens>,
-    pub(super) properties: Vec<RulesetProperty>,
-    pub(super) transition_properties: AnimationProperties<TransitionPropertyId>,
-    pub(super) animation_properties: AnimationProperties<AnimationPropertyId>,
-}
-
-/// ID of a ruleset in a [`StyleSheet`].
-#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Hash, Debug, Reflect)]
-pub struct StyleSheetRulesetId(pub(crate) usize);
-
-impl Display for StyleSheetRulesetId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0)
-    }
 }
 
 /// Trait for resolving variable names to their associated [`VarTokens`].
@@ -163,9 +59,11 @@ pub struct StyleSheet {
     // This only make sense here when importing other stylesheets
     pub(super) font_faces: Vec<StyleFontFace>,
     pub(super) resolved_font_faces: FxHashMap<String, FontSource>,
-    pub(super) rulesets: Vec<Ruleset>,
+    // Only used to keep a strong Handle to the used blocks
+    #[dependency]
+    pub(super) block_handles: Vec<Handle<StyleBlock>>,
     pub(super) animation_keyframes: FxHashMap<Arc<str>, AnimationKeyframes>,
-    pub(super) css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
+    pub(super) css_selectors_to_blocks: Vec<(CssSelector, AssetId<StyleBlock>)>,
 }
 
 impl StyleSheet {
@@ -174,132 +72,28 @@ impl StyleSheet {
         StyleSheetBuilder::new()
     }
 
-    /// Gets a reference to a ruleset by its [`StyleSheetRulesetId`].
-    pub fn get(&self, id: StyleSheetRulesetId) -> Option<&Ruleset> {
-        self.rulesets.get(id.0)
-    }
-
-    fn resolve_rulesets<'a>(
-        &'a self,
-        rulesets: &'a [StyleSheetRulesetId],
-        inline: Option<&'a RawInlineStyle>,
-    ) -> impl Iterator<Item = &'a Ruleset> + 'a {
-        rulesets
-            .iter()
-            .map(|id| self.get(*id).unwrap())
-            .chain(inline.map(|i| &i.ruleset))
-    }
-
-    /// Returns all property values defined in the given rulesets and inline styles.
-    pub fn get_property_values<V: VarResolver>(
-        &self,
-        rulesets: &[StyleSheetRulesetId],
-        inline: Option<&RawInlineStyle>,
-        property_registry: &PropertyRegistry,
-        var_resolver: &V,
-        output: &mut PropertyMap<PropertyValue>,
-    ) {
-        for ruleset in self.resolve_rulesets(rulesets, inline) {
-            for property in ruleset.properties.iter() {
-                property.resolve(property_registry, var_resolver, |property_id, value| {
-                    output.set_if_neq(property_id, value);
-                });
-            }
+    /// Creates an empty [`StyleSheet`].
+    pub const fn empty() -> Self {
+        Self {
+            font_faces: Vec::new(),
+            resolved_font_faces: FxHashMap::with_hasher(FxBuildHasher),
+            block_handles: Vec::new(),
+            animation_keyframes: FxHashMap::with_hasher(FxBuildHasher),
+            css_selectors_to_blocks: Vec::new(),
         }
     }
 
-    /// Returns all variables defined in the given rulesets and inline styles.
-    pub fn get_vars(
-        &self,
-        rulesets: &[StyleSheetRulesetId],
-        inline: Option<&RawInlineStyle>,
-    ) -> FxHashMap<VarName, VarTokens> {
-        let mut result = FxHashMap::default();
-
-        for ruleset in self.resolve_rulesets(rulesets, inline) {
-            result.extend(
-                ruleset
-                    .vars
-                    .iter()
-                    .map(|(name, value)| (name.clone(), value.clone())),
-            );
-        }
-        result
-    }
-
-    pub(crate) fn resolve_transition_options<V: VarResolver>(
-        &self,
-        rulesets: &[StyleSheetRulesetId],
-        inline: Option<&RawInlineStyle>,
-        property_registry: &PropertyRegistry,
-        css_property_registry: &CssPropertyRegistry,
-        var_resolver: &V,
-    ) -> PropertiesHashMap<TransitionOptions> {
-        let mut output = FxHashMap::default();
-
-        for ruleset in self.resolve_rulesets(rulesets, inline) {
-            ruleset
-                .transition_properties
-                .resolve_to_output(var_resolver, &mut output);
-        }
-        let configurations = from_properties_to_transition_configuration(&output);
-
-        configurations
-            .into_iter()
-            .flat_map(|config| {
-                let property_name = &*config.property_name;
-
-                match css_property_registry.resolve(property_name, property_registry) {
-                    Ok(CssResolveResult::Property(property_id)) => {
-                        vec![(property_id, config.options)]
-                    }
-                    Ok(CssResolveResult::Shorthand(properties)) => properties
-                        .into_iter()
-                        .map(|id| (id, config.options.clone()))
-                        .collect(),
-                    Err(CssResolveError::CssPropertyNotRegistered(_)) => {
-                        warn!("Css property '{property_name}' does not exist, skipping");
-                        Vec::new()
-                    }
-                    Err(err) => {
-                        error!("Error resolving css property '{property_name}': {err}, skipping");
-                        Vec::new()
-                    }
-                }
-            })
-            .collect()
-    }
-
-    // Returns the animation configurations defined in the given rulesets.
-    // This only includes which animations should run, and the config of the animations.
-    // It doesn't include the keyframes
-    pub(crate) fn resolve_animation_configs<V: VarResolver>(
-        &self,
-        rulesets: &[StyleSheetRulesetId],
-        inline: Option<&RawInlineStyle>,
-        var_resolver: &V,
-    ) -> Vec<AnimationConfiguration> {
-        let mut properties = FxHashMap::default();
-
-        for ruleset in self.resolve_rulesets(rulesets, inline) {
-            ruleset
-                .animation_properties
-                .resolve_to_output(var_resolver, &mut properties);
-        }
-        from_properties_to_animation_configuration(&properties)
-    }
-
-    /// Returns ids that matches with the given element.
+    /// Returns block ids that matches with the given element.
     /// Results are sorted from less specific to more specific.
-    pub(crate) fn get_matching_ruleset_ids_for_element<
+    pub(crate) fn get_matching_block_ids_for_element<
         E: StyleMatchableElement,
         M: MediaFeaturesProvider,
     >(
         &self,
         element: &E,
         media_provider: &M,
-    ) -> Vec<StyleSheetRulesetId> {
-        self.css_selectors_to_rulesets
+    ) -> Vec<AssetId<StyleBlock>> {
+        self.css_selectors_to_blocks
             .iter()
             .filter_map(|(s, id)| {
                 (s.matches_selector(element) && s.matches_media_selector(media_provider))
@@ -311,15 +105,27 @@ impl StyleSheet {
 
 #[cfg(all(test, not(miri)))]
 mod tests {
-    use super::*;
-    use crate::animations::AnimationProperty;
-    use crate::builder::RulesetBuilder;
-    use crate::media_selector::{MediaRangeSelector, MediaSelector};
+    use crate::StyleResolver;
+    use crate::animations::{
+        AnimationConfiguration, AnimationKeyframes, AnimationOptions, AnimationProperty,
+        AnimationPropertyId, EasingFunction, TransitionOptions, TransitionPropertyId,
+    };
+    use crate::asset_loader::{CustomLoader, StyleAssetLoader};
+    use crate::builder::{BlockBuilder, StyleSheetBuilderBlockId};
+    use crate::css_selector::CssSelector;
+    use crate::media_selector::{MediaFeaturesProvider, MediaRangeSelector, MediaSelector};
     use crate::test_utils::NoVarsSupportedResolver;
     use crate::testing::{css_selector, entity};
-    use crate::{ColorScheme, StyleBuilderProperty};
+    use crate::{ColorScheme, StyleBlock, StyleBuilderProperty, StyleSheetBuilder};
+    use bevy_asset::{AssetId, AssetPath, Assets, Handle, UntypedHandle};
     use bevy_ecs::component::Component;
-    use std::sync::LazyLock;
+    use bevy_flair_core::{
+        ComponentProperties, CssPropertyRegistry, PropertyCanonicalName, PropertyRegistry,
+        ReflectValue,
+    };
+    use bevy_reflect::{Reflect, TypeRegistry};
+    use std::any::TypeId;
+    use std::sync::{Arc, LazyLock};
     use std::time::Duration;
 
     #[derive(Component, ComponentProperties, Reflect, Default)]
@@ -331,6 +137,8 @@ mod tests {
         PropertyCanonicalName::from_component_field::<TestComponent>("value");
 
     const CSS_TEST_PROPERTY: &str = "test-property";
+
+    static EMPTY_TYPE_REGISTRY: LazyLock<TypeRegistry> = LazyLock::new(TypeRegistry::new);
 
     static PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(|| {
         let mut registry = PropertyRegistry::new();
@@ -354,7 +162,7 @@ mod tests {
 
     macro_rules! properties {
         ($($k:expr => $v:expr),* $(,)?) => {
-            PropertiesHashMap::from_iter([$((
+            bevy_flair_core::PropertiesHashMap::from_iter([$((
                 resolve!($k),
                 $v
             ),)*])
@@ -376,11 +184,10 @@ mod tests {
     }
 
     macro_rules! get_properties {
-        ($style_sheet:expr, $rules:expr) => {{
+        ($blocks:expr, $ids:expr) => {{
+            let block_resolver = crate::StyleResolver::new(&$blocks, $ids);
             let mut property_map = PROPERTY_REGISTRY.create_unset_values_map();
-            $style_sheet.get_property_values(
-                $rules,
-                None,
+            block_resolver.resolve_property_values(
                 &PROPERTY_REGISTRY,
                 &crate::test_utils::NoVarsSupportedResolver,
                 &mut property_map,
@@ -423,6 +230,35 @@ mod tests {
         }
     }
 
+    struct TestAssetLoader<'a>(&'a mut Assets<StyleBlock>);
+
+    impl<'a> CustomLoader for TestAssetLoader<'a> {
+        fn load(&self, type_id: TypeId, path: AssetPath<'_>) -> UntypedHandle {
+            panic!("Cannot load {path} of type {type_id:?}");
+        }
+
+        fn add_style_block(
+            &mut self,
+            _label: Arc<str>,
+            style_block: StyleBlock,
+        ) -> Handle<StyleBlock> {
+            self.0.add(style_block)
+        }
+    }
+
+    fn translate_ids<const N: usize>(
+        blocks: &Assets<StyleBlock>,
+        ids: [StyleSheetBuilderBlockId; N],
+    ) -> [AssetId<StyleBlock>; N] {
+        ids.map(|id| {
+            blocks
+                .iter()
+                .find(|(_, block)| block.original_id == Some(id))
+                .expect("Id not found")
+                .0
+        })
+    }
+
     #[test]
     fn test_style_sheet() {
         let mut builder = StyleSheetBuilder::new();
@@ -439,7 +275,7 @@ mod tests {
 
         builder.add_animation_keyframes(keyframes_builder.build(&PROPERTY_REGISTRY).unwrap());
 
-        let rule_with_name_id = builder
+        let block_with_name_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!("#test_name"))
             .with_transition_property(AnimationProperty::new_specific_property(
@@ -454,92 +290,117 @@ mod tests {
                 (AnimationPropertyId::Name, TEST_ANIMATION_NAME.into()),
                 (AnimationPropertyId::Duration, Duration::from_secs(1).into()),
             ]]))
-            .id();
+            .block_id();
 
-        let rule_class_id = builder
+        let block_class_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!(".class_1"))
             .with_property(StyleBuilderProperty::new(
                 TEST_PROPERTY,
                 ReflectValue::Float(2f32),
             ))
-            .id();
+            .block_id();
 
-        let rule_class_with_hover_id = builder
+        let block_class_with_hover_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!(".class_1:hover"))
             .with_property(StyleBuilderProperty::new(
                 TEST_PROPERTY,
                 ReflectValue::Float(4f32),
             ))
-            .id();
+            .block_id();
 
-        let rule_any_id = builder
+        let block_any_id = builder
             .new_ruleset()
             .with_css_selector(css_selector!("*"))
             .with_property(StyleBuilderProperty::new(
                 TEST_PROPERTY,
                 ReflectValue::Float(0f32),
             ))
-            .id();
+            .block_id();
+
+        let mut style_blocks = Assets::<StyleBlock>::default();
+
+        let mut custom_loader = TestAssetLoader(&mut style_blocks);
 
         let style_sheet = builder
-            .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
+            .build(
+                &EMPTY_TYPE_REGISTRY,
+                &PROPERTY_REGISTRY,
+                StyleAssetLoader::custom(&mut custom_loader),
+            )
             .unwrap();
 
         let media_provider = TestMediaProvider::default();
 
+        let [
+            block_with_name_id,
+            block_class_id,
+            block_class_with_hover_id,
+            block_any_id,
+        ] = translate_ids(
+            &style_blocks,
+            [
+                block_with_name_id,
+                block_class_id,
+                block_class_with_hover_id,
+                block_any_id,
+            ],
+        );
+
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &media_provider),
-            vec![rule_any_id]
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &media_provider),
+            vec![block_any_id]
         );
         assert_eq!(
-            style_sheet
-                .get_matching_ruleset_ids_for_element(element!(Text.class_1), &media_provider),
-            vec![rule_any_id, rule_class_id]
+            style_sheet.get_matching_block_ids_for_element(element!(Text.class_1), &media_provider),
+            vec![block_any_id, block_class_id]
         );
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(
+            style_sheet.get_matching_block_ids_for_element(
                 element!(text.class_1 #test_name),
                 &media_provider
             ),
-            vec![rule_any_id, rule_class_id, rule_with_name_id]
+            vec![block_any_id, block_class_id, block_with_name_id]
         );
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(
+            style_sheet.get_matching_block_ids_for_element(
                 element!(text.class_1 :hover #test_name),
                 &media_provider
             ),
             vec![
-                rule_any_id,
-                rule_class_id,
-                rule_class_with_hover_id,
-                rule_with_name_id
+                block_any_id,
+                block_class_id,
+                block_class_with_hover_id,
+                block_with_name_id
             ]
         );
 
         assert_eq!(
-            get_properties!(style_sheet, &[rule_any_id, rule_class_id]),
+            get_properties!(style_blocks, [block_any_id, block_class_id]),
             property_map! { TEST_PROPERTY => ReflectValue::Float(2.0) }
         );
 
         assert_eq!(
             get_properties!(
-                style_sheet,
-                &[
-                    rule_any_id,
-                    rule_class_id,
-                    rule_class_with_hover_id,
-                    rule_with_name_id
+                style_blocks,
+                [
+                    block_any_id,
+                    block_class_id,
+                    block_class_with_hover_id,
+                    block_with_name_id
                 ]
             ),
             property_map! { TEST_PROPERTY => ReflectValue::Float(4.0) }
         );
 
+        let block_resolver = StyleResolver::new(
+            &style_blocks,
+            [block_any_id, block_class_id, block_class_with_hover_id],
+        );
+
         assert_eq!(
-            style_sheet.resolve_transition_options(
-                &[rule_any_id, rule_class_id, rule_class_with_hover_id],
-                None,
+            block_resolver.resolve_transition_options(
                 &PROPERTY_REGISTRY,
                 &CSS_PROPERTY_REGISTRY,
                 &NoVarsSupportedResolver,
@@ -552,15 +413,18 @@ mod tests {
             ..Default::default()
         };
 
+        let block_resolver = StyleResolver::new(
+            &style_blocks,
+            [
+                block_any_id,
+                block_class_id,
+                block_class_with_hover_id,
+                block_with_name_id,
+            ],
+        );
+
         assert_eq!(
-            style_sheet.resolve_transition_options(
-                &[
-                    rule_any_id,
-                    rule_class_id,
-                    rule_class_with_hover_id,
-                    rule_with_name_id
-                ],
-                None,
+            block_resolver.resolve_transition_options(
                 &PROPERTY_REGISTRY,
                 &CSS_PROPERTY_REGISTRY,
                 &NoVarsSupportedResolver,
@@ -568,20 +432,23 @@ mod tests {
             properties! { TEST_PROPERTY => expected_transition_options }
         );
 
+        let block_resolver = StyleResolver::new(
+            &style_blocks,
+            [block_any_id, block_class_id, block_class_with_hover_id],
+        );
+
         assert_eq!(
-            style_sheet.resolve_animation_configs(
-                &[rule_any_id, rule_class_id, rule_class_with_hover_id],
-                None,
-                &NoVarsSupportedResolver,
-            ),
+            block_resolver.resolve_animation_configs(&NoVarsSupportedResolver,),
             vec![]
         );
 
-        let resolved_animations = style_sheet.resolve_animation_configs(
-            &[rule_any_id, rule_class_id, rule_with_name_id],
-            None,
-            &NoVarsSupportedResolver,
+        let block_resolver = StyleResolver::new(
+            &style_blocks,
+            [block_any_id, block_class_id, block_with_name_id],
         );
+
+        let resolved_animations =
+            block_resolver.resolve_animation_configs(&NoVarsSupportedResolver);
 
         assert_eq!(
             resolved_animations,
@@ -602,7 +469,7 @@ mod tests {
 
         let any_selector = CssSelector::parse_single("*").unwrap();
 
-        let rule_dark = builder
+        let block_dark = builder
             .new_ruleset()
             .with_css_selector(
                 any_selector
@@ -613,9 +480,9 @@ mod tests {
                 TEST_PROPERTY,
                 ReflectValue::Float(0f32),
             ))
-            .id();
+            .block_id();
 
-        let rule_light = builder
+        let block_light = builder
             .new_ruleset()
             .with_css_selector(
                 any_selector
@@ -626,9 +493,9 @@ mod tests {
                 TEST_PROPERTY,
                 ReflectValue::Float(1f32),
             ))
-            .id();
+            .block_id();
 
-        let rule_min_width_500 = builder
+        let block_min_width_500 = builder
             .new_ruleset()
             .with_css_selector(any_selector.clone().with_media_selectors([
                 MediaSelector::ColorScheme(ColorScheme::Light),
@@ -638,9 +505,9 @@ mod tests {
                 TEST_PROPERTY,
                 ReflectValue::Float(2f32),
             ))
-            .id();
+            .block_id();
 
-        let rule_width_exact_600 = builder
+        let block_width_exact_600 = builder
             .new_ruleset()
             .with_css_selector(any_selector.clone().with_media_selectors([
                 MediaSelector::ColorScheme(ColorScheme::Light),
@@ -650,9 +517,9 @@ mod tests {
                 TEST_PROPERTY,
                 ReflectValue::Float(3f32),
             ))
-            .id();
+            .block_id();
 
-        let rule_aspect_ratio_ge_1 = builder
+        let block_aspect_ratio_ge_1 = builder
             .new_ruleset()
             .with_css_selector(any_selector.clone().with_media_selectors(
                 MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(1.0)),
@@ -661,9 +528,9 @@ mod tests {
                 TEST_PROPERTY,
                 ReflectValue::Float(3f32),
             ))
-            .id();
+            .block_id();
 
-        let rule_aspect_ratio_le_1 = builder
+        let block_aspect_ratio_le_1 = builder
             .new_ruleset()
             .with_css_selector(any_selector.clone().with_media_selectors(
                 MediaSelector::AspectRatio(MediaRangeSelector::LessOrEqual(1.0)),
@@ -672,11 +539,38 @@ mod tests {
                 TEST_PROPERTY,
                 ReflectValue::Float(3f32),
             ))
-            .id();
+            .block_id();
+
+        let mut style_blocks = Assets::<StyleBlock>::default();
+
+        let mut custom_loader = TestAssetLoader(&mut style_blocks);
 
         let style_sheet = builder
-            .build_without_resolving_placeholders(&PROPERTY_REGISTRY)
+            .build(
+                &EMPTY_TYPE_REGISTRY,
+                &PROPERTY_REGISTRY,
+                StyleAssetLoader::custom(&mut custom_loader),
+            )
             .unwrap();
+
+        let [
+            block_dark,
+            block_light,
+            block_min_width_500,
+            block_width_exact_600,
+            block_aspect_ratio_ge_1,
+            block_aspect_ratio_le_1,
+        ] = translate_ids(
+            &style_blocks,
+            [
+                block_dark,
+                block_light,
+                block_min_width_500,
+                block_width_exact_600,
+                block_aspect_ratio_ge_1,
+                block_aspect_ratio_le_1,
+            ],
+        );
 
         let dark_media = TestMediaProvider {
             scheme: Some(ColorScheme::Dark),
@@ -684,8 +578,8 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &dark_media),
-            vec![rule_dark]
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media),
+            vec![block_dark]
         );
 
         let light_media = TestMediaProvider {
@@ -694,8 +588,8 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &light_media),
-            vec![rule_light]
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media),
+            vec![block_light]
         );
 
         let light_500_media = TestMediaProvider {
@@ -705,8 +599,8 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &light_500_media),
-            vec![rule_light, rule_min_width_500]
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media),
+            vec![block_light, block_min_width_500]
         );
 
         let light_600_media = TestMediaProvider {
@@ -716,8 +610,8 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &light_600_media),
-            vec![rule_light, rule_min_width_500, rule_width_exact_600]
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media),
+            vec![block_light, block_min_width_500, block_width_exact_600]
         );
 
         let resolution_800x600 = TestMediaProvider {
@@ -727,8 +621,8 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &resolution_800x600),
-            vec![rule_aspect_ratio_ge_1]
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_800x600),
+            vec![block_aspect_ratio_ge_1]
         );
 
         let resolution_600x800 = TestMediaProvider {
@@ -738,8 +632,8 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_ruleset_ids_for_element(element!(Text), &resolution_600x800),
-            vec![rule_aspect_ratio_le_1]
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_600x800),
+            vec![block_aspect_ratio_le_1]
         );
     }
 }

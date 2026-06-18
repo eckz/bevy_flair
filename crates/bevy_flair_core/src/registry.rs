@@ -518,6 +518,10 @@ impl<'a> Iterator for Iter<'a> {
         self.inner.size_hint()
     }
 
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+
     fn fold<B, F>(self, init: B, mut f: F) -> B
     where
         Self: Sized,

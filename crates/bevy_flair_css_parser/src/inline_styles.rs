@@ -1,9 +1,10 @@
 use crate::internal_loader::process_ruleset_property;
 use crate::parser::{CssPropertyParser, parse_inline_properties};
 use crate::{ErrorReportGenerator, ShorthandPropertyRegistry};
+use bevy_asset::AssetServer;
 use bevy_ecs::prelude::*;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
-use bevy_flair_style::SingleRulesetBuilder;
+use bevy_flair_style::StyleBlockBuilder;
 use bevy_flair_style::components::RawInlineStyle;
 use linked_hash_map::LinkedHashMap;
 use std::borrow::Cow;
@@ -11,7 +12,7 @@ use std::convert::Infallible;
 use std::fmt::Write;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, trace};
 
 type InlinePropertyValue = Cow<'static, str>;
 
@@ -20,7 +21,7 @@ type InlinePropertyValue = Cow<'static, str>;
 /// Similar to the [`style`] attribute in HTML-like markup.
 ///
 /// [`style`]: <https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/style>
-#[derive(Debug, Default, PartialEq, Component)]
+#[derive(Debug, Default, Clone, PartialEq, Component)]
 pub struct InlineStyle {
     properties: LinkedHashMap<Arc<str>, InlinePropertyValue>,
 }
@@ -118,6 +119,7 @@ impl FromStr for InlineStyle {
 pub(crate) fn parse_inline_style(
     mut commands: Commands,
     mut inline_style_query: Query<(NameOrEntity, &InlineStyle), Changed<InlineStyle>>,
+    asset_server: Res<AssetServer>,
     app_type_registry: Res<AppTypeRegistry>,
     property_registry: Res<PropertyRegistry>,
     css_property_registry: Res<CssPropertyRegistry>,
@@ -142,7 +144,7 @@ pub(crate) fn parse_inline_style(
 
         let properties = parse_inline_properties(&css, css_property_parser);
 
-        let mut builder = SingleRulesetBuilder::new();
+        let mut builder = StyleBlockBuilder::new();
         let mut error_report_generator = ErrorReportGenerator::new(&file_name, &css);
 
         for property in properties {
@@ -156,13 +158,15 @@ pub(crate) fn parse_inline_style(
             return;
         }
 
-        let ruleset = builder
+        let style_block = builder
             .build(&property_registry)
             .expect("Not expected to fail during build");
 
+        let style_block_handle = asset_server.add(style_block);
+        trace!("New inline block id: {:?}", style_block_handle.id());
         commands
             .entity(name_or_entity.entity)
-            .insert(RawInlineStyle::new(ruleset));
+            .insert(RawInlineStyle::new(style_block_handle));
     }
 }
 
@@ -172,10 +176,11 @@ mod tests {
     use crate::reflect::ReflectParsePlugin;
     use crate::shorthand::ShorthandPropertiesPlugin;
     use bevy_app::{App, Update};
+    use bevy_asset::{AssetApp, AssetPlugin, Assets};
     use bevy_flair_core::{
         ImplComponentPropertiesPlugin, PropertyRegistryPlugin, PropertyValue, ReflectValue,
     };
-    use bevy_flair_style::{VarToken, VarTokens};
+    use bevy_flair_style::{StyleBlock, VarToken, VarTokens};
     use bevy_ui::Val;
 
     #[test]
@@ -205,26 +210,30 @@ mod tests {
         let mut app = App::new();
 
         app.add_plugins((
+            AssetPlugin::default(),
             PropertyRegistryPlugin,
             ImplComponentPropertiesPlugin,
             ReflectParsePlugin,
             ShorthandPropertiesPlugin,
         ));
+        app.init_asset::<StyleBlock>();
 
-        app.add_systems(Update, parse_inline_style);
+        app.add_systems(
+            Update,
+            (parse_inline_style, bevy_asset::handle_internal_asset_events).chain(),
+        );
 
         app
     }
 
     macro_rules! get_properties {
-        ($property_registry:expr, $inline_style:expr) => {{
-            let style_sheet = bevy_flair_style::StyleSheetBuilder::new()
-                .build_without_resolving_placeholders(&$property_registry)
-                .unwrap();
+        ($blocks:expr, $property_registry:expr, $inline_style:expr) => {{
+            let resolver = bevy_flair_style::StyleResolver::new(
+                &$blocks,
+                std::iter::once($inline_style.style_block_id()),
+            );
             let mut property_map = $property_registry.create_unset_values_map();
-            style_sheet.get_property_values(
-                &[],
-                Some(&$inline_style),
+            resolver.resolve_property_values(
                 &$property_registry,
                 &crate::test_utils::NoVarsSupportedResolver,
                 &mut property_map,
@@ -234,11 +243,12 @@ mod tests {
     }
 
     macro_rules! get_vars {
-        ($property_registry:expr, $inline_style:expr) => {{
-            let style_sheet = bevy_flair_style::StyleSheetBuilder::new()
-                .build_without_resolving_placeholders(&$property_registry)
-                .unwrap();
-            style_sheet.get_vars(&[], Some(&$inline_style))
+        ($blocks:expr, $property_registry:expr, $inline_style:expr) => {{
+            let resolver = bevy_flair_style::StyleResolver::new(
+                &$blocks,
+                std::iter::once($inline_style.style_block_id()),
+            );
+            resolver.resolve_vars()
         }};
     }
 
@@ -264,9 +274,10 @@ mod tests {
         app.update();
 
         {
+            let style_blocks = app.world().resource::<Assets<StyleBlock>>();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            let properties = get_properties!(property_registry, raw_inline_style);
-            let vars = get_vars!(property_registry, raw_inline_style);
+            let properties = get_properties!(style_blocks, property_registry, raw_inline_style);
+            let vars = get_vars!(style_blocks, property_registry, raw_inline_style);
 
             assert_eq!(
                 properties[width_property_id],
@@ -291,9 +302,10 @@ mod tests {
         app.update();
 
         {
+            let style_blocks = app.world().resource::<Assets<StyleBlock>>();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            let properties = get_properties!(property_registry, raw_inline_style);
-            let vars = get_vars!(property_registry, raw_inline_style);
+            let properties = get_properties!(style_blocks, property_registry, raw_inline_style);
+            let vars = get_vars!(style_blocks, property_registry, raw_inline_style);
 
             assert_eq!(
                 properties[width_property_id],
@@ -325,9 +337,10 @@ mod tests {
         app.update();
 
         {
+            let style_blocks = app.world().resource::<Assets<StyleBlock>>();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            let properties = get_properties!(property_registry, raw_inline_style);
-            let vars = get_vars!(property_registry, raw_inline_style);
+            let properties = get_properties!(style_blocks, property_registry, raw_inline_style);
+            let vars = get_vars!(style_blocks, property_registry, raw_inline_style);
 
             assert_eq!(
                 properties[width_property_id],
@@ -359,8 +372,9 @@ mod tests {
         app.update();
 
         {
+            let style_blocks = app.world().resource::<Assets<StyleBlock>>();
             let raw_inline_style = app.world().entity(entity).get::<RawInlineStyle>().unwrap();
-            let properties = get_properties!(property_registry, raw_inline_style);
+            let properties = get_properties!(style_blocks, property_registry, raw_inline_style);
 
             assert_eq!(
                 properties[width_property_id],

@@ -27,7 +27,6 @@ bevy_input_focus = {  version = "0.19.0-rc.2" }
 bevy_math = { version = "0.19.0-rc.2" }
 bevy_picking = { version = "0.19.0-rc.2" }
 bevy_reflect = { version = "0.19.0-rc.2" }
-bevy_world_serialization = { version = "0.19.0-rc.2" }
 bevy_text = { version = "0.19.0-rc.2" }
 bevy_time = { version = "0.19.0-rc.2" }
 bevy_ui = { version = "0.19.0-rc.2", features = ["bevy_picking"] }
@@ -53,25 +52,26 @@ bevy_flair_css_parser = { workspace = true }
 
 [features]
 default = []
-experimental_ghost_nodes = ["bevy_flair_style/experimental_ghost_nodes"]
+ghost_nodes = ["bevy_flair_style/ghost_nodes"]
+detailed_trace = ["bevy_flair_style/detailed_trace"]
 
 [dev-dependencies]
-criterion = { version = "0.7", default-features = false, features = [ "plotters", "cargo_bench_support","html_reports" ] }
+criterion = { version = "0.8", default-features = false, features = [ "plotters", "cargo_bench_support", "html_reports" ] }
+async-channel = { version = "2.5" }
 bevy = {version = "0.19.0-rc.2", default-features = false, features = [
     "ui",
     "audio",
-    "dev",
+    "bevy_dev_tools",
     "track_location",
 ] }
 cssparser = { version = "0.37" }
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-getrandom = { version = "0.3", default-features = false, features = [
-    "wasm_js",
-] }
 
 [[bench]]
 name = "flair_benches"
 harness = false
+
+[profile.bench]
+debug = true
 
 [profile.dev]
 debug = "limited"

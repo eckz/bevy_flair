@@ -97,7 +97,7 @@ fn zoom_on_scroll(
 
     // Since the values do not really change, we just need them to be forcefully recomputed
     all_styled.iter_mut().for_each(|mut marker| {
-        marker.set_needs_reset();
+        marker.reset();
     });
 }
 

@@ -20,7 +20,7 @@ fn observer_on_click(
 ) {
     if button_query.contains(click.entity) {
         for mut marker in &mut marker_query {
-            marker.set_needs_reset();
+            marker.reset();
         }
     }
 }

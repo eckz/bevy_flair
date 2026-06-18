@@ -9,14 +9,14 @@ use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::StyleSystems;
 pub use cssparser::{self, BasicParseError, CowRcStr, Parser, Token};
 use derive_more::Deref;
-use std::fmt::{Debug, Display, Formatter};
-use std::ops::Range;
-
 pub use error::*;
 pub use inline_styles::*;
 pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Range;
+use tracing::debug;
 
 pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc_property_value_with, parse_calc_value};
 pub use parser::parse_duration;
@@ -249,7 +249,10 @@ impl Plugin for FlairCssParserPlugin {
 
         app.add_systems(
             PostUpdate,
-            parse_inline_style.in_set(StyleSystems::SetStyleData),
+            // We need add bevy_asset::handle_internal_asset_events to properly
+            (parse_inline_style, bevy_asset::handle_internal_asset_events)
+                .chain()
+                .in_set(StyleSystems::SetStyleData),
         );
     }
 
@@ -257,6 +260,12 @@ impl Plugin for FlairCssParserPlugin {
         let world = app.world();
         let type_registry_arc = world.resource::<AppTypeRegistry>().0.clone();
         let property_registry = world.resource::<PropertyRegistry>().clone();
+
+        debug!(
+            "PropertyRegistry contains {} registered properties",
+            property_registry.iter().len()
+        );
+
         let css_property_registry = world.resource::<CssPropertyRegistry>().clone();
         let shorthand_registry = world.resource::<ShorthandPropertyRegistry>().clone();
         app.register_asset_loader(CssStyleSheetLoader::new(

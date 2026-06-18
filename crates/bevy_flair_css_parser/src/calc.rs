@@ -424,7 +424,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy_flair_core::ComputedValue;
+    use bevy_flair_core::PropertyValueComputeContext;
     use bevy_ui::Val;
     use cssparser::ParserInput;
 
@@ -463,14 +463,17 @@ mod tests {
                 }
             };
 
-        match property_value.compute_as_root(&PropertyValue::None, &ReflectValue::Usize(0)) {
-            ComputedValue::None => {
-                panic!("None generated")
-            }
-            ComputedValue::Value(value) => *value
-                .downcast_value_ref::<Val>()
-                .expect("Downcasting failed"),
-        }
+        let compute_context = PropertyValueComputeContext {
+            unset: &PropertyValue::None,
+            initial: &ReflectValue::Usize(0),
+            ancestors: &|| [],
+        };
+
+        property_value
+            .compute(compute_context)
+            .expect("ComputedValue::None generated")
+            .downcast_value()
+            .expect("Invalid type value generated")
     }
 
     #[test]

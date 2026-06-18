@@ -2,19 +2,16 @@ use crate::animations::{
     AnimationKeyframes, AnimationProperties, AnimationProperty, AnimationPropertyId,
     TransitionPropertyId,
 };
-use crate::{
-    DynamicParseVarTokens, VarName, VarTokens,
-    style_sheet::{Ruleset, StyleSheet, StyleSheetRulesetId},
-};
+use crate::{DynamicParseVarTokens, StyleBlock, VarName, VarTokens, style_sheet::StyleSheet};
 
+use crate::asset_loader::StyleAssetLoader;
 use crate::css_selector::CssSelector;
 use crate::layers::LayersHierarchy;
 use crate::placeholder::{
-    PlaceholderAssetLoader, ResolvePlaceholderContext, is_placeholder_value,
-    try_resolve_placeholder,
+    ResolvePlaceholderContext, is_placeholder_value, try_resolve_placeholder,
 };
-use crate::style_sheet::RulesetProperty;
-use bevy_asset::{AssetPath, ParseAssetPathError};
+use crate::style_block::StyleProperty;
+use bevy_asset::{AssetId, AssetPath, Handle, ParseAssetPathError};
 use bevy_flair_core::*;
 use bevy_reflect::{FromReflect, TypeRegistry};
 use bevy_text::FontSource;
@@ -42,9 +39,9 @@ pub enum StyleSheetBuilderError {
         /// Found type of the value
         found_value_type_path: MaybeTypePath,
     },
-    /// Ruleset is orphan, it does not have any selector.
-    #[error("Ruleset {0:?} is orphan. Did you forget to call .with_simple_selector() or similar?")]
-    OrphanRuleset(String),
+    /// Block is orphan, it does not have any selector.
+    #[error("Block {0:?} is orphan. Did you forget to call .with_simple_selector() or similar?")]
+    OrphanBlock(String),
     /// Error while parsing asset path.
     #[error("Error while parsing asset url(\"{path}\"): {error}")]
     InvalidAssetPath {
@@ -129,12 +126,12 @@ impl StyleBuilderProperty {
     pub(crate) fn resolve(
         self,
         property_registry: &PropertyRegistry,
-    ) -> Result<RulesetProperty, CanonicalNameNotFoundError> {
+    ) -> Result<StyleProperty, CanonicalNameNotFoundError> {
         Ok(match self {
             StyleBuilderProperty::Specific {
                 property_ref,
                 value,
-            } => RulesetProperty::Specific {
+            } => StyleProperty::Specific {
                 property_id: property_registry.resolve(&property_ref)?,
                 value,
             },
@@ -142,7 +139,7 @@ impl StyleBuilderProperty {
                 css_name,
                 parser,
                 tokens,
-            } => RulesetProperty::Dynamic {
+            } => StyleProperty::Dynamic {
                 css_name,
                 parser,
                 tokens,
@@ -151,14 +148,14 @@ impl StyleBuilderProperty {
     }
 }
 
-impl From<RulesetProperty> for StyleBuilderProperty {
-    fn from(value: RulesetProperty) -> Self {
+impl From<StyleProperty> for StyleBuilderProperty {
+    fn from(value: StyleProperty) -> Self {
         match value {
-            RulesetProperty::Specific { property_id, value } => StyleBuilderProperty::Specific {
+            StyleProperty::Specific { property_id, value } => StyleBuilderProperty::Specific {
                 property_ref: ComponentPropertyRef::Id(property_id),
                 value,
             },
-            RulesetProperty::Dynamic {
+            StyleProperty::Dynamic {
                 css_name,
                 parser,
                 tokens,
@@ -190,8 +187,8 @@ impl From<(ComponentPropertyRef, PropertyValue)> for StyleBuilderProperty {
 }
 
 /// Trait implemented by all ruleset builders.
-/// Implemented by [`StyleSheetRulesetBuilder`] and [`SingleRulesetBuilder`].
-pub trait RulesetBuilder {
+/// Implemented by [`StyleSheetRulesetBuilder`] and [`StyleBlockBuilder`].
+pub trait BlockBuilder {
     /// Add properties to the current ruleset.
     fn add_property(&mut self, property: StyleBuilderProperty);
 
@@ -254,98 +251,87 @@ pub trait RulesetBuilder {
     }
 }
 
-macro_rules! impl_ruleset_builder {
+macro_rules! impl_block_builder {
     ($ty:path) => {
-        impl RulesetBuilder for $ty {
+        impl BlockBuilder for $ty {
             fn add_property(&mut self, property: StyleBuilderProperty) {
-                self.ruleset.properties.push(property);
+                self.block.properties.push(property);
             }
 
             fn add_var<V>(&mut self, var_name: V, tokens: VarTokens)
             where
                 V: Into<VarName>,
             {
-                self.ruleset.vars.insert(var_name.into(), tokens);
+                self.block.vars.insert(var_name.into(), tokens);
             }
 
             fn add_transition_property(
                 &mut self,
                 property: AnimationProperty<TransitionPropertyId>,
             ) {
-                self.ruleset.transition_properties.push(property);
+                self.block.transition_properties.push(property);
             }
 
             fn add_animation_property(&mut self, property: AnimationProperty<AnimationPropertyId>) {
-                self.ruleset.animation_properties.push(property);
+                self.block.animation_properties.push(property);
             }
         }
     };
 }
 
-/// Helper to build a single ruleset.
-/// Useful for ad-hoc rulesets outside a full stylesheet.
-pub struct SingleRulesetBuilder {
-    ruleset: InternalStyleSheetBuilderRuleset,
+/// Helper to build a single style block.
+/// Useful for ad-hoc block outside a full stylesheet or ruleset.
+pub struct StyleBlockBuilder {
+    block: InternalStyleSheetBuilderBlock,
 }
 
-impl Default for SingleRulesetBuilder {
+impl Default for StyleBlockBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SingleRulesetBuilder {
+impl StyleBlockBuilder {
     /// Creates a new empty single ruleset builder.
     pub fn new() -> Self {
         Self {
-            ruleset: InternalStyleSheetBuilderRuleset::default(),
+            block: InternalStyleSheetBuilderBlock::default(),
         }
     }
 
-    /// Consumes the builder and returns the built ruleset.
+    /// Consumes the builder and returns the built blcok.
     pub fn build(
         self,
         property_registry: &PropertyRegistry,
-    ) -> Result<Ruleset, CanonicalNameNotFoundError> {
-        self.ruleset.resolve(property_registry)
+    ) -> Result<StyleBlock, CanonicalNameNotFoundError> {
+        self.block.resolve(property_registry)
     }
 }
 
-impl_ruleset_builder!(SingleRulesetBuilder);
+impl_block_builder!(StyleBlockBuilder);
+
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Hash, Debug)]
+pub(crate) struct StyleSheetBuilderBlockId(pub(crate) usize);
 
 /// Helper to build a single ruleset. Created using [`StyleSheetBuilder`].
 pub struct StyleSheetRulesetBuilder<'a> {
-    ruleset_id: StyleSheetRulesetId,
+    block_id: StyleSheetBuilderBlockId,
     layers_hierarchy: &'a mut LayersHierarchy,
-    ruleset: &'a mut InternalStyleSheetBuilderRuleset,
-    css_selectors_to_rulesets: &'a mut Vec<(CssSelector, StyleSheetRulesetId)>,
+    block: &'a mut InternalStyleSheetBuilderBlock,
+    css_selectors_to_block_ids: &'a mut Vec<(CssSelector, StyleSheetBuilderBlockId)>,
 }
 
 impl StyleSheetRulesetBuilder<'_> {
-    /// Returns the id of the current ruleset.
-    pub fn id(&self) -> StyleSheetRulesetId {
-        self.ruleset_id
-    }
-
-    pub(crate) fn add_values_from_ruleset(&mut self, mut other: Ruleset) {
-        self.ruleset.vars.extend(other.vars);
-        self.ruleset
-            .properties
-            .extend(other.properties.into_iter().map(Into::into));
-
-        self.ruleset
-            .transition_properties
-            .extend(mem::take(&mut *other.transition_properties));
-        self.ruleset
-            .animation_properties
-            .extend(mem::take(&mut *other.animation_properties));
+    #[cfg(test)]
+    pub(crate) fn block_id(&self) -> StyleSheetBuilderBlockId {
+        self.block_id
     }
 
     /// Add a [`CssSelector`] for the current ruleset.
     pub fn add_css_selector(&mut self, selector: CssSelector) -> &mut Self {
         self.layers_hierarchy.define_layer(&selector.layer);
-        self.css_selectors_to_rulesets
-            .push((selector, self.ruleset_id));
+        self.css_selectors_to_block_ids
+            .push((selector, self.block_id));
         self
     }
 
@@ -356,11 +342,11 @@ impl StyleSheetRulesetBuilder<'_> {
     }
 }
 
-impl_ruleset_builder!(StyleSheetRulesetBuilder<'_>);
+impl_block_builder!(StyleSheetRulesetBuilder<'_>);
 
 /// Representation of a ruleset in the [`StyleSheetBuilder`].
 #[derive(Default)]
-struct InternalStyleSheetBuilderRuleset {
+struct InternalStyleSheetBuilderBlock {
     pub(super) vars: FxHashMap<VarName, VarTokens>,
     pub(super) properties: Vec<StyleBuilderProperty>,
 
@@ -368,7 +354,7 @@ struct InternalStyleSheetBuilderRuleset {
     pub(super) animation_properties: AnimationProperties<AnimationPropertyId>,
 }
 
-impl InternalStyleSheetBuilderRuleset {
+impl InternalStyleSheetBuilderBlock {
     fn is_empty(&self) -> bool {
         self.vars.is_empty()
             && self.properties.is_empty()
@@ -379,11 +365,11 @@ impl InternalStyleSheetBuilderRuleset {
     fn resolve(
         self,
         property_registry: &PropertyRegistry,
-    ) -> Result<Ruleset, CanonicalNameNotFoundError> {
+    ) -> Result<StyleBlock, CanonicalNameNotFoundError> {
         fn resolve_properties(
             property_registry: &PropertyRegistry,
             properties: Vec<StyleBuilderProperty>,
-        ) -> Result<Vec<RulesetProperty>, CanonicalNameNotFoundError> {
+        ) -> Result<Vec<StyleProperty>, CanonicalNameNotFoundError> {
             properties
                 .into_iter()
                 .map(|property| property.resolve(property_registry))
@@ -391,12 +377,14 @@ impl InternalStyleSheetBuilderRuleset {
         }
 
         let properties = resolve_properties(property_registry, self.properties)?;
-        let vars = self.vars;
-        Ok(Ruleset {
+        let vars = self.vars.into_iter().collect();
+        Ok(StyleBlock {
             vars,
             properties,
             animation_properties: self.animation_properties,
             transition_properties: self.transition_properties,
+            #[cfg(test)]
+            original_id: None,
         })
     }
 }
@@ -407,9 +395,13 @@ impl InternalStyleSheetBuilderRuleset {
 pub struct StyleSheetBuilder {
     layers_hierarchy: LayersHierarchy,
     font_faces: Vec<StyleFontFace>,
-    rulesets: Vec<InternalStyleSheetBuilderRuleset>,
+    blocks: Vec<InternalStyleSheetBuilderBlock>,
     animation_keyframes: Vec<AnimationKeyframes>,
-    css_selectors_to_rulesets: Vec<(CssSelector, StyleSheetRulesetId)>,
+    css_selectors_to_blocks: Vec<(CssSelector, StyleSheetBuilderBlockId)>,
+
+    // Only useful for embedding other StyleSheet's
+    embedded_block_handles: Vec<Handle<StyleBlock>>,
+    embedded_css_selectors_to_blocks: Vec<(CssSelector, AssetId<StyleBlock>)>,
 }
 
 impl StyleSheetBuilder {
@@ -434,24 +426,32 @@ impl StyleSheetBuilder {
     }
 
     /// Embeds all rules and animations from a different stylesheet
-    pub fn embed_style_sheet(&mut self, other: StyleSheet, layer: Option<String>) {
-        for (id, ruleset) in other.rulesets.into_iter().enumerate() {
-            let other_id = StyleSheetRulesetId(id);
-
-            let mut new_rule_set = self.new_ruleset();
-
-            new_rule_set.add_values_from_ruleset(ruleset);
-
+    pub fn embed_style_sheet(
+        &mut self,
+        other: StyleSheet,
+        style_block_mapping: &FxHashMap<AssetId<StyleBlock>, Handle<StyleBlock>>,
+        layer: Option<String>,
+    ) {
+        self.embedded_block_handles.extend(
             other
-                .css_selectors_to_rulesets
-                .iter()
-                .filter(|(_, id)| *id == other_id)
-                .for_each(|(selector, _)| {
-                    let selector = selector.clone().with_layer_prefixed(layer.as_deref());
-                    new_rule_set.add_css_selector(selector);
-                })
-        }
+                .block_handles
+                .into_iter()
+                .map(|old_handle| style_block_mapping.get(&old_handle.id()).unwrap().clone()),
+        );
 
+        let other_css_selectors_to_blocks =
+            other
+                .css_selectors_to_blocks
+                .into_iter()
+                .map(|(selector, old_id)| {
+                    let selector = selector.with_layer_prefixed(layer.as_deref());
+                    self.layers_hierarchy.define_layer(&selector.layer);
+
+                    (selector, style_block_mapping.get(&old_id).unwrap().id())
+                });
+
+        self.embedded_css_selectors_to_blocks
+            .extend(other_css_selectors_to_blocks);
         self.animation_keyframes
             .extend(other.animation_keyframes.into_values());
 
@@ -461,7 +461,7 @@ impl StyleSheetBuilder {
     fn validate_all_properties(
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
-        rulesets: &[Ruleset],
+        blocks: &[StyleBlock],
     ) -> Result<(), StyleSheetBuilderError> {
         struct InvalidPropertyError {
             property: String,
@@ -509,8 +509,8 @@ impl StyleSheetBuilder {
             validate_value(type_registry, property_registry, property_id, value)
         }
 
-        for property in rulesets.iter().flat_map(|a| a.properties.iter()) {
-            if let RulesetProperty::Specific { property_id, value } = property {
+        for property in blocks.iter().flat_map(|a| a.properties.iter()) {
+            if let StyleProperty::Specific { property_id, value } = property {
                 validate_property_value(type_registry, property_registry, *property_id, value)
                     .map_err(
                         |InvalidPropertyError {
@@ -529,27 +529,25 @@ impl StyleSheetBuilder {
         Ok(())
     }
 
-    fn validate_no_orphan_rule(&self) -> Result<(), StyleSheetBuilderError> {
-        for ruleset_id in 0..self.rulesets.len() {
-            let ruleset_id = StyleSheetRulesetId(ruleset_id);
+    fn validate_no_orphan_block(&self) -> Result<(), StyleSheetBuilderError> {
+        for block_id in 0..self.blocks.len() {
+            let block_id = StyleSheetBuilderBlockId(block_id);
 
             if self
-                .css_selectors_to_rulesets
+                .css_selectors_to_blocks
                 .iter()
-                .any(|(_, r)| *r == ruleset_id)
+                .any(|(_, r)| *r == block_id)
             {
                 continue;
             }
 
-            return Err(StyleSheetBuilderError::OrphanRuleset(
-                ruleset_id.to_string(),
-            ));
+            return Err(StyleSheetBuilderError::OrphanBlock(format!("{block_id:?}")));
         }
         Ok(())
     }
 
     fn run_all_validations(&self) -> Result<(), StyleSheetBuilderError> {
-        self.validate_no_orphan_rule()?;
+        self.validate_no_orphan_block()?;
         Ok(())
     }
 
@@ -560,43 +558,29 @@ impl StyleSheetBuilder {
 
     /// Creates a new ruleset and returns a [`StyleSheetRulesetBuilder`] to build such ruleset.
     pub fn new_ruleset(&mut self) -> StyleSheetRulesetBuilder<'_> {
-        let ruleset_id = StyleSheetRulesetId(self.rulesets.len());
-        self.rulesets
-            .push(InternalStyleSheetBuilderRuleset::default());
+        let ruleset_id = StyleSheetBuilderBlockId(self.blocks.len());
+        self.blocks.push(InternalStyleSheetBuilderBlock::default());
 
         StyleSheetRulesetBuilder {
-            ruleset_id,
+            block_id: ruleset_id,
             layers_hierarchy: &mut self.layers_hierarchy,
-            ruleset: &mut self.rulesets[ruleset_id.0],
-            css_selectors_to_rulesets: &mut self.css_selectors_to_rulesets,
+            block: &mut self.blocks[ruleset_id.0],
+            css_selectors_to_block_ids: &mut self.css_selectors_to_blocks,
         }
     }
 
-    /// Modify an existing ruleset and returns a [`StyleSheetRulesetBuilder`] to build such ruleset.
-    pub fn modify_ruleset(
-        &mut self,
-        ruleset_id: StyleSheetRulesetId,
-    ) -> StyleSheetRulesetBuilder<'_> {
-        StyleSheetRulesetBuilder {
-            ruleset_id,
-            layers_hierarchy: &mut self.layers_hierarchy,
-            ruleset: &mut self.rulesets[ruleset_id.0],
-            css_selectors_to_rulesets: &mut self.css_selectors_to_rulesets,
-        }
-    }
-
-    pub(crate) fn remove_id(&mut self, id_to_remove: StyleSheetRulesetId) {
+    pub(crate) fn remove_id(&mut self, id_to_remove: StyleSheetBuilderBlockId) {
         assert!(
-            id_to_remove.0 < self.rulesets.len(),
-            "Invalid StyleSheetRulesetId: {id_to_remove}"
+            id_to_remove.0 < self.blocks.len(),
+            "Invalid StyleSheetRulesetId: {id_to_remove:?}"
         );
 
-        self.rulesets.remove(id_to_remove.0);
+        self.blocks.remove(id_to_remove.0);
 
-        self.css_selectors_to_rulesets
+        self.css_selectors_to_blocks
             .retain(|(_, id)| *id != id_to_remove);
 
-        for (_, id) in &mut self.css_selectors_to_rulesets {
+        for (_, id) in &mut self.css_selectors_to_blocks {
             if *id > id_to_remove {
                 id.0 -= 1;
             }
@@ -604,11 +588,11 @@ impl StyleSheetBuilder {
     }
 
     /// Remove all rulesets that are empty
-    pub fn remove_all_empty_rulesets(&mut self) {
+    pub fn remove_all_empty_blocks(&mut self) {
         let mut i = 0;
-        while i < self.rulesets.len() {
-            if self.rulesets[i].is_empty() {
-                self.remove_id(StyleSheetRulesetId(i))
+        while i < self.blocks.len() {
+            if self.blocks[i].is_empty() {
+                self.remove_id(StyleSheetBuilderBlockId(i))
             } else {
                 i += 1;
             }
@@ -619,7 +603,7 @@ impl StyleSheetBuilder {
         &mut self,
         type_registry: &TypeRegistry,
         resolved_font_faces: &FxHashMap<String, FontSource>,
-        asset_loader: PlaceholderAssetLoader,
+        asset_loader: &mut StyleAssetLoader,
     ) -> Result<(), StyleSheetBuilderError> {
         let mut context = ResolvePlaceholderContext {
             entity: None,
@@ -628,11 +612,7 @@ impl StyleSheetBuilder {
             font_faces: resolved_font_faces,
         };
 
-        for property_value in self
-            .rulesets
-            .iter_mut()
-            .flat_map(|r| r.properties.iter_mut())
-        {
+        for property_value in self.blocks.iter_mut().flat_map(|r| r.properties.iter_mut()) {
             // We resolve values that are directly resolved.
             // But dynamic values, like the ones using `var()` will be resolved on the fly.
             if let StyleBuilderProperty::Specific {
@@ -662,7 +642,7 @@ impl StyleSheetBuilder {
         mut self,
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
-        mut asset_loader: PlaceholderAssetLoader,
+        mut asset_loader: StyleAssetLoader,
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
         let font_faces = self.font_faces.clone();
 
@@ -685,26 +665,61 @@ impl StyleSheetBuilder {
             })
             .collect::<Result<_, StyleSheetBuilderError>>()?;
 
-        self.resolve_placeholders(type_registry, &resolved_font_faces, asset_loader)?;
+        self.resolve_placeholders(type_registry, &resolved_font_faces, &mut asset_loader)?;
         self.run_all_validations()?;
+
+        let blocks = self
+            .blocks
+            .into_iter()
+            .map(|block| block.resolve(property_registry))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Self::validate_all_properties(type_registry, property_registry, &blocks)?;
+
+        let num_blocks = blocks.len();
+
+        let handles_by_id = blocks
+            .into_iter()
+            .enumerate()
+            .map(|(id, block)| {
+                #[cfg(test)]
+                let block = StyleBlock {
+                    original_id: Some(StyleSheetBuilderBlockId(id)),
+                    ..block
+                };
+                (
+                    StyleSheetBuilderBlockId(id),
+                    asset_loader.add_style_block(format!("[{id}]").into(), block),
+                )
+            })
+            .collect::<FxHashMap<_, _>>();
+
+        debug_assert_eq!(
+            handles_by_id
+                .values()
+                .map(|h| h.id())
+                .collect::<rustc_hash::FxHashSet<_>>()
+                .len(),
+            num_blocks,
+            "There are less distinct AssetId<StyleBlock> than original number of blocks"
+        );
 
         let layers_hierarchy = self.layers_hierarchy;
 
-        let mut css_selectors_to_rulesets = self.css_selectors_to_rulesets;
+        let mut css_selectors_to_blocks = self
+            .css_selectors_to_blocks
+            .into_iter()
+            .map(|(selector, id)| (selector, handles_by_id.get(&id).unwrap().id()))
+            .chain(self.embedded_css_selectors_to_blocks)
+            .collect::<Vec<_>>();
 
         // These sort puts more specific or priority rules at the end.
         // It's important to use the stable sort, because we want to keep the order for equal elements
-        css_selectors_to_rulesets.sort_by(|(a, _), (b, _)| {
+        css_selectors_to_blocks.sort_by(|(a, _), (b, _)| {
             layers_hierarchy
                 .cmp_layers(&a.layer, &b.layer)
                 .then_with(|| a.specificity().cmp(&b.specificity()))
         });
-
-        let rulesets = self
-            .rulesets
-            .into_iter()
-            .map(|ruleset| ruleset.resolve(property_registry))
-            .collect::<Result<Vec<_>, _>>()?;
 
         let animation_keyframes = self
             .animation_keyframes
@@ -712,28 +727,18 @@ impl StyleSheetBuilder {
             .map(|keyframes| (keyframes.name().clone(), keyframes))
             .collect();
 
-        Self::validate_all_properties(type_registry, property_registry, &rulesets)?;
+        let block_handles = handles_by_id
+            .into_values()
+            .chain(self.embedded_block_handles)
+            .collect();
 
         Ok(StyleSheet {
             font_faces,
             resolved_font_faces,
-            rulesets,
+            block_handles,
             animation_keyframes,
-            css_selectors_to_rulesets,
+            css_selectors_to_blocks,
         })
-    }
-
-    /// Build the style sheet without loading any asset.
-    pub fn build_without_resolving_placeholders(
-        self,
-        property_registry: &PropertyRegistry,
-    ) -> Result<StyleSheet, StyleSheetBuilderError> {
-        let type_registry = TypeRegistry::new();
-        self.build(
-            &type_registry,
-            property_registry,
-            PlaceholderAssetLoader::no_loader(),
-        )
     }
 }
 

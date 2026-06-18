@@ -1,5 +1,5 @@
 use crate::parser::{
-    CssParserContext, CssRulesetBodyParser, CssRulesetProperty, CssStyleSheetItem,
+    CssDeclaration, CssParserContext, CssRulesetBodyParser, CssStyleSheetItem,
     ParseAnimationProperties, collect_parser,
 };
 use crate::{CssError, ParserExt, error_codes};
@@ -13,7 +13,7 @@ use std::sync::Arc;
 pub(crate) enum ParserAnimationKeyFrame {
     Valid {
         times: Vec<f32>,
-        properties: Vec<CssRulesetProperty>,
+        properties: Vec<CssDeclaration>,
     },
     Error(CssError),
 }
@@ -26,7 +26,7 @@ impl From<CssError> for ParserAnimationKeyFrame {
 
 impl ParserAnimationKeyFrame {
     #[cfg(test)]
-    pub fn unwrap(self) -> (Vec<f32>, Vec<CssRulesetProperty>) {
+    pub fn unwrap(self) -> (Vec<f32>, Vec<CssDeclaration>) {
         match self {
             ParserAnimationKeyFrame::Valid { times, properties } => (times, properties),
             ParserAnimationKeyFrame::Error(error) => {
@@ -136,7 +136,7 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
     let body_parser = RuleBodyParser::new(input, &mut keyframe_body_parser);
     let keyframes = collect_parser(body_parser);
 
-    let mut declared_animations = context.declared_animations.borrow_mut();
+    let mut declared_animations = context.defined_animations.borrow_mut();
 
     if declared_animations.contains(&name) {
         return CssError::new_unlocated(
@@ -157,7 +157,7 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::CssRulesetProperty;
+    use crate::parser::CssDeclaration;
     use crate::parser::keyframes::ParserAnimationKeyFrame;
     use crate::test_utils::{ExpectExt, NoVarsSupportedResolver};
     use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, EasingFunction};
@@ -258,7 +258,7 @@ mod tests {
         let (times, fifty_properties) = fifty.unwrap();
         assert_eq!(times, vec![0.5]);
 
-        let CssRulesetProperty::AnimationProperty(AnimationProperty::SingleProperty {
+        let CssDeclaration::AnimationProperty(AnimationProperty::SingleProperty {
             property_id: AnimationPropertyId::TimingFunction,
             values,
         }) = fifty_properties.expect_one()
