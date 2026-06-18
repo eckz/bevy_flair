@@ -24,9 +24,8 @@
     height: 100%;
     background-color: #1f2730;
     
-    --floating-borders-top: 103px;
+    --floating-borders-top: 101px;
     --floating-borders-spacing: 90px;
-    --floating-borders-image: url("panel-border-010.png");
 }
 
 :root, #game_menu {
@@ -40,19 +39,22 @@
     color: #d68a4c;
 }
 
+#game_menu_container {
+    width: auto;
+    height: auto;
+    background:
+            linear-gradient(225deg, #2c424b 0%, #23353c 100%);
+;
+    border-radius: 2px;
+    -bevy-image: url("panel-border-030.png");
+    -bevy-image-mode: sliced(20px);
+}
+
 #game_menu {
     width: auto;
     height: auto;
     padding: 25px 90px 40px;
-
-    background-color: rgb(39, 58, 66);
-
     flex-direction: column;
-
-    border-radius: 2px;
-
-    background-image: url("panel-border-030.png");
-    -bevy-image-mode: sliced(20.0px);
 }
 
 button {
@@ -85,7 +87,7 @@ button, #floating_borders {
     top: var(--floating-borders-top);
     transition: top 0.6s;
     margin-top: 0;
-    background-image: var(--floating-borders-image);
+    -bevy-image: url("panel-border-010.png");
     -bevy-image-mode: sliced(20.0px);
 }
 

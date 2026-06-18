@@ -198,6 +198,26 @@ enum GameState {
     Game,
 }
 
+const GAME_MENU_CSS: &str = "game_menu.css";
+
+// The only purpose of this Resource is to keep alive "game_menu.css"
+// so it's not loaded every time the menu scene is spawned
+// (It would be visible for the time it takes to load the border images)
+#[derive(Resource)]
+#[allow(dead_code)]
+struct StyleSheetHolder(Handle<StyleSheet>);
+
+impl FromWorld for StyleSheetHolder {
+    fn from_world(world: &mut World) -> Self {
+        Self(
+            world
+                .get_resource::<AssetServer>()
+                .unwrap()
+                .load(GAME_MENU_CSS),
+        )
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins((
@@ -207,6 +227,7 @@ fn main() {
             navigable_children_plugin,
             navigation_plugin,
         ))
+        .init_resource::<StyleSheetHolder>()
         .init_state::<GameState>()
         .add_systems(Startup, spawn_camera)
         .add_systems(OnEnter(GameState::Menu), spawn_menu)
@@ -262,6 +283,39 @@ fn text(text: &'static str) -> impl Scene {
     }
 }
 
+fn menu_buttons() -> impl SceneList {
+    bsn_list! {
+        (
+            #menu_title
+            text("Main Menu")
+        ),
+        (
+            button("Continue")
+            AutoFocus
+            on(|_: On<Activate>| {
+                info!("Button continue selected");
+            })
+        ),
+        (
+            button("New")
+        ),
+        (
+            button("Return")
+            on(|_: On<Activate>, mut next_state: ResMut<NextState<GameState>>| {
+                info!("Returning to game");
+                next_state.set(GameState::Game);
+            })
+        ),
+        (
+            button("Quit")
+            on(|_: On<Activate>, mut exit_msg: MessageWriter<AppExit>| {
+                info!("Exiting");
+                exit_msg.write_default();
+            })
+        ),
+    }
+}
+
 fn menu_scene() -> impl Scene {
     bsn! {
         DespawnOnExit<GameState>(GameState::Menu)
@@ -270,45 +324,22 @@ fn menu_scene() -> impl Scene {
             // We set display None so it's hidden until the css is loaded
             display: Display::None,
         }
-        Styled::StyleSheet("game_menu.css")
+        Styled::StyleSheet(GAME_MENU_CSS)
         Children [
-            #game_menu
+            #game_menu_container
             Node
-            NavigableChildren
             Children [
-                (
-                    text("Main Menu")
-                    #menu_title
-                ),
-                (
-                    button("Continue")
-                    AutoFocus
-                    on(|_: On<Activate>| {
-                        info!("Button continue selected");
-                    })
-                ),
-                (
-                    button("New")
-                ),
-                (
-                    button("Return")
-                    on(|_: On<Activate>, mut next_state: ResMut<NextState<GameState>>| {
-                        info!("Returning to game");
-                        next_state.set(GameState::Game);
-                    })
-                ),
-                (
-                    button("Quit")
-                    on(|_: On<Activate>, mut exit_msg: MessageWriter<AppExit>| {
-                        info!("Exiting");
-                        exit_msg.write_default();
-                    })
-                ),
-                (
-                    #floating_borders
-                    Node
-                    Pickable::IGNORE
-                ),
+                Node
+                #game_menu
+                NavigableChildren
+                Children [
+                    { menu_buttons() },
+                    (
+                        #floating_borders
+                        Node
+                        Pickable::IGNORE
+                    ),
+                ]
             ]
         ]
     }
