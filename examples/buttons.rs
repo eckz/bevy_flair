@@ -61,11 +61,11 @@ fn buttons_scene() -> impl Scene {
         ClassList
         TabGroup::new(0)
         Children [
-            ( :button ),
-            ( :button ),
-            ( :button ),
-            ( :button ),
-            ( :dark_light_button )
+            ( button() ),
+            ( button() ),
+            ( button() ),
+            ( button() ),
+            ( dark_light_button() )
         ]
     }
 }

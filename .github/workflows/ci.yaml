@@ -78,7 +78,7 @@ jobs:
       - name: cargo check --all-features
         run: cargo check --all-features --workspace --target wasm32-unknown-unknown
         env:
-          RUSTFLAGS: --cfg getrandom_backend="wasm_js
+          RUSTFLAGS: --cfg getrandom_backend="wasm_js"
       - name: cargo check --release
         run: cargo check --release --workspace --target wasm32-unknown-unknown
         env:

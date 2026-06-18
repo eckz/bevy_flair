@@ -246,7 +246,7 @@ fn base_button() -> impl Scene {
 
 fn button(text: &'static str) -> impl Scene {
     bsn! {
-        :base_button()
+        base_button()
         Children [
             Text(text)
         ]
@@ -277,28 +277,28 @@ fn menu_scene() -> impl Scene {
             NavigableChildren
             Children [
                 (
-                    :text("Main Menu")
+                    text("Main Menu")
                     #menu_title
                 ),
                 (
-                    :button("Continue")
+                    button("Continue")
                     AutoFocus
                     on(|_: On<Activate>| {
                         info!("Button continue selected");
                     })
                 ),
                 (
-                    :button("New")
+                    button("New")
                 ),
                 (
-                    :button("Return")
+                    button("Return")
                     on(|_: On<Activate>, mut next_state: ResMut<NextState<GameState>>| {
                         info!("Returning to game");
                         next_state.set(GameState::Game);
                     })
                 ),
                 (
-                    :button("Quit")
+                    button("Quit")
                     on(|_: On<Activate>, mut exit_msg: MessageWriter<AppExit>| {
                         info!("Exiting");
                         exit_msg.write_default();
