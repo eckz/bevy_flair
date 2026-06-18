@@ -159,7 +159,8 @@ impl StyleProperties {
             "compute_pending_property_values",
             self.pending_computed_animation_values
         );
-        let mut pending_computed_values = static_property_maps.empty_computed.clone();
+        let mut pending_computed_values = self.computed_values.clone();
+
         let pending_property_values = if self.pending_property_values.is_empty() {
             self.property_values.clone()
         } else {

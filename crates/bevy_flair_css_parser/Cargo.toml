@@ -27,7 +27,7 @@ smol_str = "0.2"
 rustc-hash = "2.1"
 linked-hash-map = "0.5"
 tracing = "0.1"
-variadics_please = "1.1"
+variadics_please = "2.0"
 
 bevy_app = { workspace = true }
 bevy_asset = { workspace = true }
@@ -47,7 +47,7 @@ cssparser = { workspace = true }
 cssparser-color = { workspace = true }
 selectors = { workspace = true }
 
-ariadne = "0.5"
+ariadne = "0.6"
 
 [dev-dependencies]
 indoc = "2.0"

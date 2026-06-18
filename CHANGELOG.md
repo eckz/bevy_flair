@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Some class names were rewritten to look similar to css standards (e.g. Ruleset => Block ).
 - Some internal reworks make some changes for internal interfaces and structs. This should not affect most users. Performance should have been improved in most cases.
 - Renamed feature `experimental_ghost_nodes` to `ghost_nodes`.
+- Some detailed traces are hidden behind the `detailed_trace` feature now.
 
 ### Fixed
 - Fixed support for non-UI entities in the style hierarchy. This mainly affected hierarchies with Text. This was previously supported, but it stopped working at some point.
