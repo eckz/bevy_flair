@@ -826,6 +826,7 @@ version = "0.8.0"
 dependencies = [
  "bevy_app",
  "bevy_asset",
+ "bevy_camera",
  "bevy_color",
  "bevy_ecs",
  "bevy_flair_core_macros",
@@ -860,6 +861,7 @@ dependencies = [
  "ariadne",
  "bevy_app",
  "bevy_asset",
+ "bevy_camera",
  "bevy_color",
  "bevy_ecs",
  "bevy_flair_core",

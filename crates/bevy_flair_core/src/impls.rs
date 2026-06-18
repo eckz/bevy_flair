@@ -5,6 +5,7 @@ use crate::{
 
 use bevy_app::{App, Plugin};
 use bevy_asset::Handle;
+use bevy_camera::visibility::Visibility;
 use bevy_color::Color;
 use bevy_flair_core_macros::{impl_component_properties, impl_extract_component_properties};
 use bevy_math::{Rect, Rot2, Vec2};
@@ -34,6 +35,10 @@ impl_extract_component_properties! {
         pub bottom_right: Val,
         pub bottom_left: Val,
     }
+}
+
+impl_component_properties! {
+    pub struct Visibility;
 }
 
 impl_component_properties! {
@@ -239,6 +244,7 @@ pub struct ImplComponentPropertiesPlugin;
 impl Plugin for ImplComponentPropertiesPlugin {
     fn build(&self, app: &mut App) {
         register_component_properties!(app => {
+            Visibility,
             Node,
             BackgroundColor,
             Outline,
@@ -270,6 +276,8 @@ impl Plugin for ImplComponentPropertiesPlugin {
         });
 
         set_css_properties!(app => {
+            "visibility" => Visibility[""],
+
             "display" => Node[".display"],
             "box-sizing" => Node[".box_sizing"],
             "position" => Node[".position_type"],

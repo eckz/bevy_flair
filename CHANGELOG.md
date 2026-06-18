@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added derive macros for `ComponentProperties`. Many internals like `ComponentPropertyRef` have been rewritten 
 - Alternative, added support for registering Component properties using reflection only by calling `property_registry.register_using_reflection(..)`.
+- Added `visiblity` property support (https://github.com/eckz/bevy_flair/issues/49)
 
 ### Changed
 - Added support for Bevy 0.19.

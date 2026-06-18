@@ -38,6 +38,7 @@ bevy_image = { workspace = true }
 bevy_math = { workspace = true }
 bevy_text = { workspace = true }
 bevy_ui = { workspace = true }
+bevy_camera = { workspace = true }
 
 [dev-dependencies]
 bevy_math = { workspace = true }

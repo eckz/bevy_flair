@@ -1,5 +1,6 @@
 
 :root {
+    visibility: visible;
     display: block;
     box-sizing: content-box;
     position: absolute;
@@ -56,6 +57,7 @@
 }
 
 .with-important {
+    visibility: visible !important;
     display: block !important;
     box-sizing: content-box !important;
     position: absolute !important;
@@ -112,6 +114,7 @@
 }
 
 .with-inherited-values {
+    visibility: inherit;
     display: inherit;
     box-sizing: inherit;
     position: inherit;
@@ -166,6 +169,7 @@
 }
 
 .with-initial-values {
+    visibility: initial;
     display: initial;
     box-sizing: initial;
     position: initial;
@@ -220,6 +224,7 @@
 
 
 .with-unset-values {
+    visibility: unset;
     display: unset;
     box-sizing: unset;
     position: unset;

@@ -19,6 +19,7 @@ pub use ui::parse_val;
 
 use crate::error::CssError;
 use bevy_app::{App, Plugin};
+use bevy_camera::visibility::Visibility;
 use bevy_flair_core::helper_components::TextDecorationLine;
 use bevy_flair_core::{ComponentPropertyId, ComponentPropertyRef, PropertyValue};
 use bevy_flair_style::{DynamicParseVarTokens, ToCss};
@@ -151,6 +152,7 @@ impl Plugin for ReflectParsePlugin {
             app,
             ReflectParseCssEnum,
             (
+                Visibility,
                 Display,
                 BoxSizing,
                 PositionType,

@@ -110,7 +110,7 @@ button {
     }
 
     text {
-        /*transition: color 0.4s;*/
+        transition: color 0.4s;
     }
 }
 

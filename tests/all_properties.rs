@@ -56,6 +56,7 @@ fn all_properties() {
 
     fn assert_expected_node(entity_ref: EntityRef) {
         let (
+            visibility,
             node,
             border_color,
             background_color,
@@ -67,6 +68,7 @@ fn all_properties() {
             background_gradient,
             border_gradient,
         ) = entity_ref.components::<(
+            &Visibility,
             &Node,
             &BorderColor,
             &BackgroundColor,
@@ -78,6 +80,8 @@ fn all_properties() {
             &BackgroundGradient,
             &BorderGradient,
         )>();
+
+        assert_eq!(visibility, Visibility::Visible);
 
         assert_eq!(
             node,
@@ -199,15 +203,17 @@ fn all_properties() {
         .world()
         .entity(app.get_entity_by_unique_name("NodeWithUnsetValues"));
 
-    let (node, border_color, background_color) =
-        with_unset_values_entity.components::<(&Node, &BorderColor, &BackgroundColor)>();
+    let (visibility, node, border_color, background_color) = with_unset_values_entity
+        .components::<(&Visibility, &Node, &BorderColor, &BackgroundColor)>();
 
+    assert_eq!(visibility, Visibility::Inherited);
+
+    // These are the values set when the node was spawned, so we are making sure they are not modified.
     assert_eq!(
         node,
         &Node {
             left: Val::VMax(300.0),
             flex_basis: Val::Vh(300.0),
-            border_radius: BorderRadius::default(),
             ..Default::default()
         }
     );
@@ -221,6 +227,7 @@ fn all_properties() {
         .world()
         .entity(app.get_entity_by_unique_name("NodeWithInitialValues"));
     let (
+        visibility,
         node,
         border_color,
         background_color,
@@ -232,6 +239,7 @@ fn all_properties() {
         background_gradient,
         border_gradient,
     ) = with_initial_values_entity.components::<(
+        &Visibility,
         &Node,
         &BorderColor,
         &BackgroundColor,
@@ -244,6 +252,7 @@ fn all_properties() {
         &BorderGradient,
     )>();
 
+    assert_eq!(visibility, &Visibility::Inherited);
     assert_eq!(node, &Node::DEFAULT);
 
     assert_eq!(border_color, &BorderColor::DEFAULT);
