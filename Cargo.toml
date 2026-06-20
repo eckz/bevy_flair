@@ -17,21 +17,21 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bevy_app = { version = "0.19.0-rc.2" }
-bevy_asset = { version = "0.19.0-rc.2" }
-bevy_camera = { version = "0.19.0-rc.2" }
-bevy_color = { version = "0.19.0-rc.2" }
-bevy_ecs = { version = "0.19.0-rc.2" }
-bevy_image = {  version = "0.19.0-rc.2" }
-bevy_input_focus = {  version = "0.19.0-rc.2" }
-bevy_math = { version = "0.19.0-rc.2" }
-bevy_picking = { version = "0.19.0-rc.2" }
-bevy_reflect = { version = "0.19.0-rc.2" }
-bevy_text = { version = "0.19.0-rc.2" }
-bevy_time = { version = "0.19.0-rc.2" }
-bevy_ui = { version = "0.19.0-rc.2", features = ["bevy_picking"] }
-bevy_utils = { version = "0.19.0-rc.2" }
-bevy_window = { version = "0.19.0-rc.2" }
+bevy_app = { version = "0.19" }
+bevy_asset = { version = "0.19" }
+bevy_camera = { version = "0.19" }
+bevy_color = { version = "0.19" }
+bevy_ecs = { version = "0.19" }
+bevy_image = {  version = "0.19" }
+bevy_input_focus = {  version = "0.19" }
+bevy_math = { version = "0.19" }
+bevy_picking = { version = "0.19" }
+bevy_reflect = { version = "0.19" }
+bevy_text = { version = "0.19" }
+bevy_time = { version = "0.19" }
+bevy_ui = { version = "0.19", features = ["bevy_picking"] }
+bevy_utils = { version = "0.19" }
+bevy_window = { version = "0.19" }
 
 bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.8.0" }
 bevy_flair_core_macros = { path = "crates/bevy_flair_core_macros", version = "0.8.0" }
@@ -58,7 +58,7 @@ detailed_trace = ["bevy_flair_style/detailed_trace"]
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = [ "plotters", "cargo_bench_support", "html_reports" ] }
 async-channel = { version = "2.5" }
-bevy = {version = "0.19.0-rc.2", default-features = false, features = [
+bevy = {version = "0.19", default-features = false, features = [
     "ui",
     "audio",
     "bevy_dev_tools",
