@@ -199,27 +199,24 @@ impl Transition {
         // "* start value is the current value of the property in the running transition,
         //  * end value is the value of the property in the after-change style,"
 
-        if let Some(new_start) = replaced_transition
+        self.from = replaced_transition
             .interpolation_curve
-            .sample(easing_function_output)
-        {
-            self.from = new_start;
-        }
+            .sample_unchecked(easing_function_output);
 
         self.interpolation_curve =
             reflect.create_property_transition_curve(Some(self.from.clone()), self.to.clone());
     }
 
     /// Calculates the current value of the transitions using the easing and interpolation curves.
-    pub fn sample_value(&self) -> Option<ReflectValue> {
+    pub fn sample_value(&self) -> ReflectValue {
         let t = (self.timer.elapsed_secs() - self.initial_delay.as_secs_f32())
             / (self.duration.as_secs_f32());
         if t < 0.0 || self.state == TransitionState::Pending {
-            return Some(self.from.clone());
+            return self.from.clone();
         }
 
         let eased_t = self.easing_curve.sample_clamped(t);
-        self.interpolation_curve.sample(eased_t)
+        self.interpolation_curve.sample_unchecked(eased_t)
     }
 
     pub(crate) fn can_be_ticked(&self) -> bool {
@@ -279,24 +276,24 @@ mod tests {
         assert_eq!(transition.elapsed_secs(), 0.0);
 
         // Emits initial value
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(0.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
 
         // Ticking for zero seconds should mark the animation as Running
         transition.tick(Duration::ZERO);
 
         assert_eq!(transition.state, TransitionState::Running);
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(0.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
         assert_eq!(transition.elapsed_secs(), 0.0);
 
         transition.tick(HALF_SECOND);
 
         assert_eq!(transition.state, TransitionState::Running);
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(5.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(5.0));
         assert_eq!(transition.elapsed_secs(), 0.5);
 
         transition.tick(HALF_SECOND);
         assert_eq!(transition.state, TransitionState::Finished);
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(10.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(10.0));
         assert_eq!(transition.elapsed_secs(), 1.0);
     }
 
@@ -321,12 +318,12 @@ mod tests {
         assert_eq!(transition.duration, Duration::ZERO);
 
         // Emits initial value
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(0.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
 
         // Ticking for zero seconds should mark the animation as Finished
         transition.tick(Duration::ZERO);
 
         assert_eq!(transition.state, TransitionState::Finished);
-        assert_eq!(transition.sample_value(), None);
+        assert_eq!(transition.sample_value(), ReflectValue::Float(10.0));
     }
 }

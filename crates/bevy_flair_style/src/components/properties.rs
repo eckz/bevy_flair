@@ -306,9 +306,8 @@ impl StyleProperties {
         for (&property_id, transition) in &self.transitions {
             match transition.state {
                 TransitionState::Pending | TransitionState::Running => {
-                    if let Some(value) = transition.sample_value() {
-                        self.pending_computed_animation_values[property_id] = value.into();
-                    }
+                    let value = transition.sample_value();
+                    self.pending_computed_animation_values[property_id] = value.into();
                 }
                 TransitionState::Finished | TransitionState::Canceled => {
                     self.pending_computed_animation_values[property_id] =
