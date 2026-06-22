@@ -140,8 +140,7 @@ impl Transition {
         (self.timer.elapsed_secs() - self.initial_delay.as_secs_f32()).max(0.0)
     }
 
-    /// If this transition is active, meaning that it can produce values.
-    /// Calling [`sample_value`](self.sample_value) will return Some value.
+    /// Returns `true` if this transition is active.
     pub fn is_active(&self) -> bool {
         matches!(
             self.state,
@@ -199,27 +198,28 @@ impl Transition {
         // "* start value is the current value of the property in the running transition,
         //  * end value is the value of the property in the after-change style,"
 
-        if let Some(new_start) = replaced_transition
+        self.from = replaced_transition
             .interpolation_curve
-            .sample(easing_function_output)
-        {
-            self.from = new_start;
-        }
+            .sample_unchecked(easing_function_output);
 
         self.interpolation_curve =
             reflect.create_property_transition_curve(Some(self.from.clone()), self.to.clone());
     }
 
     /// Calculates the current value of the transitions using the easing and interpolation curves.
-    pub fn sample_value(&self) -> Option<ReflectValue> {
-        let t = (self.timer.elapsed_secs() - self.initial_delay.as_secs_f32())
-            / (self.duration.as_secs_f32());
-        if t < 0.0 || self.state == TransitionState::Pending {
-            return Some(self.from.clone());
+    pub fn sample_value(&self) -> ReflectValue {
+        match self.state {
+            TransitionState::Pending => self.from.clone(),
+            TransitionState::Finished | TransitionState::Canceled => self.to.clone(),
+            TransitionState::Running => {
+                let Some(elapsed) = self.timer.elapsed().checked_sub(self.initial_delay) else {
+                    return self.from.clone();
+                };
+                let t = elapsed.as_secs_f32() / (self.duration.as_secs_f32());
+                let eased_t = self.easing_curve.sample_clamped(t);
+                self.interpolation_curve.sample_unchecked(eased_t)
+            }
         }
-
-        let eased_t = self.easing_curve.sample_clamped(t);
-        self.interpolation_curve.sample(eased_t)
     }
 
     pub(crate) fn can_be_ticked(&self) -> bool {
@@ -248,12 +248,18 @@ impl Transition {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{EasingFunction, Transition, TransitionOptions, TransitionState};
+    use crate::animations::ReflectAnimatable;
+    use bevy_flair_core::{ComponentPropertyId, ReflectValue};
+    use bevy_math::Vec2;
     use bevy_reflect::FromType;
+    use std::time::Duration;
 
     const ONE_SECOND: Duration = Duration::from_secs(1);
 
     const HALF_SECOND: Duration = Duration::from_millis(500);
+
+    const ONE_NANOSECOND: Duration = Duration::from_nanos(1);
 
     const DEFAULT_TRANSITION_OPTIONS: TransitionOptions = TransitionOptions {
         initial_delay: Duration::ZERO,
@@ -279,29 +285,55 @@ mod tests {
         assert_eq!(transition.elapsed_secs(), 0.0);
 
         // Emits initial value
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(0.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
 
         // Ticking for zero seconds should mark the animation as Running
         transition.tick(Duration::ZERO);
 
         assert_eq!(transition.state, TransitionState::Running);
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(0.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
         assert_eq!(transition.elapsed_secs(), 0.0);
 
         transition.tick(HALF_SECOND);
 
         assert_eq!(transition.state, TransitionState::Running);
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(5.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(5.0));
         assert_eq!(transition.elapsed_secs(), 0.5);
 
         transition.tick(HALF_SECOND);
         assert_eq!(transition.state, TransitionState::Finished);
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(10.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(10.0));
         assert_eq!(transition.elapsed_secs(), 1.0);
     }
 
     #[test]
-    fn zero_transition() {
+    fn easing_can_overshoot() {
+        let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
+
+        let mut transition = Transition::new(
+            ComponentPropertyId::PLACEHOLDER,
+            Some(ReflectValue::Float(0.0)),
+            ReflectValue::Float(10.0),
+            &TransitionOptions {
+                // cubic-bezier(.17,.67,.33,1.5)
+                timing_function: EasingFunction::CubicBezier {
+                    p1: Vec2::new(0.17, 0.67),
+                    p2: Vec2::new(0.33, 1.5),
+                },
+                ..DEFAULT_TRANSITION_OPTIONS
+            },
+            &reflect_animatable_f32,
+        );
+
+        transition.tick(HALF_SECOND);
+
+        assert_eq!(transition.state, TransitionState::Running);
+        // The eased t in this interpolation curve is higher than 1.0, so the transition extrapolates
+        assert!(transition.sample_value().downcast_value::<f32>().unwrap() > 10.0);
+    }
+
+    #[test]
+    fn zero_duration_transition() {
         let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
 
         let mut transition = Transition::new(
@@ -321,12 +353,53 @@ mod tests {
         assert_eq!(transition.duration, Duration::ZERO);
 
         // Emits initial value
-        assert_eq!(transition.sample_value(), Some(ReflectValue::Float(0.0)));
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
 
         // Ticking for zero seconds should mark the animation as Finished
         transition.tick(Duration::ZERO);
 
         assert_eq!(transition.state, TransitionState::Finished);
-        assert_eq!(transition.sample_value(), None);
+        assert_eq!(transition.sample_value(), ReflectValue::Float(10.0));
+    }
+
+    #[test]
+    fn nano_duration_transition() {
+        let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
+
+        let mut transition = Transition::new(
+            ComponentPropertyId::PLACEHOLDER,
+            Some(ReflectValue::Float(0.0)),
+            ReflectValue::Float(10.0),
+            &TransitionOptions {
+                initial_delay: ONE_SECOND,
+                duration: Duration::from_nanos(2),
+                timing_function: EasingFunction::Linear,
+            },
+            &reflect_animatable_f32,
+        );
+
+        assert_eq!(transition.state, TransitionState::Pending);
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
+
+        transition.tick(HALF_SECOND);
+
+        assert_eq!(transition.state, TransitionState::Pending);
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
+
+        transition.tick(HALF_SECOND);
+
+        assert_eq!(transition.state, TransitionState::Running);
+        assert_eq!(transition.sample_value(), ReflectValue::Float(0.0));
+
+        transition.tick(ONE_NANOSECOND);
+
+        // The math should be correct even after one nanosecond.
+        assert_eq!(transition.state, TransitionState::Running);
+        assert_eq!(transition.sample_value(), ReflectValue::Float(5.0));
+
+        transition.tick(ONE_NANOSECOND);
+
+        assert_eq!(transition.state, TransitionState::Finished);
+        assert_eq!(transition.sample_value(), ReflectValue::Float(10.0));
     }
 }
