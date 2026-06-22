@@ -846,7 +846,6 @@ dependencies = [
 name = "bevy_flair_core_macros"
 version = "0.8.0"
 dependencies = [
- "bevy_flair_core",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
