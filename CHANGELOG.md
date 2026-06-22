@@ -5,12 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.0] - Unreleased
+## [0.8.0] - 22-Jun-2026
 
 ### Added
 - Added derive macros for `ComponentProperties`. Many internals like `ComponentPropertyRef` have been rewritten 
 - Alternative, added support for registering Component properties using reflection only by calling `property_registry.register_using_reflection(..)`.
 - Added `visiblity` property support (https://github.com/eckz/bevy_flair/issues/49)
+- Added support for the following new properties in bevy 0.19: `direction`, `text-decoration-line`, `text-decoration-color`, `font-weight`, `font-width`, `font-style`, `font-feature-settings`, `font-variation-settings`, `letter-spacing`.
 
 ### Changed
 - Added support for Bevy 0.19.
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Some internal reworks make some changes for internal interfaces and structs. This should not affect most users. Performance should have been improved in most cases.
 - Renamed feature `experimental_ghost_nodes` to `ghost_nodes`.
 - Some detailed traces are hidden behind the `detailed_trace` feature now.
+- Allow transitions to overshoot (https://github.com/eckz/bevy_flair/pull/50)
 
 ### Fixed
 - Fixed support for non-UI entities in the style hierarchy. This mainly affected hierarchies with Text. This was previously supported, but it stopped working at some point.
