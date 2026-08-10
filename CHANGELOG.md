@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `StyleMarkers::recalculate_style` now keeps a pending `Reset` instead of
+  panicking in debug builds (or silently downgrading the reset to
+  `CalculateStyle` in release builds, skipping the animation/transition
+  reset). The combination occurs legitimately in a single frame: an entity
+  spawned this frame (or whose effective stylesheet just resolved) still sits
+  in `Reset` when `mark_entities_for_recalculation` sweeps it in as the
+  sibling / descendant / ancestor of a changed entity via
+  `RecalculateOnChangeFlags`.
+
 ## [0.8.0] - 22-Jun-2026
 
 ### Added
