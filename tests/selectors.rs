@@ -334,7 +334,7 @@ fn imports() {
 
     let font_path = match &font.font {
         FontSource::Handle(handle) => handle.path().expect("Fount source handle without path"),
-        _ => panic!("Invalid font source: {:?}", &font.font),
+        _ => panic!("Invalid font source: {:?}", font.font),
     };
 
     // Font family url is defined in _import_2.css
