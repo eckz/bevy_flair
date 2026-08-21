@@ -826,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "async-channel",
  "bevy",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair_core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair_core_macros"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair_css_parser"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "approx",
  "ariadne",
@@ -906,7 +906,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_flair_style"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bevy_app",
  "bevy_asset",

@@ -39,22 +39,18 @@
     color: #d68a4c;
 }
 
-#game_menu_container {
-    width: auto;
-    height: auto;
-    background:
-            linear-gradient(225deg, #2c424b 0%, #23353c 100%);
-;
-    border-radius: 2px;
-    -bevy-image: url("panel-border-030.png");
-    -bevy-image-mode: sliced(20px);
-}
-
 #game_menu {
     width: auto;
     height: auto;
     padding: 25px 90px 40px;
     flex-direction: column;
+
+    background:
+            linear-gradient(225deg, #2c424b 0%, #23353c 100%);
+
+    -bevy-image: url("panel-border-030.png");
+    -bevy-image-mode: sliced(20px);
+    -bevy-image-visual-box: border-box;
 }
 
 button {

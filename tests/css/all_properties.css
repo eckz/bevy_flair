@@ -51,6 +51,7 @@
     -bevy-image-color: yellow;
     -bevy-image-mode: stretch;
     -bevy-image-rect: 0 0 64 64;
+    -bevy-image-visual-box: border-box;
 
     background-image: linear-gradient(90deg, red, blue);
     border-image: radial-gradient(at center, red, blue);
@@ -108,6 +109,7 @@
     -bevy-image-color: yellow !important;
     -bevy-image-mode: stretch !important;
     -bevy-image-rect: 0 0 64 64 !important;
+    -bevy-image-visual-box: border-box !important;
 
     background-image: linear-gradient(90deg, red, blue) !important;
     border-image: radial-gradient(at center, red, blue) !important;
@@ -164,6 +166,7 @@
     -bevy-image-color: inherit;
     -bevy-image-mode: inherit;
     -bevy-image-rect: inherit;
+    -bevy-image-visual-box: inherit;
     background-image: inherit;
     border-image: inherit;
 }
@@ -218,6 +221,7 @@
     -bevy-image-color: initial;
     -bevy-image-mode: initial;
     -bevy-image-rect: initial;
+    -bevy-image-visual-box: initial;
     background-image: initial;
     border-image: initial;
 }
@@ -273,6 +277,7 @@
     -bevy-image-color: unset;
     -bevy-image-mode: unset;
     -bevy-image-rect: unset;
+    -bevy-image-visual-box: unset;
     background-image: unset;
     border-image: unset;
 }

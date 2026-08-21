@@ -326,20 +326,16 @@ fn menu_scene() -> impl Scene {
         }
         Styled::StyleSheet(GAME_MENU_CSS)
         Children [
-            #game_menu_container
             Node
+            #game_menu
+            NavigableChildren
             Children [
-                Node
-                #game_menu
-                NavigableChildren
-                Children [
-                    { menu_buttons() },
-                    (
-                        #floating_borders
-                        Node
-                        Pickable::IGNORE
-                    ),
-                ]
+                { menu_buttons() },
+                (
+                    #floating_borders
+                    Node
+                    Pickable::IGNORE
+                ),
             ]
         ]
     }

@@ -174,6 +174,8 @@ fn all_properties() {
         );
         assert_eq!(image_node.color, css::YELLOW.into());
         assert_eq!(image_node.image_mode, NodeImageMode::Stretch);
+        assert_eq!(image_node.rect, Some(Rect::new(0.0, 0.0, 64.0, 64.0)));
+        assert_eq!(image_node.visual_box, VisualBox::BorderBox);
 
         assert_eq!(
             background_gradient,
@@ -265,6 +267,8 @@ fn all_properties() {
 
     assert_eq!(image_node.color, Color::WHITE);
     assert_eq!(image_node.image_mode, NodeImageMode::Auto);
+    assert_eq!(image_node.rect, None);
+    assert_eq!(image_node.visual_box, VisualBox::ContentBox);
 
     assert_eq!(background_gradient, &BackgroundGradient(vec![]));
     assert_eq!(border_gradient, &BorderGradient(vec![]));
