@@ -121,6 +121,17 @@ impl StyleMarkers {
     #[track_caller]
     pub fn recalculate_style(&mut self) {
         detailed_trace!(self, "recalculate_style");
+
+        // A pending `Reset` already implies a full style recalculation
+        // (`Reset`'s next system is `CalculateStyle`), so keep the stronger
+        // pending state. This combination occurs legitimately in one frame:
+        // an entity whose effective stylesheet just resolved (`Reset`) can be
+        // marked for recalculation as the sibling / descendant / ancestor of
+        // a changed entity via `RecalculateOnChangeFlags` in
+        // `mark_entities_for_recalculation`.
+        if self.current_system == StyleSystem::Reset {
+            return;
+        }
         debug_assert!(
             matches!(
                 self.current_system,
@@ -224,4 +235,23 @@ impl StyleMarkers {
         finish_apply_pending_properties,
         ApplyPendingProperties
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An entity whose effective stylesheet just resolved sits in `Reset`;
+    /// being marked for recalculation in the same frame (e.g. as the sibling /
+    /// descendant / ancestor of a changed entity via
+    /// `RecalculateOnChangeFlags`) must keep the stronger pending reset
+    /// instead of panicking (debug builds) or downgrading it to
+    /// `CalculateStyle` (release builds, which skipped the reset work).
+    #[test]
+    fn recalculate_style_keeps_a_pending_reset() {
+        let mut markers = StyleMarkers::default();
+        markers.reset();
+        markers.recalculate_style();
+        assert!(markers.needs_reset());
+    }
 }
