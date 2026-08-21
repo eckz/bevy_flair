@@ -152,6 +152,7 @@ impl_component_properties! {
         pub flip_y: bool,
         pub rect: Option<Rect>,
         pub image_mode: NodeImageMode,
+        pub visual_box: VisualBox,
     }
 }
 
@@ -368,6 +369,7 @@ impl Plugin for ImplComponentPropertiesPlugin {
             "-bevy-image-color" => ImageNode[".color"],
             "-bevy-image-mode" => ImageNode[".image_mode"],
             "-bevy-image-rect" => ImageNode[".rect"],
+            "-bevy-image-visual-box" => ImageNode[".visual_box"],
 
             // Text fields
             "color" => TextColor[".0"],

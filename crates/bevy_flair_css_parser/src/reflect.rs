@@ -155,6 +155,7 @@ impl Plugin for ReflectParsePlugin {
                 Visibility,
                 Display,
                 BoxSizing,
+                VisualBox,
                 PositionType,
                 OverflowAxis,
                 AlignItems,
