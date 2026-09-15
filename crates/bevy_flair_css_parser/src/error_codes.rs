@@ -45,6 +45,7 @@ define_errors!(grid => {
     INVALID_FIT_CONTENT_TOKEN(53, "Invalid 'fit-content' token"),
     GRID_PLACEMENT_ZERO_VALUE(54, "Grid placement with value zero"),
     OUTSIDE_OF_RANGE_NUMBER(55, "Outside of range number"),
+    GRID_PLACEMENT_DOUBLE_SPAN(56, "'span' used for both start and end of a grid placement"),
 });
 
 define_errors!(ui => {
