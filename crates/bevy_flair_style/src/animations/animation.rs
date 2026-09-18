@@ -1,7 +1,7 @@
 use crate::animations::reflect::BoxedReflectCurve;
 use crate::animations::{AnimationPropertyKeyframe, ReflectAnimatable};
+use bevy_curve::Curve;
 use bevy_flair_core::ReflectValue;
-use bevy_math::Curve;
 use bevy_reflect::prelude::*;
 use bevy_time::Stopwatch;
 use std::fmt;
@@ -251,13 +251,13 @@ impl Animation {
     /// # Example
     ///
     /// ```rust
-    /// # use bevy_reflect::FromType;
+    /// # use bevy_reflect::CreateTypeData;
     /// # use std::sync::Arc;
     /// # use std::time::Duration;
     /// # use bevy_flair_core::ReflectValue;
     /// # use bevy_flair_style::{animations::*, };
     ///
-    ///  let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
+    ///  let reflect_animatable_f32 = <ReflectAnimatable as CreateTypeData<f32>>::create_type_data(());
     ///  let keyframes = &[
     ///           AnimationPropertyKeyframe::new(0.0, ReflectValue::Float(0.0), EasingFunction::Linear),
     ///           AnimationPropertyKeyframe::new(1.0, ReflectValue::Float(100.0), EasingFunction::Linear),
@@ -547,7 +547,7 @@ impl Animation {
 mod tests {
     use super::*;
     use crate::animations::EasingFunction;
-    use bevy_reflect::FromType;
+    use bevy_reflect::CreateTypeData;
     use std::sync::LazyLock;
 
     const ONE_SECOND: Duration = Duration::from_secs(1);
@@ -567,7 +567,7 @@ mod tests {
     };
 
     static REFLECT_ANIMATABLE_F32: LazyLock<ReflectAnimatable> =
-        LazyLock::new(<ReflectAnimatable as FromType<f32>>::from_type);
+        LazyLock::new(|| <ReflectAnimatable as CreateTypeData<f32>>::create_type_data(()));
 
     #[test]
     fn basic_animation() {

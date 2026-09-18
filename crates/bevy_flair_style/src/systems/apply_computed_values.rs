@@ -5,7 +5,7 @@ use crate::components::{
 use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemState;
-use bevy_ecs::world::CommandQueue;
+use bevy_ecs::world::{CommandQueue, DeferredWorld};
 use bevy_flair_core::{
     ComputedValue, EntityCommandQueue, MaybeTypePath, PropertyMap, PropertyRegistry,
 };
@@ -52,7 +52,9 @@ pub(crate) fn apply_computed_properties(
     modified_entities.clear();
     debug_assert!(pending_changes.is_empty());
 
-    let mut properties_query = properties_query_state.query_mut(world);
+    let mut deferred_world: DeferredWorld = world.into();
+
+    let mut properties_query = properties_query_state.query_mut(deferred_world.reborrow());
     for (name_or_entity, mut properties, mut marker) in &mut properties_query {
         if !marker.needs_apply_pending_properties() {
             continue;

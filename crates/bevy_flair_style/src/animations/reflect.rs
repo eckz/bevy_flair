@@ -4,12 +4,13 @@ use crate::animations::AnimationPropertyKeyframe;
 use crate::animations::curves::{LinearCurve, UnevenSampleEasedCurve};
 use bevy_app::{App, Plugin};
 use bevy_color::{Color, Mix, Oklaba};
-use bevy_math::{Curve, FloatExt as _, Rot2, Vec2, curve::CurveExt as _};
-use bevy_reflect::{FromReflect, FromType};
+use bevy_curve::{Curve, CurveExt as _};
+use bevy_math::{FloatExt as _, Rot2, Vec2};
+use bevy_reflect::{CreateTypeData, FromReflect};
 use bevy_ui::widget::TextShadow;
 use bevy_ui::{
     AngularColorStop, BackgroundGradient, BorderGradient, BoxShadow, ColorStop, ConicGradient,
-    Gradient, LinearGradient, RadialGradient, ShadowStyle, UiPosition, Val, Val2,
+    CornerRadius, Gradient, LinearGradient, RadialGradient, ShadowStyle, UiPosition, Val, Val2,
 };
 use bevy_utils::once;
 use std::any::type_name;
@@ -54,13 +55,13 @@ impl InterpolateValue for Rot2 {
 ///
 /// # Example
 /// ```
-/// # use bevy_reflect::FromType;
+/// # use bevy_reflect::CreateTypeData;
 /// # use bevy_ui::Val;
 /// # use bevy_flair_core::*;
 /// # use bevy_flair_style::*;
 /// # use bevy_flair_style::animations::ReflectAnimatable;
 ///
-/// let reflect_animatable = <ReflectAnimatable as FromType<Val>>::from_type();
+/// let reflect_animatable = <ReflectAnimatable as CreateTypeData<Val>>::create_type_data(());
 ///
 /// let from = ReflectValue::Val(Val::Px(10.0));
 /// let to = ReflectValue::Val(Val::Px(20.0));
@@ -89,7 +90,7 @@ impl ReflectAnimatable {
     /// Creates a new [`Curve<ReflectValue>`] for the given values.
     /// It's defined over the [unit interval].
     ///
-    /// [unit interval]: bevy_math::curve::Interval::UNIT
+    /// [unit interval]: bevy_curve::Interval::UNIT
     pub fn create_property_transition_curve(
         &self,
         start: Option<ReflectValue>,
@@ -258,6 +259,15 @@ impl InterpolateValue for Val {
 impl InterpolateValue for Val2 {
     fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
         Val2::new(
+            interpolate_val(&a.x, &b.x, t),
+            interpolate_val(&a.y, &b.y, t),
+        )
+    }
+}
+
+impl InterpolateValue for CornerRadius {
+    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+        CornerRadius::new(
             interpolate_val(&a.x, &b.x, t),
             interpolate_val(&a.y, &b.y, t),
         )
@@ -456,11 +466,11 @@ impl InterpolateValue for TextShadow {
     }
 }
 
-impl<T> FromType<T> for ReflectAnimatable
+impl<T> CreateTypeData<T> for ReflectAnimatable
 where
     T: InterpolateValue + Default + FromReflect + Clone + Send + Sync,
 {
-    fn from_type() -> Self {
+    fn create_type_data(_: ()) -> Self {
         ReflectAnimatable::from_reflectable_type::<T>()
     }
 }
@@ -491,6 +501,7 @@ impl Plugin for ReflectAnimationsPlugin {
                 Color,
                 Val,
                 Val2,
+                CornerRadius,
                 BackgroundGradient,
                 BorderGradient,
                 BoxShadow,
@@ -505,11 +516,12 @@ mod tests {
     use crate::animations::{ReflectAnimatable, ReflectAnimationsPlugin};
     use bevy_app::App;
     use bevy_color::{Alpha, Color, Mix};
+    use bevy_curve::Curve;
     use bevy_ecs::prelude::AppTypeRegistry;
     use bevy_flair_core::ReflectValue;
-    use bevy_math::{Curve, Rot2, Vec2};
+    use bevy_math::{Rot2, Vec2};
     use bevy_reflect::FromReflect;
-    use bevy_ui::{BoxShadow, Val, widget::TextShadow};
+    use bevy_ui::{BoxShadow, CornerRadius, Val, widget::TextShadow};
     use std::any::TypeId;
 
     #[track_caller]
@@ -575,6 +587,29 @@ mod tests {
         assert_eq!(
             test_transition(Val::ZERO, Val::Percent(10.0), 0.5),
             Val::Percent(5.0)
+        );
+    }
+
+    #[test]
+    fn corner_radius_transition() {
+        assert_eq!(
+            test_transition(
+                CornerRadius::all(Val::Px(2.0)),
+                CornerRadius::all(Val::Px(12.0)),
+                0.5
+            ),
+            CornerRadius::all(Val::Px(7.0))
+        );
+
+        assert_eq!(test_transition(Val::Auto, Val::Auto, 0.5), Val::Auto);
+
+        assert_eq!(
+            test_transition(
+                CornerRadius::all(Val::ZERO),
+                CornerRadius::all(Val::Percent(10.0)),
+                0.5
+            ),
+            CornerRadius::all(Val::Percent(5.0))
         );
     }
 

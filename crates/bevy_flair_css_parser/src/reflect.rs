@@ -121,6 +121,7 @@ impl Plugin for ReflectParsePlugin {
                 Val2,
                 Rot2,
                 Rect,
+                CornerRadius,
                 bevy_color::Color,
                 Option<bevy_color::Color>,
                 OverflowClipMargin,

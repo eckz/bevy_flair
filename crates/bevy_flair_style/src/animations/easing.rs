@@ -1,7 +1,5 @@
-use bevy_math::{
-    Vec2,
-    curve::{Curve, Interval, JumpAt, StepsCurve, UnevenSampleAutoCurve},
-};
+use bevy_curve::{Curve, Interval, JumpAt, StepsCurve, UnevenSampleAutoCurve};
+use bevy_math::Vec2;
 use bevy_reflect::Reflect;
 
 use crate::animations::curves::CubicBezierEaseCurve;

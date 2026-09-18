@@ -5,7 +5,7 @@ use crate::utils::parse_property_value_with;
 use crate::{ParserExt, ReflectParseCss, parse_calc_f32};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
 use bevy_ui::widget::NodeImageMode;
 use cssparser::{Parser, Token};
@@ -125,8 +125,8 @@ fn parse_image_mode(parser: &mut Parser) -> Result<NodeImageMode, CssError> {
     })
 }
 
-impl FromType<NodeImageMode> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<NodeImageMode> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| {
             parse_property_value_with(parser, |parser| {
                 parse_image_mode(parser).map(ReflectValue::new)

@@ -8,7 +8,8 @@ use rustc_hash::FxHashSet;
 use std::borrow::Cow;
 
 use crate::style_block::StyleProperty;
-use bevy_math::{Curve, FloatExt};
+use bevy_curve::Curve;
+use bevy_math::FloatExt;
 use bevy_reflect::TypeRegistry;
 use std::sync::Arc;
 use tracing::warn;

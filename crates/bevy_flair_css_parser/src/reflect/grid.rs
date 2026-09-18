@@ -4,7 +4,7 @@ use crate::utils::{parse_many, parse_property_value_with, try_parse_none};
 use crate::{Located, ParserExt, ReflectParseCss};
 
 use bevy_flair_core::ReflectValue;
-use bevy_reflect::{FromType, TypePath};
+use bevy_reflect::{CreateTypeData, TypePath};
 use bevy_ui::{
     GridPlacement, GridTrack, GridTrackRepetition, MaxTrackSizingFunction, MinTrackSizingFunction,
     RepeatedGridTrack,
@@ -395,20 +395,20 @@ fn parse_grid_placement(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     grid_placement_from_lines(first, second).map(ReflectValue::new)
 }
 
-impl FromType<Vec<GridTrack>> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Vec<GridTrack>> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_grid_track_vec))
     }
 }
 
-impl FromType<Vec<RepeatedGridTrack>> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Vec<RepeatedGridTrack>> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_repeated_grid_track_vec))
     }
 }
 
-impl FromType<GridPlacement> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<GridPlacement> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_grid_placement))
     }
 }

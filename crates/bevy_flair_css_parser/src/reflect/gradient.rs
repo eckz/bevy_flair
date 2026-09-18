@@ -4,7 +4,7 @@ use crate::utils::{CombinedParse, parse_property_value_with};
 use crate::{CssError, ParserExt, ReflectParseCss, error_codes};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Rot2;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use bevy_ui::{
     AngularColorStop, BackgroundGradient, BorderGradient, ColorStop, ConicGradient, Gradient,
     InterpolationColorSpace, LinearGradient, RadialGradient, RadialGradientShape, UiPosition, Val,
@@ -581,14 +581,14 @@ fn parse_border_gradient(parser: &mut Parser) -> Result<ReflectValue, CssError> 
     )))
 }
 
-impl FromType<BackgroundGradient> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<BackgroundGradient> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_background_gradient))
     }
 }
 
-impl FromType<BorderGradient> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<BorderGradient> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_border_gradient))
     }
 }

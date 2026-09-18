@@ -312,6 +312,7 @@ mod tests {
             marker_query(&mut world, |marker, query: Query<&TestNode>, iterator| {
                 query
                     .iter_many(iterator.iter_children(marker))
+                    .unwrapped()
                     .copied()
                     .collect::<Vec<_>>()
             });
@@ -339,6 +340,7 @@ mod tests {
             marker_query(&mut world, |marker, query: Query<&TestSpan>, iterator| {
                 query
                     .iter_many(iterator.iter_children(marker))
+                    .unwrapped()
                     .copied()
                     .collect::<Vec<_>>()
             });
@@ -366,6 +368,7 @@ mod tests {
             marker_query(&mut world, |marker, query: Query<&TestSpan>, iterator| {
                 query
                     .iter_many(iterator.iter_children(marker))
+                    .unwrapped()
                     .copied()
                     .collect::<Vec<_>>()
             });
@@ -395,6 +398,7 @@ mod tests {
             marker_query(&mut world, |marker, query: Query<&TestNode>, iterator| {
                 query
                     .iter_many(iterator.iter_ancestors(marker))
+                    .unwrapped()
                     .copied()
                     .collect::<Vec<_>>()
             });
@@ -433,6 +437,7 @@ mod tests {
             marker_query(&mut world, |marker, query: Query<&Name>, iterator| {
                 query
                     .iter_many(iterator.iter_ancestors(marker))
+                    .unwrapped()
                     .cloned()
                     .collect::<Vec<_>>()
             });

@@ -10,7 +10,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::error::BevyError;
 use bevy_ecs::world::World;
 use bevy_flair_core::ReflectValue;
-use bevy_reflect::{FromReflect, FromType, Reflect, TypePath, TypeRegistry};
+use bevy_reflect::{CreateTypeData, FromReflect, Reflect, TypePath, TypeRegistry};
 use bevy_text::FontSource;
 use rustc_hash::FxHashMap;
 use std::marker::PhantomData;
@@ -70,13 +70,13 @@ impl ReflectPlaceholder {
     }
 }
 
-impl<T> FromType<T> for ReflectPlaceholder
+impl<T> CreateTypeData<T> for ReflectPlaceholder
 where
     T: Placeholder + FromReflect + TypePath,
     T::ResolvedValue: FromReflect,
     BevyError: From<T::Error>,
 {
-    fn from_type() -> Self {
+    fn create_type_data(_: ()) -> Self {
         ReflectPlaceholder(|value, context| {
             let value = value.downcast_value_ref::<T>().ok_or_else(|| {
                 format!(

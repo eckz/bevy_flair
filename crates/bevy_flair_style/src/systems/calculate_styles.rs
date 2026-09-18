@@ -219,8 +219,9 @@ pub(crate) fn calculate_styles_and_set_vars(
     let mut marker_query = param_set.p1();
 
     for to_mark in to_mark_parallel.iter_mut() {
-        for mut marker in
-            marker_query.iter_many_unique_mut(to_mark.clear_style_recalculation.drain())
+        for mut marker in marker_query
+            .iter_many_unique_mut(to_mark.clear_style_recalculation.drain())
+            .unwrapped()
         {
             marker.finish_calculate_style();
         }
@@ -232,7 +233,7 @@ pub(crate) fn calculate_styles_and_set_vars(
 
         // We cannot use a normal iterator because `all_descendants` is not unique
         let mut all_descendants_iter = marker_query.iter_many_mut(all_descendants);
-        while let Some(mut marker) = all_descendants_iter.fetch_next() {
+        while let Some(Ok(mut marker)) = all_descendants_iter.fetch_next() {
             marker.set_needs_resolve_property_values();
         }
     }

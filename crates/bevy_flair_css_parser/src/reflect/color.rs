@@ -5,7 +5,7 @@ use crate::utils::{parse_property_value_with, try_parse_none};
 use bevy_color::{Alpha, Color};
 use bevy_flair_core::ReflectValue;
 use bevy_math::FloatExt;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use cssparser::color::PredefinedColorSpace;
 use cssparser::{Parser, ToCss};
 use cssparser_color::FromParsedColor;
@@ -203,14 +203,14 @@ pub fn parse_option_color(parser: &mut Parser) -> Result<Option<Color>, CssError
     }
 }
 
-impl FromType<Color> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Color> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_color)?.map(ReflectValue::Color)))
     }
 }
 
-impl FromType<Option<Color>> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Option<Color>> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             Ok(parse_property_value_with(parser, parse_option_color)?.map(ReflectValue::new))
         })

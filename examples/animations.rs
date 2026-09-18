@@ -1,7 +1,10 @@
 //! Simple example on how to apply CSS animations to Bevy.
 //! You can see the same version running on the browser for comparison:
 //! <https://codepen.io/eckz/pen/pvyyEdO>
+
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
+use bevy::ui_widgets::Button;
 use bevy_flair::prelude::*;
 
 fn main() {
@@ -14,7 +17,7 @@ fn main() {
 }
 
 fn observer_on_click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     button_query: Query<(), With<Button>>,
     mut marker_query: Query<&mut StyleMarkers>,
 ) {
@@ -30,7 +33,7 @@ fn animated(classes: &'static str, text: &str) -> impl Bundle {
         Name::new(classes),
         ClassList::new(classes),
         Node::default(),
-        Interaction::default(),
+        Hovered::default(),
         children![Text::new(text)],
     )
 }

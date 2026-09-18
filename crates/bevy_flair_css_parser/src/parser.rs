@@ -801,8 +801,8 @@ mod tests {
         })
     }
 
-    impl FromType<i32> for ReflectParseCss {
-        fn from_type() -> Self {
+    impl CreateTypeData<i32> for ReflectParseCss {
+        fn create_type_data(_: ()) -> Self {
             Self(parse_i32_property_value)
         }
     }

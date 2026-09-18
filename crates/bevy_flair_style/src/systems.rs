@@ -255,7 +255,10 @@ pub(crate) fn calculate_is_root(
 
     let mut style_data_query = param_set_queries.p0();
 
-    for (entity, mut data) in style_data_query.iter_many_unique_mut(entities_to_recalculate) {
+    for (entity, mut data) in style_data_query
+        .iter_many_unique_mut(entities_to_recalculate)
+        .matched()
+    {
         data.is_root = styled_root_nodes.contains(entity);
     }
 }
@@ -348,8 +351,9 @@ pub(crate) fn sync_marker_component_system<C: Component>(
         entities_changed.extend(added_query.iter());
         entities_changed.extend(removed_components.read());
 
-        for (value, mut node_style_data) in
-            node_style_query.iter_many_unique_mut(entities_changed.drain())
+        for (value, mut node_style_data) in node_style_query
+            .iter_many_unique_mut(entities_changed.drain())
+            .matched()
         {
             action(&mut node_style_data.pseudo_state, value);
         }
@@ -360,16 +364,6 @@ pub(crate) fn sync_hovered(mut hovered_query: Query<(&Hovered, &mut StyleData), 
     for (hovered, mut data) in &mut hovered_query {
         let pseudo_state = data.get_pseudo_state_mut();
         pseudo_state.hovered = hovered.0;
-    }
-}
-
-pub(crate) fn sync_interaction(
-    mut interaction_query: Query<(&Interaction, &mut StyleData), Changed<Interaction>>,
-) {
-    for (interaction, mut data) in &mut interaction_query {
-        let pseudo_state = data.get_pseudo_state_mut();
-        pseudo_state.pressed = *interaction == Interaction::Pressed;
-        pseudo_state.hovered = *interaction == Interaction::Hovered;
     }
 }
 
@@ -819,7 +813,7 @@ pub(crate) fn auto_remove_components(
             ) {
                 properties
                     .auto_inserted_components
-                    .swap_remove(&component_type_id);
+                    .remove(&component_type_id);
             }
         }
     }
@@ -831,19 +825,21 @@ mod tests {
     use crate::components::{PseudoElementsSupport, StaticPropertyMaps};
     use bevy_app::prelude::*;
     use bevy_asset::uuid_handle;
+    use bevy_ecs::message::MessageRegistry;
     use bevy_input_focus::FocusCause;
     use bevy_reflect::Reflect;
     use std::any::TypeId;
+    use std::mem;
     use std::sync::{Arc, Mutex, PoisonError};
 
     #[test]
     fn test_apply_classes() {
-        let mut app = App::new();
+        let mut world = World::new();
 
-        app.add_systems(Update, apply_classes);
+        let mut schedule = Schedule::default();
+        schedule.add_systems(apply_classes);
 
-        let entity = app
-            .world_mut()
+        let entity = world
             .spawn((ClassList::new("test"), StyleData::default()))
             .id();
 
@@ -851,7 +847,7 @@ mod tests {
 
         {
             let was_data_changed_arc_clone = Arc::clone(&was_data_changed_arc);
-            app.add_systems(Update, move |query: Query<Ref<StyleData>>| {
+            schedule.add_systems(move |query: Query<Ref<StyleData>>| {
                 let changed = query.get(entity).unwrap().is_changed();
                 *was_data_changed_arc_clone
                     .lock()
@@ -865,37 +861,33 @@ mod tests {
                 .unwrap_or_else(PoisonError::into_inner)
         };
 
-        app.update();
+        schedule.run(&mut world);
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.classes, vec!["test"]);
 
-        app.world_mut()
+        world
             .entity_mut(entity)
             .get_mut::<ClassList>()
             .unwrap()
             .add("test");
-        app.update();
+        schedule.run(&mut world);
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.classes, vec!["test"]);
 
-        let mut class = app
-            .world_mut()
-            .entity_mut(entity)
-            .into_mut::<ClassList>()
-            .unwrap();
+        let mut class = world.entity_mut(entity).into_mut::<ClassList>().unwrap();
         class.add("test2");
         class.remove("test");
-        app.update();
+        schedule.run(&mut world);
 
         assert!(is_data_changed());
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.classes, vec!["test2"]);
 
         // No changes
-        app.update();
-        app.update();
+        schedule.run(&mut world);
+        schedule.run(&mut world);
 
         assert!(!is_data_changed());
     }
@@ -913,12 +905,13 @@ mod tests {
 
     #[test]
     fn test_apply_attributes() {
-        let mut app = App::new();
+        let mut world = World::new();
 
-        app.add_systems(Update, apply_attributes);
+        let mut schedule = Schedule::default();
 
-        let entity = app
-            .world_mut()
+        schedule.add_systems(apply_attributes);
+
+        let entity = world
             .spawn((
                 AttributeList::from_iter([("attr1", "value1")]),
                 StyleData::default(),
@@ -929,7 +922,7 @@ mod tests {
 
         {
             let was_data_changed_arc_clone = Arc::clone(&was_data_changed_arc);
-            app.add_systems(Update, move |query: Query<Ref<StyleData>>| {
+            schedule.add_systems(move |query: Query<Ref<StyleData>>| {
                 let changed = query.get(entity).unwrap().is_changed();
                 *was_data_changed_arc_clone
                     .lock()
@@ -943,88 +936,81 @@ mod tests {
                 .unwrap_or_else(PoisonError::into_inner)
         };
 
-        app.update();
+        schedule.run(&mut world);
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.attributes, map! {"attr1" => "value1"});
 
-        app.world_mut()
+        world
             .entity_mut(entity)
             .get_mut::<AttributeList>()
             .unwrap()
             .set_attribute("attr2", "value2");
-        app.update();
+        schedule.run(&mut world);
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(
             data.attributes,
             map! {"attr1" => "value1", "attr2" => "value2"}
         );
 
-        let mut attributes = app
-            .world_mut()
+        let mut attributes = world
             .entity_mut(entity)
             .into_mut::<AttributeList>()
             .unwrap();
         attributes.set_attribute("attr3", "value3");
         attributes.remove_attribute("attr1");
-        app.update();
+        schedule.run(&mut world);
 
         assert!(is_data_changed());
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(
             data.attributes,
             map! {"attr2" => "value2", "attr3" => "value3"}
         );
 
         // No changes
-        app.update();
-        app.update();
+        schedule.run(&mut world);
+        schedule.run(&mut world);
 
         assert!(!is_data_changed());
     }
 
     #[test]
     fn test_track_name_changes() {
-        let mut app = App::new();
+        let mut world = World::new();
 
-        app.add_systems(Update, track_name_changes);
+        let mut schedule = Schedule::default();
 
-        let entity = app
-            .world_mut()
-            .spawn((Name::new("Test"), StyleData::default()))
-            .id();
+        schedule.add_systems(track_name_changes);
 
-        app.update();
+        let entity = world.spawn((Name::new("Test"), StyleData::default())).id();
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        schedule.run(&mut world);
+
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, Some("Test".into()));
 
-        *app.world_mut()
-            .entity_mut(entity)
-            .get_mut::<Name>()
-            .unwrap() = "TestChanged".into();
-        app.update();
+        *world.entity_mut(entity).get_mut::<Name>().unwrap() = "TestChanged".into();
+        schedule.run(&mut world);
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, Some("TestChanged".into()));
 
-        app.world_mut().entity_mut(entity).remove::<Name>();
-        app.update();
+        world.entity_mut(entity).remove::<Name>();
+        schedule.run(&mut world);
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, None);
 
-        let entity = app.world_mut().spawn(StyleData::default()).id();
+        let entity = world.spawn(StyleData::default()).id();
 
-        app.update();
-        app.world_mut()
-            .entity_mut(entity)
-            .insert(Name::new("TestInserted"));
+        schedule.run(&mut world);
+        world.entity_mut(entity).insert(Name::new("TestInserted"));
 
-        app.update();
+        schedule.run(&mut world);
 
-        let data = app.world().entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<StyleData>().unwrap();
         assert_eq!(data.id, Some("TestInserted".into()));
     }
 
@@ -1171,12 +1157,14 @@ mod tests {
 
     #[test]
     fn test_sort_pseudo_elements() {
-        let mut app = App::new();
+        let mut world = World::new();
 
-        app.register_required_components::<Node, StyleData>();
-        app.add_systems(Update, sort_pseudo_elements);
+        world.register_required_components::<Node, StyleData>();
 
-        let mut query_state = app.world_mut().query();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(sort_pseudo_elements);
+
+        let mut query_state = world.query();
 
         fn get_children<'a, const N: usize>(
             world: &'a World,
@@ -1202,8 +1190,7 @@ mod tests {
                 })
         }
 
-        let root = app
-            .world_mut()
+        let root = world
             .spawn((
                 Node::default(),
                 PseudoElementsSupport,
@@ -1211,9 +1198,9 @@ mod tests {
             ))
             .id();
 
-        app.update();
+        schedule.run(&mut world);
 
-        let values: [_; 3] = get_children(app.world(), root, &mut query_state);
+        let values: [_; 3] = get_children(&world, root, &mut query_state);
 
         assert!(matches!(
             values.as_slice(),
@@ -1225,12 +1212,11 @@ mod tests {
         ));
 
         // We insert a new child
-        app.world_mut()
-            .spawn((Node::default(), Name::new("Child2"), ChildOf(root)));
+        world.spawn((Node::default(), Name::new("Child2"), ChildOf(root)));
 
-        app.update();
+        schedule.run(&mut world);
 
-        let values: [_; 4] = get_children(app.world(), root, &mut query_state);
+        let values: [_; 4] = get_children(&world, root, &mut query_state);
 
         assert!(matches!(
             values.as_slice(),
@@ -1252,32 +1238,33 @@ mod tests {
 
     #[test]
     fn test_auto_remove_components() {
-        let mut app = App::new();
+        let mut world = World::new();
+
+        world.add_observer(observe_on_component_auto_inserted);
+
+        let mut schedule = Schedule::default();
+        schedule.add_systems((reset_properties, auto_remove_components).chain());
 
         let mut property_registry = PropertyRegistry::new();
         property_registry.register::<TestComponent>();
+        world.insert_resource(property_registry);
+        world.init_resource::<StaticPropertyMaps>();
 
-        app.insert_resource(property_registry);
-        app.init_resource::<StaticPropertyMaps>();
-        app.add_systems(Update, (reset_properties, auto_remove_components).chain());
-        app.add_observer(observe_on_component_auto_inserted);
-
-        let entity = app
-            .world_mut()
+        let entity = world
             .spawn((TestComponent::default(), StyleProperties::default()))
             .id();
 
-        app.update();
+        schedule.run(&mut world);
 
         // Still has the component because it wasn't auto removed
-        assert!(app.world().entity(entity).contains::<TestComponent>());
+        assert!(world.entity(entity).contains::<TestComponent>());
 
-        app.world_mut().trigger(ComponentAutoInserted {
+        world.trigger(ComponentAutoInserted {
             entity,
             type_id: TypeId::of::<TestComponent>(),
         });
         assert!(
-            app.world()
+            world
                 .entity(entity)
                 .get::<StyleProperties>()
                 .unwrap()
@@ -1285,12 +1272,12 @@ mod tests {
                 .contains_key(&TypeId::of::<TestComponent>())
         );
 
-        app.update();
+        schedule.run(&mut world);
 
         // Now it's removed because it was marked as auto inserted
-        assert!(!app.world().entity(entity).contains::<TestComponent>());
+        assert!(!world.entity(entity).contains::<TestComponent>());
         assert!(
-            !app.world()
+            !world
                 .entity(entity)
                 .get::<StyleProperties>()
                 .unwrap()
@@ -1309,19 +1296,19 @@ mod tests {
 
     #[test]
     fn test_reset_properties() {
-        let mut app = App::new();
+        let mut world = World::new();
+        let world = &mut world;
 
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<StyleSheet>();
         let mut property_registry = PropertyRegistry::new();
         property_registry.register::<TestComponent>();
 
-        app.insert_resource(property_registry.clone());
-        app.init_resource::<StaticPropertyMaps>();
-        app.add_systems(Update, reset_properties);
+        world.insert_resource(property_registry.clone());
+        world.init_resource::<StaticPropertyMaps>();
 
-        let entity = app
-            .world_mut()
+        let mut schedule = Schedule::default();
+        schedule.add_systems(reset_properties);
+
+        let entity = world
             .spawn((
                 TestComponent {
                     left: 20.0,
@@ -1331,22 +1318,21 @@ mod tests {
             ))
             .id();
 
-        app.update();
+        schedule.run(world);
 
-        let test_component = app.world().get::<TestComponent>(entity).unwrap();
+        let test_component = world.get::<TestComponent>(entity).unwrap();
         // Properties are untouched
         assert_eq!(test_component.left, 20.0);
         assert_eq!(test_component.right, 30.0);
 
-        let marker = app.world().get::<StyleMarkers>(entity).unwrap();
+        let marker = world.get::<StyleMarkers>(entity).unwrap();
         assert!(!marker.needs_reset());
 
-        app.update();
+        schedule.run(world);
 
         // Simulate an applied property
         {
-            let computed_values = &mut app
-                .world_mut()
+            let computed_values = &mut world
                 .get_mut::<StyleProperties>(entity)
                 .unwrap()
                 .computed_values;
@@ -1358,15 +1344,12 @@ mod tests {
             computed_values[left_property] = ReflectValue::Float(20.0).into();
 
             // Mark entity to be reset
-            app.world_mut()
-                .get_mut::<StyleMarkers>(entity)
-                .unwrap()
-                .reset();
+            world.get_mut::<StyleMarkers>(entity).unwrap().reset();
         }
 
-        app.update();
+        schedule.run(world);
 
-        let test_component = app.world().entity(entity).get::<TestComponent>().unwrap();
+        let test_component = world.entity(entity).get::<TestComponent>().unwrap();
         // Left property has been reset
         assert_eq!(test_component.left, 0.0);
         // Right property has been left as it was
@@ -1374,117 +1357,87 @@ mod tests {
     }
     #[test]
     fn test_calculate_effective_style_sheet() {
-        let mut app = App::new();
+        let mut world = World::new();
+        let world = &mut world;
 
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<StyleSheet>();
-        app.add_systems(Update, calculate_effective_style_sheet);
+        let mut schedule = Schedule::default();
+        schedule.add_systems(calculate_effective_style_sheet);
 
-        fn get_effective_style_sheet(app: &App, entity: Entity) -> Option<AssetId<StyleSheet>> {
-            app.world().get::<EffectiveStyleSheet>(entity).unwrap().id()
+        fn get_effective_style_sheet(world: &World, entity: Entity) -> Option<AssetId<StyleSheet>> {
+            world.get::<EffectiveStyleSheet>(entity).unwrap().id()
         }
 
         let style_sheet_id_1 = TEST_STYLE_SHEET_HANDLE.id();
         let style_sheet_id_2 = TEST_STYLE_SHEET_HANDLE_2.id();
 
-        let entity_1 = app
-            .world_mut()
-            .spawn(Styled::new(TEST_STYLE_SHEET_HANDLE))
-            .id();
+        let entity_1 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE)).id();
 
-        let entity_2 = app
-            .world_mut()
-            .spawn(Styled::new(TEST_STYLE_SHEET_HANDLE_2))
-            .id();
+        let entity_2 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE_2)).id();
 
-        let entity_inherited = app
-            .world_mut()
-            .spawn((Styled::Inherited, ChildOf(entity_1)))
-            .id();
+        let entity_inherited = world.spawn((Styled::Inherited, ChildOf(entity_1))).id();
 
-        let entity_blocked = app
-            .world_mut()
-            .spawn((Styled::Block, ChildOf(entity_1)))
-            .id();
+        let entity_blocked = world.spawn((Styled::Block, ChildOf(entity_1))).id();
 
-        app.update();
+        schedule.run(world);
 
         assert_eq!(
-            get_effective_style_sheet(&app, entity_1),
+            get_effective_style_sheet(world, entity_1),
             Some(style_sheet_id_1)
         );
         assert_eq!(
-            get_effective_style_sheet(&app, entity_2),
+            get_effective_style_sheet(world, entity_2),
             Some(style_sheet_id_2)
         );
         assert_eq!(
-            get_effective_style_sheet(&app, entity_inherited),
+            get_effective_style_sheet(world, entity_inherited),
             Some(style_sheet_id_1)
         );
-        assert_eq!(get_effective_style_sheet(&app, entity_blocked), None);
+        assert_eq!(get_effective_style_sheet(world, entity_blocked), None);
 
-        app.world_mut()
-            .entity_mut(entity_inherited)
-            .insert(ChildOf(entity_2));
-        app.update();
+        world.entity_mut(entity_inherited).insert(ChildOf(entity_2));
+        schedule.run(world);
         assert_eq!(
-            get_effective_style_sheet(&app, entity_inherited),
+            get_effective_style_sheet(world, entity_inherited),
             Some(style_sheet_id_2)
         );
 
-        let entity_inherited_2 = app
-            .world_mut()
+        let entity_inherited_2 = world
             .spawn((Styled::Inherited, ChildOf(entity_inherited)))
             .id();
 
-        app.update();
+        schedule.run(world);
         assert_eq!(
-            get_effective_style_sheet(&app, entity_inherited_2),
+            get_effective_style_sheet(world, entity_inherited_2),
             Some(style_sheet_id_2)
         );
 
-        app.world_mut()
+        world
             .entity_mut(entity_inherited)
             .insert(ChildOf(entity_blocked));
-        app.update();
+        schedule.run(world);
 
-        assert_eq!(get_effective_style_sheet(&app, entity_inherited), None);
-        assert_eq!(get_effective_style_sheet(&app, entity_inherited_2), None);
+        assert_eq!(get_effective_style_sheet(world, entity_inherited), None);
+        assert_eq!(get_effective_style_sheet(world, entity_inherited_2), None);
     }
 
     #[test]
     fn test_reset_on_style_sheet_change() {
-        let mut app = App::new();
+        let mut world = World::new();
+        let world = &mut world;
 
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<StyleSheet>();
+        // For this test we only need asset events messages
+        MessageRegistry::register_message::<AssetEvent<StyleSheet>>(world);
 
-        app.add_systems(
-            Update,
-            (calculate_effective_style_sheet, reset_on_style_sheet_change).chain(),
-        );
+        let mut schedule = Schedule::default();
+        schedule
+            .add_systems((calculate_effective_style_sheet, reset_on_style_sheet_change).chain());
 
-        let entity_1 = app
-            .world_mut()
-            .spawn(Styled::new(TEST_STYLE_SHEET_HANDLE))
-            .id();
+        let entity_1 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE)).id();
+        let entity_2 = world.spawn((Styled::Inherited, ChildOf(entity_1))).id();
+        let entity_3 = world.spawn((Styled::Block, ChildOf(entity_1))).id();
+        let entity_4 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE_2)).id();
 
-        let entity_2 = app
-            .world_mut()
-            .spawn((Styled::Inherited, ChildOf(entity_1)))
-            .id();
-
-        let entity_3 = app
-            .world_mut()
-            .spawn((Styled::Block, ChildOf(entity_1)))
-            .id();
-
-        let entity_4 = app
-            .world_mut()
-            .spawn(Styled::new(TEST_STYLE_SHEET_HANDLE_2))
-            .id();
-
-        app.update();
+        schedule.run(world);
 
         fn clear_all_reset_markers(mut markers: Query<&mut StyleMarkers>) {
             markers.iter_mut().for_each(|mut marker| {
@@ -1501,45 +1454,38 @@ mod tests {
             message_writer.write(AssetEvent::Modified { id: *asset_id });
         }
 
-        app.world_mut()
-            .run_system_cached(clear_all_reset_markers)
-            .unwrap();
+        world.run_system_cached(clear_all_reset_markers).unwrap();
 
-        fn entity_need_reset(app: &mut App, entity: Entity) -> bool {
-            app.world()
-                .get::<StyleMarkers>(entity)
-                .unwrap()
-                .needs_reset()
+        fn entity_need_reset(world: &mut World, entity: Entity) -> bool {
+            world.get::<StyleMarkers>(entity).unwrap().needs_reset()
         }
 
-        assert!(!entity_need_reset(&mut app, entity_1));
-        assert!(!entity_need_reset(&mut app, entity_2));
-        assert!(!entity_need_reset(&mut app, entity_3));
-        assert!(!entity_need_reset(&mut app, entity_4));
+        assert!(!entity_need_reset(world, entity_1));
+        assert!(!entity_need_reset(world, entity_2));
+        assert!(!entity_need_reset(world, entity_3));
+        assert!(!entity_need_reset(world, entity_4));
 
-        app.world_mut()
+        world
             .run_system_cached_with(send_style_sheet_modified, TEST_STYLE_SHEET_HANDLE.id())
             .unwrap();
-        app.update();
+        schedule.run(world);
 
-        assert!(entity_need_reset(&mut app, entity_1));
-        assert!(entity_need_reset(&mut app, entity_2));
-        assert!(!entity_need_reset(&mut app, entity_3));
-        assert!(!entity_need_reset(&mut app, entity_4));
+        assert!(entity_need_reset(world, entity_1));
+        assert!(entity_need_reset(world, entity_2));
+        assert!(!entity_need_reset(world, entity_3));
+        assert!(!entity_need_reset(world, entity_4));
 
-        app.world_mut()
-            .run_system_cached(clear_all_reset_markers)
-            .unwrap();
+        world.run_system_cached(clear_all_reset_markers).unwrap();
 
-        app.world_mut()
+        world
             .run_system_cached_with(send_style_sheet_modified, TEST_STYLE_SHEET_HANDLE_2.id())
             .unwrap();
-        app.update();
+        schedule.run(world);
 
-        assert!(!entity_need_reset(&mut app, entity_1));
-        assert!(!entity_need_reset(&mut app, entity_2));
-        assert!(!entity_need_reset(&mut app, entity_3));
-        assert!(entity_need_reset(&mut app, entity_4));
+        assert!(!entity_need_reset(world, entity_1));
+        assert!(!entity_need_reset(world, entity_2));
+        assert!(!entity_need_reset(world, entity_3));
+        assert!(entity_need_reset(world, entity_4));
     }
 
     macro_rules! style_data_is_root {

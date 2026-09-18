@@ -6,10 +6,11 @@ use crate::{
     parse_property_value_with,
 };
 use bevy_flair_style::placeholder::FontSourcePlaceholder;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use bevy_text::{
     FontFeatureTag, FontFeatures, FontFeaturesBuilder, FontSize, FontSource, FontStyle,
     FontVariationTag, FontVariations, FontVariationsBuilder, FontWeight, FontWidth,
+    GenericFontFamily,
 };
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 
@@ -17,22 +18,22 @@ fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssEr
     let path = parser.expect_ident_or_string()?;
     Ok(match_ignore_ascii_case! { path.as_ref(),
          // basic families
-        "serif"  => FontSourcePlaceholder::FontSource(FontSource::Serif),
-        "sans-serif" => FontSourcePlaceholder::FontSource(FontSource::SansSerif),
-        "cursive" => FontSourcePlaceholder::FontSource(FontSource::Cursive),
-        "fantasy" => FontSourcePlaceholder::FontSource(FontSource::Fantasy),
-        "monospace" => FontSourcePlaceholder::FontSource(FontSource::Monospace),
+        "serif"  => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Serif)),
+        "sans-serif" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::SansSerif)),
+        "cursive" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Cursive)),
+        "fantasy" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Fantasy)),
+        "monospace" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Monospace)),
 
         // system / ui families
-        "system-ui" => FontSourcePlaceholder::FontSource(FontSource::SystemUi),
-        "ui-serif" => FontSourcePlaceholder::FontSource(FontSource::UiSerif),
-        "ui-sans-serif" => FontSourcePlaceholder::FontSource(FontSource::UiSansSerif),
-        "ui-monospace" => FontSourcePlaceholder::FontSource(FontSource::UiMonospace),
-        "ui-rounded" => FontSourcePlaceholder::FontSource(FontSource::UiRounded),
+        "system-ui" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::SystemUi)),
+        "ui-serif" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiSerif)),
+        "ui-sans-serif" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiSansSerif)),
+        "ui-monospace" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiMonospace)),
+        "ui-rounded" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiRounded)),
 
         // other types
-        "emoji"  => FontSourcePlaceholder::FontSource(FontSource::Emoji),
-        "math" => FontSourcePlaceholder::FontSource(FontSource::Math),
+        "emoji"  => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Emoji)),
+        "math" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Math)),
 
         _ => FontSourcePlaceholder::FontFaceReference(path.to_string())
     })
@@ -283,48 +284,48 @@ pub fn parse_font_variations(parser: &mut Parser) -> Result<FontVariations, CssE
     Ok(builder.build())
 }
 
-impl FromType<FontSource> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontSource> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(
             |parser| Ok(parse_property_value_with(parser, parse_font_source)?.into_reflect_value()),
         )
     }
 }
 
-impl FromType<FontSize> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontSize> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_font_size))
     }
 }
 
-impl FromType<FontWeight> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontWeight> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_font_weight))
     }
 }
 
-impl FromType<FontWidth> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontWidth> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_font_width)?.into_reflect_value()))
     }
 }
 
-impl FromType<FontStyle> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontStyle> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_font_style)?.into_reflect_value()))
     }
 }
 
-impl FromType<FontFeatures> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontFeatures> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             Ok(parse_property_value_with(parser, parse_font_features)?.into_reflect_value())
         })
     }
 }
 
-impl FromType<FontVariations> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontVariations> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             Ok(parse_property_value_with(parser, parse_font_variations)?.into_reflect_value())
         })
@@ -339,7 +340,7 @@ mod tests {
     use bevy_flair_style::placeholder::FontSourcePlaceholder;
     use bevy_text::{
         FontFeatureTag, FontFeatures, FontSource, FontStyle, FontVariationTag, FontVariations,
-        FontWeight, FontWidth,
+        FontWeight, FontWidth, GenericFontFamily,
     };
 
     #[test]
@@ -354,15 +355,15 @@ mod tests {
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("monospace"),
-            FontSourcePlaceholder::FontSource(FontSource::Monospace)
+            FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Monospace))
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("sans-serif"),
-            FontSourcePlaceholder::FontSource(FontSource::SansSerif)
+            FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::SansSerif))
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("emoji"),
-            FontSourcePlaceholder::FontSource(FontSource::Emoji)
+            FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Emoji))
         );
     }
 

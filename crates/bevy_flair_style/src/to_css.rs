@@ -61,6 +61,12 @@ impl ToCss for bevy_ui::Val {
             Self::VMax(value) => {
                 write!(dest, "{}vmax", round_float(value))
             }
+            Self::Em(value) => {
+                write!(dest, "{}em", round_float(value))
+            }
+            Self::Rem(value) => {
+                write!(dest, "{}rem", round_float(value))
+            }
         }
     }
 }

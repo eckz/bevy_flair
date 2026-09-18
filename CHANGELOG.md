@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9] - Unreleased
+
+### Added
+- border-radius supports elliptical form (`20px / 100px`)
+
+### Fixed
+- Improve support for grid lines in grid-columns and grid-rows (#57)
+-
+### Changed
+- Added support for Bevy 0.20.
+- Deprecated ui::widgets::Button not supported anymore
+- Added mapping between bevy_ui::widgets and type names. bevy::ui_widgets::Button → "button", bevy::ui_widgets::Checkbox → "checkbox", etc.
+
 ## [0.8.1] - 21-Aug-2026
 
 ### Added

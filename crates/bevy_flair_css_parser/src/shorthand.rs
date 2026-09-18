@@ -18,8 +18,8 @@ use bevy_image::Image;
 use bevy_math::{Rot2, Vec2};
 use bevy_reflect::FromReflect;
 use bevy_ui::{
-    AlignItems, BackgroundGradient, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis,
-    RepeatedGridTrack, UiTransform, Val, Val2,
+    AlignItems, BackgroundGradient, CornerRadius, GridAutoFlow, GridTrack, JustifyItems,
+    OverflowAxis, RepeatedGridTrack, UiTransform, Val, Val2,
 };
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
@@ -276,11 +276,11 @@ fn parse_four_property_values<T: FromReflect>(
 /// Parses up to four values and expands them into an array of four [`PropertyValue`]s.
 ///
 /// This follows the CSS shorthand pattern for properties like margin and padding.
-fn parse_four_values(
+fn parse_four_values<T: Clone>(
     parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<PropertyValue, CssError>,
-) -> Result<[PropertyValue; 4], CssError> {
-    let mut values = SmallVec::<[PropertyValue; 4]>::new();
+    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+) -> Result<[T; 4], CssError> {
+    let mut values = SmallVec::<[T; 4]>::new();
 
     values.push(value_parser(parser)?);
     while values.len() < 4 {
@@ -405,13 +405,42 @@ fn parse_border_color(parser: &mut Parser) -> ShorthandParseResult {
 }
 
 fn parse_border_radius(parser: &mut Parser) -> ShorthandParseResult {
-    let [top_left, top_right, bottom_right, bottom_left] =
-        parse_four_calc_values(parser, parse_val)?;
+    let [
+        mut top_left,
+        mut top_right,
+        mut bottom_right,
+        mut bottom_left,
+    ] = parse_four_values(parser, parse_calc_val)?.map(CornerRadius::circular);
+
+    if let Ok([top_left_y, top_right_y, bottom_right_y, bottom_left_y]) =
+        parser.try_parse(|parser| {
+            parser.expect_delim('/')?;
+            parse_four_values(parser, parse_calc_val)
+        })
+    {
+        top_left.y = top_left_y;
+        top_right.y = top_right_y;
+        bottom_right.y = bottom_right_y;
+        bottom_left.y = bottom_left_y;
+    }
+
     Ok(vec![
-        (BORDER_TOP_LEFT_RADIUS, top_left),
-        (BORDER_TOP_RIGHT_RADIUS, top_right),
-        (BORDER_BOTTOM_LEFT_RADIUS, bottom_left),
-        (BORDER_BOTTOM_RIGHT_RADIUS, bottom_right),
+        (
+            BORDER_TOP_LEFT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(top_left)),
+        ),
+        (
+            BORDER_TOP_RIGHT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(top_right)),
+        ),
+        (
+            BORDER_BOTTOM_LEFT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(bottom_left)),
+        ),
+        (
+            BORDER_BOTTOM_RIGHT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(bottom_right)),
+        ),
     ])
 }
 
@@ -1184,8 +1213,8 @@ mod tests {
 
     use bevy_flair_style::placeholder::AssetPathPlaceholder;
     use bevy_ui::{
-        ColorStop, Gradient, GridTrack, LinearGradient, RadialGradient, RadialGradientShape,
-        RepeatedGridTrack, UiPosition,
+        ColorStop, CornerRadius, Gradient, GridTrack, LinearGradient, RadialGradient,
+        RadialGradientShape, RepeatedGridTrack, UiPosition,
     };
     use std::sync::LazyLock;
 
@@ -1237,6 +1266,7 @@ mod tests {
         Val,
         Val2,
         Rot2,
+        CornerRadius,
         AlignItems,
         JustifyItems,
         GridAutoFlow,
@@ -1388,12 +1418,50 @@ mod tests {
             "border-bottom-width" => Val::Px(1.0),
             "border-top-width" => Val::Px(1.0),
         });
+    }
+
+    #[test]
+    fn test_border_radius() {
+        test_shorthand_property!("border-radius", "inherit", {
+            "border-top-left-radius" => PropertyValue::Inherit,
+            "border-top-right-radius" => PropertyValue::Inherit,
+            "border-bottom-left-radius" => PropertyValue::Inherit,
+            "border-bottom-right-radius" => PropertyValue::Inherit,
+        });
+
+        test_shorthand_property!("border-radius", "30px", {
+            "border-top-left-radius" => CornerRadius::circular(Val::Px(30.0)),
+            "border-top-right-radius" => CornerRadius::circular(Val::Px(30.0)),
+            "border-bottom-left-radius" => CornerRadius::circular(Val::Px(30.0)),
+            "border-bottom-right-radius" => CornerRadius::circular(Val::Px(30.0)),
+        });
+
+        test_shorthand_property!("border-radius", "10% / 50%", {
+            "border-top-left-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+            "border-top-right-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+            "border-bottom-left-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+            "border-bottom-right-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+        });
 
         test_shorthand_property!("border-radius", "10px 5%", {
-            "border-top-left-radius" => Val::Px(10.0),
-            "border-top-right-radius" => Val::Percent(5.0),
-            "border-bottom-left-radius" => Val::Percent(5.0),
-            "border-bottom-right-radius" => Val::Px(10.0),
+            "border-top-left-radius" => CornerRadius::circular(Val::Px(10.0)),
+            "border-top-right-radius" => CornerRadius::circular(Val::Percent(5.0)),
+            "border-bottom-left-radius" => CornerRadius::circular(Val::Percent(5.0)),
+            "border-bottom-right-radius" => CornerRadius::circular(Val::Px(10.0)),
+        });
+
+        test_shorthand_property!("border-radius", "50% 20% / 10% 40%", {
+            "border-top-left-radius" => CornerRadius::new(Val::Percent(50.0), Val::Percent(10.0)),
+            "border-top-right-radius" => CornerRadius::new(Val::Percent(20.0), Val::Percent(40.0)),
+            "border-bottom-left-radius" => CornerRadius::new(Val::Percent(20.0), Val::Percent(40.0)),
+            "border-bottom-right-radius" => CornerRadius::new(Val::Percent(50.0), Val::Percent(10.0)),
+        });
+
+        test_shorthand_property!("border-radius", "10px 100px / 120px", {
+            "border-top-left-radius" => CornerRadius::new(Val::Px(10.0), Val::Px(120.0)),
+            "border-top-right-radius" => CornerRadius::new(Val::Px(100.0), Val::Px(120.0)),
+            "border-bottom-left-radius" => CornerRadius::new(Val::Px(100.0), Val::Px(120.0)),
+            "border-bottom-right-radius" => CornerRadius::new(Val::Px(10.0), Val::Px(120.0)),
         });
     }
 

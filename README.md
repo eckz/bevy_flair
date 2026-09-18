@@ -129,7 +129,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Node::default(),
         Styled::new(asset_server.load("my_stylesheet.css")),
-        children![(Button, children![Text::new("Button")])],
+        children![(ClassList::new("button"), Node::default(), children![Text::new("Button")])],
     ));
 }
 
@@ -150,7 +150,7 @@ Save your css file under `assets/my_stylesheet.css`:
   color: rgb(30% 30% 30%);
 }
 
-button {
+.button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -213,6 +213,7 @@ Another good place to start are the examples in the [examples folder](https://gi
 
 | bevy | bevy_flair    |
 |------|---------------|
+| 0.20 | 0.9           |
 | 0.19 | 0.8           |
 | 0.18 | 0.7           |
 | 0.17 | 0.5, 0.6      |

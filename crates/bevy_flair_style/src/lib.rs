@@ -351,7 +351,18 @@ impl Plugin for FlairStylePlugin {
             .init_resource::<GlobalChangeDetection>()
             .register_required_components::<Node, Styled>()
             .register_required_components::<TextSpan, Styled>()
-            .register_required_components_with::<Button, TypeName>(|| TypeName("button"))
+            .register_required_components_with::<bevy_ui_widgets::Button, TypeName>(|| {
+                TypeName("button")
+            })
+            .register_required_components_with::<bevy_ui_widgets::Checkbox, TypeName>(|| {
+                TypeName("checkbox")
+            })
+            .register_required_components_with::<bevy_ui_widgets::RadioButton, TypeName>(|| {
+                TypeName("radio")
+            })
+            .register_required_components_with::<bevy_ui_widgets::Slider, TypeName>(|| {
+                TypeName("slider")
+            })
             .register_required_components_with::<Text, TypeName>(|| TypeName("text"))
             .register_required_components_with::<TextSpan, TypeName>(|| TypeName("span"))
             .register_required_components_with::<Label, TypeName>(|| TypeName("label"))
@@ -426,7 +437,6 @@ impl Plugin for FlairStylePlugin {
                             },
                         ),
                         systems::sync_hovered,
-                        systems::sync_interaction,
                         systems::track_name_changes,
                         systems::sync_input_focus,
                     )

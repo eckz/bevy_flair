@@ -9,7 +9,7 @@
 
 use bevy::input_focus::FocusCause;
 use bevy::picking::hover::Hovered;
-use bevy::ui_widgets::{Activate, ActivateOnPress};
+use bevy::ui_widgets::{Activate, ActivateOnPress, Button};
 use bevy::{
     input::{InputSystems, common_conditions::input_just_pressed},
     input_focus::{AutoFocus, InputFocus, directional_navigation::*},
@@ -171,7 +171,7 @@ fn interact_with_focused_button(
 
 // Focuses buttons on hover
 fn focus_on_over_button_observer(
-    on_pointer_over: On<Pointer<Over>>,
+    on_pointer_over: On<PointerOver>,
     mut focus: ResMut<InputFocus>,
     has_button_query: Query<Has<Button>>,
 ) {
@@ -259,7 +259,6 @@ fn base_button() -> impl Scene {
     bsn! {
         Node
         Button
-        TypeName("button")
         Hovered
         ActivateOnPress
     }
@@ -267,7 +266,7 @@ fn base_button() -> impl Scene {
 
 fn button(text: &'static str) -> impl Scene {
     bsn! {
-        base_button()
+        @base_button()
         Children [
             Text(text)
         ]
@@ -285,34 +284,28 @@ fn text(text: &'static str) -> impl Scene {
 
 fn menu_buttons() -> impl SceneList {
     bsn_list! {
-        (
-            #menu_title
-            text("Main Menu")
-        ),
-        (
-            button("Continue")
-            AutoFocus
-            on(|_: On<Activate>| {
-                info!("Button continue selected");
-            })
-        ),
-        (
-            button("New")
-        ),
-        (
-            button("Return")
-            on(|_: On<Activate>, mut next_state: ResMut<NextState<GameState>>| {
-                info!("Returning to game");
-                next_state.set(GameState::Game);
-            })
-        ),
-        (
-            button("Quit")
-            on(|_: On<Activate>, mut exit_msg: MessageWriter<AppExit>| {
-                info!("Exiting");
-                exit_msg.write_default();
-            })
-        ),
+        #menu_title
+        @text("Main Menu")
+        --
+        @button("Continue")
+        AutoFocus
+        on(|_: On<Activate>| {
+            info!("Button continue selected");
+        })
+        --
+        @button("New")
+        --
+        @button("Return")
+        on(|_: On<Activate>, mut next_state: ResMut<NextState<GameState>>| {
+            info!("Returning to game");
+            next_state.set(GameState::Game);
+        })
+        --
+        @button("Quit")
+        on(|_: On<Activate>, mut exit_msg: MessageWriter<AppExit>| {
+            info!("Exiting");
+            exit_msg.write_default();
+        })
     }
 }
 
@@ -330,12 +323,11 @@ fn menu_scene() -> impl Scene {
             #game_menu
             NavigableChildren
             Children [
-                { menu_buttons() },
-                (
-                    #floating_borders
-                    Node
-                    Pickable::IGNORE
-                ),
+                { menu_buttons() }
+                --
+                #floating_borders
+                Node
+                Pickable::IGNORE
             ]
         ]
     }

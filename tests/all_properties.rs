@@ -282,7 +282,7 @@ fn all_properties() {
     assert_eq!(
         text_font,
         &TextFont {
-            font: FontSource::Monospace,
+            font: FontSource::monospace(),
             font_size: FontSize::Px(3.0),
             weight: FontWeight::BOLD,
             width: FontWidth::EXTRA_CONDENSED,

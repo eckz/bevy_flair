@@ -26,7 +26,6 @@ fn base_button() -> impl Scene {
     bsn! {
         Node
         Button
-        TypeName("button")
         Hovered
         ActivateOnPress
         TabIndex
@@ -35,7 +34,7 @@ fn base_button() -> impl Scene {
 
 fn button() -> impl Scene {
     bsn! {
-        base_button()
+        @base_button()
         Children [
             Text("Button")
         ]
@@ -44,7 +43,7 @@ fn button() -> impl Scene {
 
 fn dark_light_button() -> impl Scene {
     bsn! {
-        base_button()
+        @base_button()
         ClassList::new("dark-light-button")
         DarkLightButton
         on(dark_light_button_observer)
@@ -61,11 +60,15 @@ fn buttons_scene() -> impl Scene {
         ClassList
         TabGroup::new(0)
         Children [
-            ( button() ),
-            ( button() ),
-            ( button() ),
-            ( button() ),
-            ( dark_light_button() )
+            @button()
+            --
+            @button()
+            --
+            @button()
+            --
+            @button()
+            --
+            @dark_light_button()
         ]
     }
 }

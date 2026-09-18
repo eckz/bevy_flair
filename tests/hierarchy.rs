@@ -40,72 +40,56 @@ fn hierarchy() {
 
     fn hierarchy1_scene() -> impl Scene {
         bsn! {
-            root("h1/root")
+            @root("h1/root")
             Styled::StyleSheet("hierarchy1.css")
             Children [
-                (
-                    t("h1/child1")
-                ),
-                (
-                    t("h1/child2")
-                    InlineStyle::new("--value-var: \"h1-child3-value-var\"; content: \"h1-child3-value\"")
-                ),
-                (
-                    t("h1/child3")
-                    Styled::Block
-                ),
-                (
-                    t("h1/child4")
-                    ClassList::new("content-from-class")
-                ),
+                @t("h1/child1")
+                --
+                @t("h1/child2")
+                InlineStyle::new("--value-var: \"h1-child3-value-var\"; content: \"h1-child3-value\"")
+                --
+                @t("h1/child3")
+                Styled::Block
+                --
+                @t("h1/child4")
+                ClassList::new("content-from-class")
             ]
         }
     }
 
     fn hierarchy2_scene() -> impl Scene {
         bsn! {
-            root("h2/root")
+            @root("h2/root")
             Styled::StyleSheet("hierarchy2.css")
             Children [
-                (
-                    t("h2/child1")
-                    ClassList::new("content-from-class")
-                ),
-                (
-                    t("h2/child2")
-                    InlineStyle::new("--value-var: \"h2-child3-value-var\"; content: \"h2-child3-value\"")
-                ),
-                (
-                    t("h2/child3")
-                ),
+                @t("h2/child1")
+                ClassList::new("content-from-class")
+                --
+                @t("h2/child2")
+                InlineStyle::new("--value-var: \"h2-child3-value-var\"; content: \"h2-child3-value\"")
+                --
+                @t("h2/child3")
             ]
         }
     }
 
     fn inner_scenes(parent: Entity) -> impl SceneList {
         bsn_list! {
-            (
-                t("inherits")
-                ChildOf(parent)
+            @t("inherits")
+            ChildOf(parent)
+            ClassList::new("content-inherits")
+            Children [
+                @t("inherits/inherits")
                 ClassList::new("content-inherits")
-                Children [
-                    (
-                        t("inherits/inherits")
-                        ClassList::new("content-inherits")
-                    ),
-                ]
-            ),
-            (
-                t("from-var")
-                ChildOf(parent)
-                ClassList::new("content-from-var")
-                Children [
-                    (
-                        t("from-var/inherits")
-                        ClassList::new("content-inherits")
-                    ),
-                ]
-            ),
+            ]
+            --
+            @t("from-var")
+            ChildOf(parent)
+            ClassList::new("content-from-var")
+            Children [
+                @t("from-var/inherits")
+                ClassList::new("content-inherits")
+            ]
         }
     }
 

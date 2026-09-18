@@ -6,7 +6,7 @@ use bevy_asset::{Asset, Handle};
 use bevy_flair_core::ReflectValue;
 use bevy_flair_style::placeholder::AssetPathPlaceholder;
 use bevy_image::Image;
-use bevy_reflect::{FromType, TypePath};
+use bevy_reflect::{CreateTypeData, TypePath};
 use cssparser::Parser;
 
 /// Parses an asset path for the given asset type `A`.
@@ -35,8 +35,8 @@ pub fn parse_asset_path<A: Asset + TypePath>(
     )))
 }
 
-impl FromType<Handle<Image>> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Handle<Image>> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_asset_path::<Image>))
     }
 }

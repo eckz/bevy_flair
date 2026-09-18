@@ -1,4 +1,6 @@
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
+use bevy::ui_widgets::Button;
 use bevy_flair::prelude::*;
 
 mod sound_effects {
@@ -75,7 +77,12 @@ fn main() {
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     fn button() -> impl Bundle {
-        (Button, children![Text::new("Button")])
+        (
+            Button,
+            Node::default(),
+            Hovered::default(),
+            children![Text::new("Button")],
+        )
     }
 
     commands.spawn(Camera2d);

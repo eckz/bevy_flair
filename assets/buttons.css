@@ -25,7 +25,7 @@
     --button-active-bg-to: var(--color-red-500);
     --button-active-border: var(--color-red-700);
 
-    --button-border-radius: 5px;
+    --button-border-radius: 15px;
 
     --duration-fast: 0.4s;
     --duration-medium: 0.6s;

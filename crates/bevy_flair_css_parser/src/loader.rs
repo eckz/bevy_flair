@@ -198,10 +198,11 @@ impl AssetLoader for CssStyleSheetLoader {
 /// # use bevy_asset::Assets;
 /// # use bevy_ecs::change_detection::ResMut;
 /// # use bevy_ecs::system::Commands;
-/// # use bevy_ui::widget::Button;
 /// # use bevy_flair_css_parser::InlineCssStyleSheetParser;
 /// # use bevy_flair_style::components::Styled;
 /// # use bevy_flair_style::StyleSheet;
+/// # use bevy_ui::Node;
+/// # use bevy_ui_widgets::Button;
 ///
 /// fn setup(mut commands: Commands, loader: InlineCssStyleSheetParser, mut assets: ResMut<Assets<StyleSheet>>,) {
 ///     let stylesheet = loader
@@ -214,6 +215,7 @@ impl AssetLoader for CssStyleSheetLoader {
 ///     let handle_id = assets.add(stylesheet);
 ///     commands.spawn((
 ///         Button,
+///         Node::default(),
 ///         Styled::new(handle_id),
 ///     ));
 /// }

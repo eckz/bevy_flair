@@ -5,7 +5,7 @@ use crate::reflect::ReflectParseCssEnum;
 use crate::utils::parse_property_value_with;
 use bevy_flair_core::PropertyValue;
 use bevy_reflect::enums::{DynamicEnum, DynamicVariant, Enum, EnumInfo, VariantInfo};
-use bevy_reflect::{FromReflect, FromType, TypeInfo, Typed};
+use bevy_reflect::{CreateTypeData, FromReflect, TypeInfo, Typed};
 use cssparser::Parser;
 use std::borrow::Cow;
 
@@ -103,11 +103,11 @@ pub fn parse_enum_as_property_value<T: FromReflect + Typed + Enum>(
     parse_property_value_with(parser, parse_enum_value::<T>).map(PropertyValue::into_reflect_value)
 }
 
-impl<T> FromType<T> for ReflectParseCssEnum
+impl<T> CreateTypeData<T> for ReflectParseCssEnum
 where
     T: FromReflect + Typed + Enum,
 {
-    fn from_type() -> Self {
+    fn create_type_data(_: ()) -> Self {
         Self(parse_enum_as_property_value::<T>)
     }
 }
@@ -116,15 +116,15 @@ where
 mod tests {
     use crate::ReflectParseCssEnum;
     use crate::reflect::reflect_test_utils::{test_parse_reflect, test_property_value_parse_fn};
-    use bevy_reflect::{FromReflect, FromType, Reflect};
+    use bevy_reflect::{CreateTypeData, FromReflect, Reflect};
     use bevy_ui::{BoxSizing, Display};
 
     pub fn test_parse_reflect_enum<T>(contents: &str) -> T
     where
         T: FromReflect,
-        ReflectParseCssEnum: FromType<T>,
+        ReflectParseCssEnum: CreateTypeData<T>,
     {
-        let parse_fn = <ReflectParseCssEnum as FromType<T>>::from_type().0;
+        let parse_fn = <ReflectParseCssEnum as CreateTypeData<T>>::create_type_data(()).0;
         test_property_value_parse_fn(contents, parse_fn)
     }
 

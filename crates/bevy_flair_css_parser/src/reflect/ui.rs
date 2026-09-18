@@ -7,8 +7,8 @@ use crate::utils::{parse_property_value_with, try_parse_none};
 use crate::{ParserExt, ReflectParseCss};
 use bevy_flair_core::{PropertyValue, ReflectValue};
 use bevy_math::{Rect, Rot2, Vec2};
-use bevy_reflect::FromType;
-use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
+use bevy_reflect::CreateTypeData;
+use bevy_ui::{BoxShadow, CornerRadius, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
 use std::f32::consts;
@@ -96,11 +96,13 @@ pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
                 "vh" => Val::Vh(*value),
                 "vmin" => Val::VMin(*value),
                 "vmax" => Val::VMax(*value),
+                "em" => Val::Em(*value),
+                "rem" => Val::Rem(*value),
                 _ => {
                     return Err(CssError::new_located(
                         &next,
                         error_codes::UNEXPECTED_VAL_TOKEN,
-                        format!("Dimension '{unit}' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax'")
+                        format!("Dimension '{unit}' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax' | 'em' | 'rem'")
                     ));
                 }
             }
@@ -127,6 +129,16 @@ pub(crate) fn parse_val2(parser: &mut Parser) -> Result<Val2, CssError> {
     let x = parse_calc_val(parser)?;
     let y = parser.try_parse_with(parse_calc_val).unwrap_or(x);
     Ok(Val2::new(x, y))
+}
+
+pub(crate) fn parse_corner_radius(parser: &mut Parser) -> Result<CornerRadius, CssError> {
+    if let Some(none) = try_parse_none(parser) {
+        return Ok(none);
+    }
+
+    let x = parse_calc_val(parser)?;
+    let y = parser.try_parse_with(parse_calc_val).unwrap_or(Val::Auto);
+    Ok(CornerRadius::new(x, y))
 }
 
 pub(crate) fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
@@ -295,62 +307,71 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     Ok(ReflectValue::new(BoxShadow(styles)))
 }
 
-impl FromType<f32> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<f32> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_f32))
     }
 }
 
-impl FromType<Vec2> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Vec2> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             parse_property_value_with(parser, parse_vec2).map(PropertyValue::into_reflect_value)
         })
     }
 }
 
-impl FromType<Val> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Val> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_val))
     }
 }
 
-impl FromType<Val2> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Val2> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             parse_property_value_with(parser, parse_val2).map(PropertyValue::into_reflect_value)
         })
     }
 }
 
-impl FromType<Rot2> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Rot2> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_calc_property_value_with(parser, parse_angle))
     }
 }
 
-impl FromType<Rect> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Rect> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             parse_property_value_with(parser, parse_rect).map(PropertyValue::into_reflect_value)
         })
     }
 }
 
-impl FromType<OverflowClipMargin> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<CornerRadius> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
+        Self(|parser| {
+            parse_property_value_with(parser, parse_corner_radius)
+                .map(PropertyValue::into_reflect_value)
+        })
+    }
+}
+
+impl CreateTypeData<OverflowClipMargin> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_property_value_with(parser, parse_overflow_clip_margin))
     }
 }
 
-impl FromType<Option<f32>> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Option<f32>> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_property_value_with(parser, parse_aspect_ratio))
     }
 }
 
-impl FromType<Option<Rect>> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<Option<Rect>> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             parse_property_value_with(parser, |parser| parse_rect(parser).map(Some))
                 .map(PropertyValue::into_reflect_value)
@@ -358,14 +379,14 @@ impl FromType<Option<Rect>> for ReflectParseCss {
     }
 }
 
-impl FromType<ZIndex> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<ZIndex> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_property_value_with(parser, parse_z_index))
     }
 }
 
-impl FromType<BoxShadow> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<BoxShadow> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_property_value_with(parser, parse_box_shadow))
     }
 }
@@ -375,7 +396,9 @@ mod tests {
     use crate::reflect::reflect_test_utils::{test_err_parse_reflect, test_parse_reflect};
     use bevy_color::palettes::css;
     use bevy_math::{Rot2, Vec2};
-    use bevy_ui::{BoxShadow, OverflowClipMargin, ShadowStyle, Val, Val2, VisualBox, ZIndex};
+    use bevy_ui::{
+        BoxShadow, CornerRadius, OverflowClipMargin, ShadowStyle, Val, Val2, VisualBox, ZIndex,
+    };
 
     #[test]
     fn test_f32() {
@@ -413,13 +436,15 @@ mod tests {
         assert_eq!(test_parse_reflect::<Val>("343.5vh"), Val::Vh(343.5));
         assert_eq!(test_parse_reflect::<Val>("987vmin"), Val::VMin(987.0));
         assert_eq!(test_parse_reflect::<Val>("9999vmax"), Val::VMax(9999.0));
+        assert_eq!(test_parse_reflect::<Val>("16em"), Val::Em(16.0));
+        assert_eq!(test_parse_reflect::<Val>("32rem"), Val::Rem(32.0));
 
-        assert_eq!(test_err_parse_reflect::<Val>("2rem"), "[60] Warning: Unexpected token for a Val type
+        assert_eq!(test_err_parse_reflect::<Val>("2ch"), "[60] Warning: Unexpected token for a Val type
    ,-[ test.css:1:1 ]
    |
- 1 | 2rem
-   | |^^^\x20\x20
-   | `----- Dimension 'rem' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax'
+ 1 | 2ch
+   | |^^\x20\x20
+   | `---- Dimension 'ch' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax' | 'em' | 'rem'
 ---'
 "
         );
@@ -436,6 +461,18 @@ mod tests {
         assert_eq!(
             test_parse_reflect::<Val2>("calc(10px * 2) 10%"),
             Val2::new(Val::Px(20.0), Val::Percent(10.0))
+        );
+    }
+
+    #[test]
+    fn test_corner_radius() {
+        assert_eq!(
+            test_parse_reflect::<CornerRadius>("20%"),
+            CornerRadius::circular(Val::Percent(20.0))
+        );
+        assert_eq!(
+            test_parse_reflect::<CornerRadius>("20% 50%"),
+            CornerRadius::new(Val::Percent(20.0), Val::Percent(50.0))
         );
     }
 

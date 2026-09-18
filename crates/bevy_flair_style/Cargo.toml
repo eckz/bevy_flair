@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flair_style"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 description = "Bevy UI styling using CSS"
 license = "MIT OR Apache-2.0"
@@ -36,11 +36,13 @@ bevy_ecs = { workspace = true }
 bevy_image = { workspace = true }
 bevy_input_focus = { workspace = true }
 bevy_math = { workspace = true }
+bevy_curve = { workspace = true, features = ["bevy_reflect"] }
 bevy_picking = { workspace = true }
 bevy_reflect = { workspace = true }
 bevy_text = { workspace = true }
 bevy_time = { workspace = true }
 bevy_ui = { workspace = true }
+bevy_ui_widgets = { workspace = true }
 bevy_utils = { workspace = true }
 bevy_window = { workspace = true }
 

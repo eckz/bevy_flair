@@ -5,7 +5,7 @@ use crate::{CssError, ParserExt, ReflectParseCss, error_codes};
 use bevy_color::Color;
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use bevy_text::{LetterSpacing, LineHeight};
 use bevy_ui::widget::TextShadow;
 use cssparser::{Parser, Token, match_ignore_ascii_case};
@@ -104,30 +104,30 @@ fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     }
 }
 
-impl FromType<LineHeight> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<LineHeight> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(
             |parser| Ok(parse_property_value_with(parser, parse_line_height)?.into_reflect_value()),
         )
     }
 }
 
-impl FromType<LetterSpacing> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<LetterSpacing> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             Ok(parse_property_value_with(parser, parse_letter_spacing)?.into_reflect_value())
         })
     }
 }
 
-impl FromType<TextShadow> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<TextShadow> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_property_value_with(parser, parse_text_shadow))
     }
 }
 
-impl FromType<String> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<String> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_string)?.into_reflect_value()))
     }
 }
