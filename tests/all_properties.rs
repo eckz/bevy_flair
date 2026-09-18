@@ -50,6 +50,11 @@ fn all_properties() {
     include_test_css!("all_properties.css");
 
     let mut app = test_app();
+
+    let _filter_guard = set_panic_on_warn_filter(|_, message| {
+        !message.contains("`system_font_discovery` feature is not enabled")
+    });
+
     app.add_systems(Startup, spawn_scene);
     app.update();
     app.update();

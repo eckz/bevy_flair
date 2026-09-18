@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 categories = ["games", "game-development"]
 keywords = ["style", "animations", "bevy", "css"]
 repository = "https://github.com/eckz/bevy_flair"
-rust-version = "1.95.0"
+rust-version = "1.96.0"
 
 [lib]
 bench = false
@@ -65,7 +65,6 @@ bevy = {version = "0.20.0-rc.1", default-features = false, features = [
     "audio",
     "bevy_ui_widgets",
     "bevy_dev_tools",
-    "system_font_discovery",
     "render_dev_tools",
     # Not required, but it panics if not enabled
     "bevy_pbr",

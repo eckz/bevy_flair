@@ -823,13 +823,11 @@ pub(crate) fn auto_remove_components(
 mod tests {
     use super::*;
     use crate::components::{PseudoElementsSupport, StaticPropertyMaps};
-    use bevy_app::prelude::*;
     use bevy_asset::uuid_handle;
     use bevy_ecs::message::MessageRegistry;
     use bevy_input_focus::FocusCause;
     use bevy_reflect::Reflect;
     use std::any::TypeId;
-    use std::mem;
     use std::sync::{Arc, Mutex, PoisonError};
 
     #[test]
