@@ -828,6 +828,7 @@ mod tests {
     use bevy_input_focus::FocusCause;
     use bevy_reflect::Reflect;
     use std::any::TypeId;
+    use std::assert_matches;
     use std::sync::{Arc, Mutex, PoisonError};
 
     #[test]
@@ -1200,14 +1201,14 @@ mod tests {
 
         let values: [_; 3] = get_children(&world, root, &mut query_state);
 
-        assert!(matches!(
+        assert_matches!(
             values.as_slice(),
             [
                 (Some(PseudoElement::Before), _),
                 (None, "Child1"),
                 (Some(PseudoElement::After), _),
             ]
-        ));
+        );
 
         // We insert a new child
         world.spawn((Node::default(), Name::new("Child2"), ChildOf(root)));
@@ -1216,7 +1217,7 @@ mod tests {
 
         let values: [_; 4] = get_children(&world, root, &mut query_state);
 
-        assert!(matches!(
+        assert_matches!(
             values.as_slice(),
             [
                 (Some(PseudoElement::Before), _),
@@ -1224,7 +1225,7 @@ mod tests {
                 (None, "Child2"),
                 (Some(PseudoElement::After), _),
             ]
-        ));
+        );
     }
 
     #[derive(Component, ComponentProperties, Reflect, Default)]

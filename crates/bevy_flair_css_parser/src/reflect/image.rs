@@ -139,31 +139,31 @@ impl CreateTypeData<NodeImageMode> for ReflectParseCss {
 mod tests {
     use crate::reflect::reflect_test_utils::test_parse_reflect;
     use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
+    use std::assert_matches;
 
     use bevy_ui::widget::NodeImageMode;
 
     #[test]
     fn test_image_mode() {
-        // TODO: NodeImageMode does not implement PartialEq. Try to upstream it to bevy.
-        assert!(matches!(
+        assert_eq!(
             test_parse_reflect::<NodeImageMode>("auto"),
             NodeImageMode::Auto
-        ));
+        );
 
-        assert!(matches!(
+        assert_eq!(
             test_parse_reflect::<NodeImageMode>("stretch"),
             NodeImageMode::Stretch
-        ));
+        );
 
-        assert!(matches!(
+        assert_matches!(
             test_parse_reflect::<NodeImageMode>("tiled()"),
             NodeImageMode::Tiled { .. }
-        ));
+        );
 
-        assert!(matches!(
+        assert_matches!(
             test_parse_reflect::<NodeImageMode>("sliced(20px)"),
             NodeImageMode::Sliced(_)
-        ));
+        );
 
         let NodeImageMode::Sliced(slicer) =
             test_parse_reflect::<NodeImageMode>("sliced(20px stretch tile(2.0) 5.0)")

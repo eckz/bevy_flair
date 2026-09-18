@@ -773,6 +773,7 @@ mod tests {
     use bevy_flair_style::{ToCss, VarOrToken, VarToken};
     use bevy_reflect::*;
     use indoc::indoc;
+    use std::assert_matches;
     use std::sync::LazyLock;
 
     const TEST_REPORT_CONFIG: ariadne::Config = ariadne::Config::new()
@@ -1206,13 +1207,13 @@ mod tests {
         let property = rule1.declaration_block.expect_one();
         let (value, important_level) = expect_property_name!(property, "height");
         assert_eq!(value, PropertyValue::Value(ReflectValue::new(1)));
-        assert!(matches!(important_level, ImportantLevel::Important(_)));
+        assert_matches!(important_level, ImportantLevel::Important(_));
 
         assert_single_class_selector!(rule2, "rule2");
         let property = rule2.declaration_block.expect_one();
         let (value, important_level) = expect_property_name!(property, "height");
         assert_eq!(value, PropertyValue::Value(ReflectValue::new(2)));
-        assert!(matches!(important_level, ImportantLevel::Important(_)));
+        assert_matches!(important_level, ImportantLevel::Important(_));
 
         assert_single_class_selector!(rule3, "rule3");
         let property = rule3.declaration_block.expect_one();
@@ -1220,7 +1221,7 @@ mod tests {
         let CssDeclaration::MultipleProperties(values, important_level) = property else {
             panic!("Expected MultipleProperties");
         };
-        assert!(matches!(important_level, ImportantLevel::Important(_)));
+        assert_matches!(important_level, ImportantLevel::Important(_));
 
         assert_eq!(
             values,
@@ -1336,10 +1337,10 @@ mod tests {
         assert_single_class_selector!(ruleset, "rule1");
         let property = ruleset.declaration_block.expect_one();
 
-        assert!(matches!(
+        assert_matches!(
             property,
             CssDeclaration::TransitionProperty(AnimationProperty::Shorthand(_))
-        ));
+        );
     }
 
     #[test]
@@ -1356,13 +1357,13 @@ mod tests {
         assert_single_class_selector!(ruleset, "rule1");
         let property = ruleset.declaration_block.expect_one();
 
-        assert!(matches!(
+        assert_matches!(
             property,
             CssDeclaration::TransitionProperty(AnimationProperty::SingleProperty {
                 property_id: TransitionPropertyId::Delay,
                 ..
             })
-        ));
+        );
     }
 
     #[test]
@@ -1418,10 +1419,10 @@ mod tests {
         assert_single_class_selector!(ruleset, "rule1");
         let property = ruleset.declaration_block.expect_one();
 
-        assert!(matches!(
+        assert_matches!(
             property,
             CssDeclaration::AnimationProperty(AnimationProperty::Shorthand(_))
-        ));
+        );
     }
 
     #[test]
@@ -1590,11 +1591,8 @@ mod tests {
         let mut properties = ruleset.declaration_block;
         assert_eq!(properties.len(), 2);
 
-        assert!(matches!(
-            properties[0],
-            CssDeclaration::SingleProperty(_, _, _)
-        ));
-        assert!(matches!(properties[1], CssDeclaration::NestedRuleset(_)));
+        assert_matches!(properties[0], CssDeclaration::SingleProperty(_, _, _));
+        assert_matches!(properties[1], CssDeclaration::NestedRuleset(_));
 
         let CssDeclaration::NestedRuleset(nested_ruleset) = properties.remove(1) else {
             panic!("Expected nested ruleset")
@@ -1627,11 +1625,8 @@ mod tests {
         let mut properties = ruleset.declaration_block;
         assert_eq!(properties.len(), 2);
 
-        assert!(matches!(
-            properties[0],
-            CssDeclaration::SingleProperty(_, _, _)
-        ));
-        assert!(matches!(properties[1], CssDeclaration::NestedRuleset(_)));
+        assert_matches!(properties[0], CssDeclaration::SingleProperty(_, _, _));
+        assert_matches!(properties[1], CssDeclaration::NestedRuleset(_));
 
         let CssDeclaration::NestedRuleset(nested_ruleset) = properties.remove(1) else {
             panic!("Expected nested ruleset")
@@ -1654,14 +1649,8 @@ mod tests {
         let items = parse(contents);
         let [import1, import2] = items.expect_n();
 
-        assert!(matches!(
-            import1,
-            CssStyleSheetItem::EmbedStylesheet(_, _, _)
-        ));
-        assert!(matches!(
-            import2,
-            CssStyleSheetItem::EmbedStylesheet(_, _, _)
-        ));
+        assert_matches!(import1, CssStyleSheetItem::EmbedStylesheet(_, _, _));
+        assert_matches!(import2, CssStyleSheetItem::EmbedStylesheet(_, _, _));
     }
 
     #[test]
