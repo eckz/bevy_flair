@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Improve support for grid lines in grid-columns and grid-rows (#57)
--
+- `calc()` is made more consistent with the css standard. Functions `min/max/clam` and `pow/sqrt/log/exp` are now supported
+
 ### Changed
 - Added support for Bevy 0.20.
 - Deprecated ui::widgets::Button not supported anymore
