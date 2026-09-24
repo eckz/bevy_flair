@@ -575,7 +575,10 @@ mod tests {
             source_location: SourceLocation { line: 5, column: 1 },
             len_offset: 3,
         };
-        assert_eq!(location.into_range(contents), contents.len()..contents.len());
+        assert_eq!(
+            location.into_range(contents),
+            contents.len()..contents.len()
+        );
     }
 
     #[test]
