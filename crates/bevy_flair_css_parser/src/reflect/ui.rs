@@ -1,4 +1,4 @@
-use crate::calc::{parse_calc_property_value_with, parse_calc_value};
+use crate::calc::{parse_calc, parse_calc_property_with};
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
@@ -29,7 +29,7 @@ pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
 }
 
 pub(crate) fn parse_calc_f32(parser: &mut Parser) -> Result<f32, CssError> {
-    parse_calc_value(parser, parse_f32)
+    parse_calc(parser, parse_f32)
 }
 
 pub(crate) fn parse_vec2(parser: &mut Parser) -> Result<Vec2, CssError> {
@@ -118,7 +118,7 @@ pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
 }
 
 pub(crate) fn parse_calc_val(parser: &mut Parser) -> Result<Val, CssError> {
-    parse_calc_value(parser, parse_val)
+    parse_calc(parser, parse_val)
 }
 
 pub(crate) fn parse_val2(parser: &mut Parser) -> Result<Val2, CssError> {
@@ -178,7 +178,7 @@ pub(crate) fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
 }
 
 pub(crate) fn parse_calc_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
-    parse_calc_value(parser, parse_angle)
+    parse_calc(parser, parse_angle)
 }
 
 fn parse_overflow_clip_margin(parser: &mut Parser) -> Result<ReflectValue, CssError> {
@@ -294,6 +294,9 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
 }
 
 fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+    if let Some(none) = try_parse_none::<BoxShadow>(parser) {
+        return Ok(ReflectValue::new(none));
+    }
     let mut styles = Vec::with_capacity(1);
     styles.push(parse_single_box_shadow_style(parser)?);
 
@@ -309,7 +312,7 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
 
 impl CreateTypeData<f32> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_value_with(parser, parse_f32))
+        Self(|parser| parse_calc_property_with(parser, parse_f32))
     }
 }
 
@@ -323,7 +326,7 @@ impl CreateTypeData<Vec2> for ReflectParseCss {
 
 impl CreateTypeData<Val> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_value_with(parser, parse_val))
+        Self(|parser| parse_calc_property_with(parser, parse_val))
     }
 }
 
@@ -337,7 +340,7 @@ impl CreateTypeData<Val2> for ReflectParseCss {
 
 impl CreateTypeData<Rot2> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_value_with(parser, parse_angle))
+        Self(|parser| parse_calc_property_with(parser, parse_angle))
     }
 }
 
@@ -537,6 +540,11 @@ mod tests {
 
     #[test]
     fn test_box_shadow() {
+        assert_eq!(
+            test_parse_reflect::<BoxShadow>("none"),
+            BoxShadow::default()
+        );
+
         assert_eq!(
             test_parse_reflect::<BoxShadow>("10px 5px"),
             BoxShadow::from(ShadowStyle {

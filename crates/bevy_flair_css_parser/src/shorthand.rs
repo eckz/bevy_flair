@@ -1,4 +1,4 @@
-use crate::calc::{Calculable, parse_calc_property_value_with};
+use crate::calc::{Calculable, parse_calc_property_with};
 use crate::reflect::{
     parse_asset_path, parse_calc_angle, parse_calc_f32, parse_calc_val, parse_color,
     parse_enum_as_property_value, parse_enum_value, parse_gradient, parse_grid_track_vec,
@@ -255,12 +255,12 @@ impl ShorthandPropertyRegistry {
 /// Parses up to four values and expands them into an array of four [`PropertyValue`]s.
 ///
 /// This follows the CSS shorthand pattern for properties like margin and padding.
-fn parse_four_calc_values<T: Calculable>(
+fn parse_four_calc_values<T: Calculable + FromReflect>(
     parser: &mut Parser,
     mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
 ) -> Result<[PropertyValue; 4], CssError> {
     parse_four_values(parser, |parser| {
-        parse_calc_property_value_with(parser, &mut value_parser)
+        parse_calc_property_with(parser, &mut value_parser)
     })
 }
 
@@ -478,7 +478,7 @@ fn parse_border_inner<I: IntoIterator<Item = CssRef>>(
 ) -> ShorthandParseResult {
     let width = match try_parse_none_with_value(parser, Val::ZERO) {
         Some(zero_value) => PropertyValue::Value(ReflectValue::Val(zero_value)),
-        None => parse_calc_property_value_with(parser, parse_val)?,
+        None => parse_calc_property_with(parser, parse_val)?,
     };
 
     let mut result: Vec<_> = width_ref
@@ -583,7 +583,7 @@ fn parse_outline(parser: &mut Parser) -> ShorthandParseResult {
             .or_else(|_| parse_val(parser))
     }
 
-    let width = parse_calc_property_value_with(parser, parse_ident_or_val)?;
+    let width = parse_calc_property_with(parser, parse_ident_or_val)?;
 
     let mut result = vec![(OUTLINE_WIDTH, width)];
 
@@ -640,14 +640,14 @@ fn parse_flex(parser: &mut Parser) -> ShorthandParseResult {
             .try_parse(|parser| parser.expect_number())
             .unwrap_or(1.0);
         let flex_basis = parser
-            .try_parse_with(parse_val)
+            .try_parse_with(parse_calc_val)
             .unwrap_or(Val::Percent(0.0));
 
         return final_result((flex_grow, flex_shrink, flex_basis));
     }
 
     /* One value, width/height: flex-basis */
-    let flex_basis = parse_val(parser)?;
+    let flex_basis = parse_calc_val(parser)?;
     let (flex_grow, flex_shrink) = (1.0, 1.0);
 
     final_result((flex_grow, flex_shrink, flex_basis))
@@ -658,23 +658,44 @@ define_css_properties! {
     const JUSTIFY_ITEMS = "justify-items";
 }
 
+fn convert_align_items_into_justify_items(align_items: AlignItems) -> JustifyItems {
+    match align_items {
+        AlignItems::Default => JustifyItems::Default,
+        AlignItems::Start => JustifyItems::Start,
+        AlignItems::StartSafe => JustifyItems::StartSafe,
+        AlignItems::End => JustifyItems::End,
+        AlignItems::EndSafe => JustifyItems::EndSafe,
+        AlignItems::FlexStart => JustifyItems::Start,
+        AlignItems::FlexStartSafe => JustifyItems::StartSafe,
+        AlignItems::FlexEnd => JustifyItems::End,
+        AlignItems::FlexEndSafe => JustifyItems::EndSafe,
+        AlignItems::Center => JustifyItems::Center,
+        AlignItems::CenterSafe => JustifyItems::CenterSafe,
+        AlignItems::Baseline => JustifyItems::Baseline,
+        AlignItems::Stretch => JustifyItems::Stretch,
+    }
+}
+
 /// Parses the `place-items` shorthand into `align-items` and `justify-items`.
 fn parse_place_items(parser: &mut Parser) -> ShorthandParseResult {
-    parse_simple_shorthand_property(
-        parser,
-        [
-            (
-                ALIGN_ITEMS,
-                UsePrevious::No,
-                parse_enum_as_property_value::<AlignItems>,
-            ),
-            (
-                JUSTIFY_ITEMS,
-                UsePrevious::No,
-                parse_enum_as_property_value::<JustifyItems>,
-            ),
-        ],
-    )
+    let align_items = parse_enum_as_property_value::<AlignItems>(parser)?;
+
+    let justify_items = parser
+        .try_parse_with(parse_enum_as_property_value::<JustifyItems>)
+        .unwrap_or_else(|_| {
+            align_items.clone().map(|v| {
+                ReflectValue::new(
+                    v.downcast_value::<AlignItems>()
+                        .map(convert_align_items_into_justify_items)
+                        .expect("AlignItems"),
+                )
+            })
+        });
+
+    Ok(vec![
+        (ALIGN_ITEMS, align_items),
+        (JUSTIFY_ITEMS, justify_items),
+    ])
 }
 
 define_css_properties! {
@@ -683,7 +704,7 @@ define_css_properties! {
 }
 
 pub(crate) fn parse_val_as_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
-    parse_calc_property_value_with(parser, parse_val)
+    parse_calc_property_with(parser, parse_val)
 }
 
 /// Parses the `gap` shorthand into `row-gap` and `column-gap`.
@@ -1539,6 +1560,11 @@ mod tests {
 
     #[test]
     fn test_place_items() {
+        test_shorthand_property!("place-items", "center", {
+            "align-items" => AlignItems::Center,
+            "justify-items" => JustifyItems::Center,
+        });
+
         test_shorthand_property!("place-items", "center center", {
             "align-items" => AlignItems::Center,
             "justify-items" => JustifyItems::Center,
@@ -1546,6 +1572,7 @@ mod tests {
 
         test_shorthand_property!("place-items", "flex-start", {
             "align-items" => AlignItems::FlexStart,
+            "justify-items" => JustifyItems::Start,
         });
 
         test_shorthand_property!("place-items", "flex-end stretch", {

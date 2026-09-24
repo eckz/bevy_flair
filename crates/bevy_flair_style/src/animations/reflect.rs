@@ -191,9 +191,17 @@ fn interpolate_list_with<T: Clone>(
     b: &[T],
     t: f32,
     f: fn(&T, &T, f32) -> T,
+    empty_element: Option<&T>,
     msg: &'static str,
 ) -> Vec<T> {
     if a.len() != b.len() {
+        if let Some(empty_element) = empty_element {
+            if a.is_empty() {
+                return b.iter().map(|b| f(empty_element, b, t)).collect();
+            } else if b.is_empty() {
+                return a.iter().map(|a| f(a, empty_element, t)).collect();
+            }
+        }
         once!(warn!("{msg}"));
         a.to_vec()
     } else {
@@ -331,6 +339,7 @@ fn interpolate_linear_gradient(a: &LinearGradient, b: &LinearGradient, t: f32) -
             &b.stops,
             t,
             interpolate_color_stop,
+            None,
             "Cannot interpolate between different number of color stops in a linear gradient",
         ),
     }
@@ -360,6 +369,7 @@ fn interpolate_radial_gradient(a: &RadialGradient, b: &RadialGradient, t: f32) -
             &b.stops,
             t,
             interpolate_color_stop,
+            None,
             "Cannot interpolate between different number of color stops in a radial gradient",
         ),
     }
@@ -382,6 +392,7 @@ fn interpolate_conic_gradient(a: &ConicGradient, b: &ConicGradient, t: f32) -> C
             &b.stops,
             t,
             interpolate_angular_color_stop,
+            None,
             "Cannot interpolate between different number of color stops in a conic gradient",
         ),
     }
@@ -407,6 +418,16 @@ fn interpolate_gradient(a: &Gradient, b: &Gradient, t: f32) -> Gradient {
     }
 }
 
+const TRANSPARENT_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+
+const TRANSPARENT_SHADOW_STYLE: ShadowStyle = ShadowStyle {
+    color: TRANSPARENT_COLOR,
+    x_offset: Val::ZERO,
+    y_offset: Val::ZERO,
+    spread_radius: Val::ZERO,
+    blur_radius: Val::ZERO,
+};
+
 fn interpolate_shadow_style(a: &ShadowStyle, b: &ShadowStyle, t: f32) -> ShadowStyle {
     ShadowStyle {
         color: interpolate_color(&a.color, &b.color, t),
@@ -424,6 +445,7 @@ impl InterpolateValue for BackgroundGradient {
             &b.0,
             t,
             interpolate_gradient,
+            None,
             "Cannot interpolate between different number of gradients",
         ))
     }
@@ -436,6 +458,7 @@ impl InterpolateValue for BorderGradient {
             &b.0,
             t,
             interpolate_gradient,
+            None,
             "Cannot interpolate between different number of gradients",
         ))
     }
@@ -448,6 +471,7 @@ impl InterpolateValue for BoxShadow {
             &b.0,
             t,
             interpolate_shadow_style,
+            Some(&TRANSPARENT_SHADOW_STYLE),
             "Cannot interpolate between different number of box shadows",
         ))
     }

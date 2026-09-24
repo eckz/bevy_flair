@@ -37,7 +37,7 @@ static EMPTY_PROPERTY_REGISTRY: LazyLock<PropertyRegistry> = LazyLock::new(Prope
 fn report_important_level(report_generator: &mut ErrorReportGenerator, level: ImportantLevel) {
     if let ImportantLevel::Important(location) = level {
         report_generator.add_advice(
-            location,
+            location.into(),
             "!important is not supported",
             "!important token is being ignored, so you can remove it",
         );

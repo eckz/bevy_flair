@@ -2,7 +2,7 @@
 
 use crate::reflect::parse_calc_angle;
 use crate::{
-    CssError, ParserExt, ReflectParseCss, error_codes, parse_calc_property_value_with,
+    CssError, ParserExt, ReflectParseCss, error_codes, parse_calc_property_with,
     parse_property_value_with,
 };
 use bevy_flair_style::placeholder::FontSourcePlaceholder;
@@ -294,13 +294,13 @@ impl CreateTypeData<FontSource> for ReflectParseCss {
 
 impl CreateTypeData<FontSize> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_value_with(parser, parse_font_size))
+        Self(|parser| parse_calc_property_with(parser, parse_font_size))
     }
 }
 
 impl CreateTypeData<FontWeight> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_value_with(parser, parse_font_weight))
+        Self(|parser| parse_calc_property_with(parser, parse_font_weight))
     }
 }
 

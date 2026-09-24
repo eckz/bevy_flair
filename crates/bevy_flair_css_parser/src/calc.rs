@@ -12,7 +12,7 @@ use bevy_ui::Val;
 use smallvec::SmallVec;
 use std::convert::Infallible;
 use std::fmt::{Debug, Display};
-use std::ops::{Mul, Neg};
+use std::ops::Mul;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -165,7 +165,7 @@ impl CalcMul for Duration {
             ValueOrNumber::Number(b) => b,
         };
 
-        Ok(Duration::try_from_secs_f32(a.as_secs_f32() * b).map_err(|e| e.to_string())?)
+        Duration::try_from_secs_f32(a.as_secs_f32() * b).map_err(|e| e.to_string())
     }
 }
 
@@ -757,10 +757,12 @@ fn parse_calc_number_inner(parser: &mut Parser) -> Result<CalcValue<f32>, CssErr
     parse_calc_sum(parser, &mut parse_number)
 }
 
+type OrderItems<T> = (CalcValue<T>, SmallVec<[CalcValue<T>; 2]>);
+
 fn parse_ord_items<T>(
     parser: &mut Parser,
     value_parser: &mut dyn FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<(CalcValue<T>, SmallVec<[CalcValue<T>; 2]>), CssError> {
+) -> Result<OrderItems<T>, CssError> {
     let mut rest = SmallVec::new();
 
     let first = parse_calc_sum(parser, value_parser)?;

@@ -1,7 +1,7 @@
 use crate::{CssError, ParserExt, error_codes::vars as error_codes};
 use bevy_flair_core::PropertyValue;
 use cssparser::{Parser, match_ignore_ascii_case, parse_important};
-use std::ops::Range;
+use std::range::Range;
 use variadics_please::all_tuples;
 
 pub(crate) fn parse_property_global_keyword<T>(
@@ -32,7 +32,7 @@ pub(crate) fn parse_property_global_keyword<T>(
 ///  If the produced type supports [`calc()`], it's preferable to use [`parse_calc_property_value_with()`].
 ///
 /// [`calc()`]: crate::Calculable
-/// [`parse_calc_property_value_with()`]: crate::parse_calc_property_value_with
+/// [`parse_calc_property_value_with()`]: crate::parse_calc_property_with
 /// # Examples
 /// ```
 /// # use cssparser::{Parser, ParserInput};

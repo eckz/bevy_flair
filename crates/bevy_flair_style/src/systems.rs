@@ -827,6 +827,7 @@ mod tests {
     use bevy_ecs::message::MessageRegistry;
     use bevy_input_focus::FocusCause;
     use bevy_reflect::Reflect;
+    use bevy_ui::Selected;
     use std::any::TypeId;
     use std::assert_matches;
     use std::sync::{Arc, Mutex, PoisonError};
@@ -1080,6 +1081,9 @@ mod tests {
                 state.disabled = value;
             }),
             sync_marker_component_system::<Checked>(|state, value| {
+                state.checked = value;
+            }),
+            sync_marker_component_system::<Selected>(|state, value| {
                 state.checked = value;
             }),
         ));

@@ -15,10 +15,10 @@ pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Range;
+use std::range::Range;
 use tracing::debug;
 
-pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc_property_value_with, parse_calc_value};
+pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc, parse_calc_property_with};
 pub use parser::parse_duration;
 pub use utils::parse_property_value_with;
 
@@ -49,7 +49,8 @@ pub struct Located<T> {
 impl<T> Located<T> {
     /// Wraps a value with the given location.
     /// The range is the byte range from the original source.
-    pub fn new(item: T, location: Range<usize>) -> Self {
+    pub fn new(item: T, location: impl Into<Range<usize>>) -> Self {
+        let location = location.into();
         Self { item, location }
     }
 }
@@ -283,6 +284,7 @@ pub(crate) mod test_utils {
     use crate::{CssError, ErrorReportGenerator};
     use bevy_flair_style::{VarResolver, VarTokens};
     use cssparser::{ParseError, Parser, ParserInput};
+    use std::assert_matches;
     use std::backtrace::BacktraceStatus;
     use std::sync::Arc;
 
@@ -337,8 +339,9 @@ pub(crate) mod test_utils {
             let result = parse_fn(parser)?;
             let important_level = try_parse_important_level(parser);
 
-            assert!(
-                matches!(important_level, ImportantLevel::Important(_)),
+            assert_matches!(
+                important_level,
+                ImportantLevel::Important(_),
                 "Missing trailing !important from parser. Remaining contents: '{remaining_contents}'",
                 remaining_contents = &contents[parser.position().byte_index()..]
             );

@@ -436,6 +436,11 @@ impl Plugin for FlairStylePlugin {
                                 state.checked = value;
                             },
                         ),
+                        systems::sync_marker_component_system::<bevy_ui::Selected>(
+                            |state, value| {
+                                state.checked = value;
+                            },
+                        ),
                         systems::sync_hovered,
                         systems::track_name_changes,
                         systems::sync_input_focus,

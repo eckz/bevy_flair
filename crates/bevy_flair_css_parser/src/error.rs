@@ -6,7 +6,6 @@ use cssparser::{
     BasicParseError, BasicParseErrorKind, ParseError, ParseErrorKind, SourceLocation, ToCss, Token,
 };
 use selectors::parser::SelectorParseErrorKind;
-use std::ops::Range;
 
 #[derive(Default)]
 struct WriteLengthCounter {
@@ -22,7 +21,7 @@ impl std::fmt::Write for WriteLengthCounter {
 
 #[derive(Clone, Debug)]
 pub(crate) enum CssErrorLocation {
-    Range(Range<usize>),
+    Range(std::range::Range<usize>),
     Unlocated,
     SubStr {
         substr_ptr: usize,
@@ -35,16 +34,14 @@ pub(crate) enum CssErrorLocation {
     },
 }
 
-// Taken from subslice_range (https://doc.rust-lang.org/src/core/slice/mod.rs.html#4626)
-fn substr_range(original: &str, substr: &str) -> Option<Range<usize>> {
-    let original_start = original.as_ptr() as usize;
-    let subslice_start = substr.as_ptr() as usize;
-
-    let byte_start = subslice_start.wrapping_sub(original_start);
-    let byte_end = byte_start.wrapping_add(substr.len());
-
-    if byte_start <= original.len() && byte_end <= original.len() {
-        Some(byte_start..byte_end)
+// Taken from subslice_range (https://doc.rust-lang.org/stable/src/core/slice/mod.rs.html#5321)
+fn substr_range(original: &str, substr: &str) -> Option<core::range::Range<usize>> {
+    let self_start = original.as_ptr().addr();
+    let subslice_start = substr.as_ptr().addr();
+    let start = subslice_start.wrapping_sub(self_start);
+    let end = start.wrapping_add(substr.len());
+    if start <= original.len() && end <= original.len() {
+        Some(core::range::Range { start, end })
     } else {
         None
     }
@@ -76,19 +73,19 @@ impl CssErrorLocation {
         }
     }
 
-    pub(crate) fn into_range(self, contents: &str) -> Range<usize> {
+    pub(crate) fn into_range(self, contents: &str) -> std::range::legacy::Range<usize> {
         match self {
             CssErrorLocation::Unlocated => {
                 panic!("Unexpected unlocated CssError")
             }
-            CssErrorLocation::Range(range) => range,
+            CssErrorLocation::Range(range) => range.into(),
             CssErrorLocation::SubStr { substr_ptr, len } => {
                 let contents_ptr = contents.as_ptr() as usize;
-                let byte_start = substr_ptr.wrapping_sub(contents_ptr);
-                let byte_end = byte_start.wrapping_add(len);
+                let start = substr_ptr.wrapping_sub(contents_ptr);
+                let end = start.wrapping_add(len);
 
-                if byte_start <= contents.len() && byte_end <= contents.len() {
-                    byte_start..byte_end
+                if start <= contents.len() && end <= contents.len() {
+                    std::range::legacy::Range { start, end }
                 } else {
                     panic!("invalid range generated");
                 }
@@ -119,7 +116,8 @@ impl CssErrorLocation {
                 let line_len = line.len();
                 if column_byte_offset >= line_len {
                     return substr_range(contents, &line[line_len - 1..line_len])
-                        .expect("Invalid range generated");
+                        .expect("Invalid range generated")
+                        .into();
                 }
 
                 substr_range(
@@ -127,6 +125,7 @@ impl CssErrorLocation {
                     &line[column_byte_offset..(column_byte_offset + len_offset)],
                 )
                 .expect("Invalid range generated")
+                .into()
             }
         }
     }
@@ -297,7 +296,7 @@ impl CssError {
     ) -> Self {
         Self::new(
             StyleErrorData::new(code, annotated_message),
-            CssErrorLocation::Range(located.location.clone()),
+            CssErrorLocation::Range(located.location),
         )
     }
 
@@ -483,7 +482,7 @@ impl<'a> ErrorReportGenerator<'a> {
     /// Add advice to this report.
     pub fn add_advice(
         &mut self,
-        location: Range<usize>,
+        location: core::range::legacy::Range<usize>,
         message: &'static str,
         annotated_message: impl Into<String>,
     ) {
