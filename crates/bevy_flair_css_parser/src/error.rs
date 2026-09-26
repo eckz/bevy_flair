@@ -97,12 +97,11 @@ impl CssErrorLocation {
                 source_location,
                 len_offset,
             } => {
-                let line = contents
-                    .lines()
-                    .nth(source_location.line as usize)
-                    .unwrap_or_else(|| {
-                        panic!("Line number {} not found in contents", source_location.line)
-                    });
+                // A parse error's SourceLocation can point one line past EOF (e.g. a
+                // trailing block-less rule); yield an empty end-of-input span for it.
+                let Some(line) = contents.lines().nth(source_location.line as usize) else {
+                    return contents.len()..contents.len();
+                };
 
                 // The column number within a line starts at 1 for first the character of the line.
                 // Column numbers are counted in UTF-16 code units.
@@ -564,6 +563,21 @@ mod tests {
    |       `------ unexpected token: Number { has_sign: false, value: 12345.0, int_value: Some(12345) }
 ---'
 "
+        );
+    }
+
+    #[test]
+    fn source_location_past_eof_degrades_without_panic() {
+        // A parse error's SourceLocation can point one line past EOF (e.g. a
+        // trailing block-less rule); into_range must not panic on it.
+        let contents = "#kept 12345\n";
+        let location = CssErrorLocation::SourceLocation {
+            source_location: SourceLocation { line: 5, column: 1 },
+            len_offset: 3,
+        };
+        assert_eq!(
+            location.into_range(contents),
+            contents.len()..contents.len()
         );
     }
 
