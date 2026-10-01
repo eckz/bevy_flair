@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - border-radius supports elliptical form (`20px / 100px`)
 - Calc `min/max/clamp`, `round` and `pow/sqrt/log/exp` functions are now supported
 - Duration supports `calc()` like `calc(1s * 2)`
+- Full support for `em` on `Val` types. `EmSize` is automatically updated
 
 ### Fixed
 - Improve support for grid lines in grid-columns and grid-rows (#57)
@@ -19,10 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Added support for Bevy 0.20.
 - Deprecated ui::widgets::Button not supported anymore
-- Added mapping between bevy_ui::widgets and type names. bevy::ui_widgets::Button → "button", bevy::ui_widgets::Checkbox → "checkbox", etc.
+- Added mapping between bevy::ui_widgets and type names. bevy::ui_widgets::Button → "button", bevy::ui_widgets::Checkbox → "checkbox", etc.
 - `calc()` internals are greatly improved to support more use cases.
-  Previously to support custom types, it was required to implement CalcAdd, CalcSum. 
-  Now only the trait FromCalcValue needs to be implemented 
+  Previously to support custom types, it was required to implement `CalcAdd`, `CalcSum`. 
+  Now only the trait `FromCalcValue` needs to be implemented 
 
 ## [0.8.1] - 21-Aug-2026
 

@@ -67,7 +67,7 @@ button {
 
     width: 200px;
     max-width: 90%;
-    height: 65px;
+    height: 2.5em;
 
     @media (min-width: 600px) {
         width: 300px;
@@ -75,7 +75,6 @@ button {
 
     @media (min-width: 800px) and (min-height: 600px) {
         width: 400px;
-        height: 80px;
     }
 
     /* In order to have linear-gradient to animate, it needs to have the same number of color stops */

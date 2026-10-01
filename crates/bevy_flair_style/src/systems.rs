@@ -20,6 +20,7 @@ use bevy_ecs::world::{CommandQueue, EntityRefExcept};
 use bevy_flair_core::*;
 use bevy_input_focus::{InputFocus, InputFocusVisible};
 use bevy_picking::hover::Hovered;
+use bevy_text::{FontSize, TextFont};
 use bevy_time::Time;
 use bevy_ui::prelude::*;
 use bevy_utils::once;
@@ -819,6 +820,56 @@ pub(crate) fn auto_remove_components(
     }
 }
 
+pub(crate) fn sync_em_size(
+    property_registry: Res<PropertyRegistry>,
+    mut font_size_property: Local<Option<ComponentPropertyId>>,
+    rem_size: Option<Res<RemSize>>,
+    mut query: Query<(
+        &StyleProperties,
+        Ref<ComputedUiRenderTargetInfo>,
+        &StyleMarkers,
+        &mut EmSize,
+    )>,
+) {
+    let font_size_property = font_size_property.get_or_insert_with(|| {
+        property_registry
+            .resolve(TextFont::property_field_ref("font_size"))
+            .expect("font-size property not registered")
+    });
+    let font_size_property = *font_size_property;
+    let rem_sized_changed = rem_size.as_ref().is_some_and(|r| r.is_changed());
+
+    let rem_size = rem_size.map(|r| *r).unwrap_or_default();
+
+    for (properties, render_target_info, marker, mut em_size) in &mut query {
+        if !marker.needs_apply_pending_properties()
+            && !render_target_info.is_changed()
+            && !rem_sized_changed
+        {
+            continue;
+        }
+        debug_assert!(
+            !properties.computed_values.is_empty(),
+            "properties.computed_values should not be empty"
+        );
+
+        let computed_values = if !properties.pending_computed_values.is_empty() {
+            &properties.pending_computed_values
+        } else {
+            &properties.computed_values
+        };
+        let ComputedValue::Value(v) = &computed_values[font_size_property] else {
+            continue;
+        };
+        let font_size: &FontSize = v
+            .downcast_value_ref()
+            .expect("Expected font-size property to be FontSize");
+
+        let new_em_size = EmSize(font_size.eval(render_target_info.logical_size(), rem_size));
+        em_size.set_if_neq(new_em_size);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1538,5 +1589,83 @@ mod tests {
         assert!(style_data_is_root!(world, new_non_node_root));
         assert!(!style_data_is_root!(world, non_node_root));
         assert!(!style_data_is_root!(world, non_node_child));
+    }
+
+    macro_rules! em_size {
+        ($world:ident, $entity:ident) => {
+            $world
+                .get::<EmSize>($entity)
+                .expect(&format!("No EmSize for {:?}", $entity))
+                .0
+        };
+    }
+
+    #[test]
+    fn test_sync_em_size() {
+        let mut property_registry = PropertyRegistry::new();
+        property_registry.register::<TextFont>();
+
+        let font_size_property = property_registry
+            .resolve(TextFont::property_field_ref("font_size"))
+            .unwrap();
+
+        let set_font_size = |world: &mut World, entity, font_size: FontSize| {
+            let computed_values = &mut world
+                .get_mut::<StyleProperties>(entity)
+                .unwrap()
+                .computed_values;
+
+            computed_values[font_size_property] = ReflectValue::new(font_size).into();
+            let marker = world.get_mut::<StyleMarkers>(entity).unwrap().into_inner();
+
+            if marker.needs_apply_pending_properties() {
+                marker.finish_apply_pending_properties();
+            }
+
+            if !marker.needs_calculate_style() {
+                marker.recalculate_style();
+            }
+            marker.finish_calculate_style();
+            marker.finish_resolve_property_values();
+            marker.finish_compute_property_values();
+        };
+
+        let mut world = World::new();
+        let world = &mut world;
+        world.insert_resource(property_registry.clone());
+        world.init_resource::<StaticPropertyMaps>();
+        world.init_resource::<RemSize>();
+
+        let mut schedule = Schedule::default();
+        schedule.add_systems((reset_properties, sync_em_size).chain());
+
+        let entity = world
+            .spawn((Node::default(), Styled::new(TEST_STYLE_SHEET_HANDLE)))
+            .id();
+
+        schedule.run(world);
+
+        assert_eq!(em_size!(world, entity), 20.0);
+
+        set_font_size(world, entity, FontSize::Px(100.0));
+        schedule.run(world);
+
+        assert_eq!(em_size!(world, entity), 100.0);
+
+        set_font_size(world, entity, FontSize::Vh(100.0));
+        schedule.run(world);
+
+        assert_eq!(em_size!(world, entity), 0.0);
+
+        set_font_size(world, entity, FontSize::Rem(1.0));
+        schedule.run(world);
+
+        assert_eq!(em_size!(world, entity), 20.0);
+
+        // Updating RemSize resource should update EmSize
+        world.resource_mut::<RemSize>().0 = 30.0;
+        schedule.run(world);
+
+        assert_eq!(em_size!(world, entity), 30.0);
     }
 }

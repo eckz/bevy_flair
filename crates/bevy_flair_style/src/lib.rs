@@ -466,6 +466,7 @@ impl Plugin for FlairStylePlugin {
                     systems::emit_redraw_event.in_set(StyleSystems::EmitRedrawEvent),
                     (
                         systems::resolve_placeholders,
+                        systems::sync_em_size,
                         systems::apply_computed_properties,
                         systems::auto_remove_components
                             .run_if(systems::auto_remove_components_condition),
