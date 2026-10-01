@@ -8,7 +8,7 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::StyleSystems;
 pub use cssparser::{self, BasicParseError, CowRcStr, Parser, Token};
-use derive_more::Deref;
+use derive_more::{Deref, DerefMut};
 pub use error::*;
 pub use inline_styles::*;
 pub use loader::*;
@@ -18,7 +18,9 @@ use std::fmt::{Debug, Display, Formatter};
 use std::range::Range;
 use tracing::debug;
 
-pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc, parse_calc_property_with};
+pub use calc::{
+    CalcSumExpr, CalcValue, FromCalcValue, MathFunction, parse_calc, parse_calc_property,
+};
 pub use parser::parse_duration;
 pub use utils::parse_property_value_with;
 
@@ -37,9 +39,10 @@ mod utils;
 mod vars;
 
 /// Wrapper for a value that has a location in a byte range
-#[derive(Clone, Deref)]
+#[derive(Clone, Deref, DerefMut)]
 pub struct Located<T> {
     #[deref]
+    #[deref_mut]
     item: T,
 
     /// Location in byte range
@@ -52,6 +55,11 @@ impl<T> Located<T> {
     pub fn new(item: T, location: impl Into<Range<usize>>) -> Self {
         let location = location.into();
         Self { item, location }
+    }
+
+    /// Extracts the inner value
+    pub fn into_inner(self) -> T {
+        self.item
     }
 }
 

@@ -31,8 +31,8 @@ pub(crate) fn parse_property_global_keyword<T>(
 ///
 ///  If the produced type supports [`calc()`], it's preferable to use [`parse_calc_property_value_with()`].
 ///
-/// [`calc()`]: crate::Calculable
-/// [`parse_calc_property_value_with()`]: crate::parse_calc_property_with
+/// [`calc()`]: crate::OldLegacyCalculable
+/// [`parse_calc_property_value_with()`]: crate::legacy_parse_calc_property_with
 /// # Examples
 /// ```
 /// # use cssparser::{Parser, ParserInput};

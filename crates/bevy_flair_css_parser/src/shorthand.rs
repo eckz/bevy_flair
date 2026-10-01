@@ -1,8 +1,6 @@
-use crate::calc::{Calculable, parse_calc_property_with};
 use crate::reflect::{
-    parse_asset_path, parse_calc_angle, parse_calc_f32, parse_calc_val, parse_color,
-    parse_enum_as_property_value, parse_enum_value, parse_gradient, parse_grid_track_vec,
-    parse_repeated_grid_track_vec, parse_val,
+    parse_angle, parse_asset_path, parse_color, parse_enum_as_property_value, parse_enum_value,
+    parse_gradient, parse_grid_track_vec, parse_px, parse_repeated_grid_track_vec, parse_val,
 };
 use crate::utils::{
     CombinedParse, parse_property_global_keyword, parse_property_value_with, try_parse_none,
@@ -252,18 +250,6 @@ impl ShorthandPropertyRegistry {
     }
 }
 
-/// Parses up to four values and expands them into an array of four [`PropertyValue`]s.
-///
-/// This follows the CSS shorthand pattern for properties like margin and padding.
-fn parse_four_calc_values<T: Calculable + FromReflect>(
-    parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<[PropertyValue; 4], CssError> {
-    parse_four_values(parser, |parser| {
-        parse_calc_property_with(parser, &mut value_parser)
-    })
-}
-
 fn parse_four_property_values<T: FromReflect>(
     parser: &mut Parser,
     mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
@@ -346,7 +332,7 @@ fn parse_simple_shorthand_property<const N: usize>(
 }
 
 fn parse_ui_rect(css_name: &'static str, parser: &mut Parser) -> ShorthandParseResult {
-    let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
+    let [top, right, bottom, left] = parse_four_property_values(parser, parse_val)?;
     Ok(vec![
         (CssRef(format_smolstr!("{css_name}-left")), left),
         (CssRef(format_smolstr!("{css_name}-right")), right),
@@ -410,12 +396,12 @@ fn parse_border_radius(parser: &mut Parser) -> ShorthandParseResult {
         mut top_right,
         mut bottom_right,
         mut bottom_left,
-    ] = parse_four_values(parser, parse_calc_val)?.map(CornerRadius::circular);
+    ] = parse_four_values(parser, parse_val)?.map(CornerRadius::circular);
 
     if let Ok([top_left_y, top_right_y, bottom_right_y, bottom_left_y]) =
         parser.try_parse(|parser| {
             parser.expect_delim('/')?;
-            parse_four_values(parser, parse_calc_val)
+            parse_four_values(parser, parse_val)
         })
     {
         top_left.y = top_left_y;
@@ -478,7 +464,7 @@ fn parse_border_inner<I: IntoIterator<Item = CssRef>>(
 ) -> ShorthandParseResult {
     let width = match try_parse_none_with_value(parser, Val::ZERO) {
         Some(zero_value) => PropertyValue::Value(ReflectValue::Val(zero_value)),
-        None => parse_calc_property_with(parser, parse_val)?,
+        None => parse_property_value_with(parser, parse_val)?.into_reflect_value(),
     };
 
     let mut result: Vec<_> = width_ref
@@ -550,7 +536,7 @@ fn parse_border_width(parser: &mut Parser) -> ShorthandParseResult {
         ]);
     }
 
-    let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
+    let [top, right, bottom, left] = parse_four_property_values(parser, parse_val)?;
     Ok(vec![
         (BORDER_LEFT_WIDTH, left),
         (BORDER_RIGHT_WIDTH, right),
@@ -583,7 +569,7 @@ fn parse_outline(parser: &mut Parser) -> ShorthandParseResult {
             .or_else(|_| parse_val(parser))
     }
 
-    let width = parse_calc_property_with(parser, parse_ident_or_val)?;
+    let width = parse_property_value_with(parser, parse_ident_or_val)?.map(ReflectValue::Val);
 
     let mut result = vec![(OUTLINE_WIDTH, width)];
 
@@ -640,14 +626,14 @@ fn parse_flex(parser: &mut Parser) -> ShorthandParseResult {
             .try_parse(|parser| parser.expect_number())
             .unwrap_or(1.0);
         let flex_basis = parser
-            .try_parse_with(parse_calc_val)
+            .try_parse_with(parse_val)
             .unwrap_or(Val::Percent(0.0));
 
         return final_result((flex_grow, flex_shrink, flex_basis));
     }
 
     /* One value, width/height: flex-basis */
-    let flex_basis = parse_calc_val(parser)?;
+    let flex_basis = parse_val(parser)?;
     let (flex_grow, flex_shrink) = (1.0, 1.0);
 
     final_result((flex_grow, flex_shrink, flex_basis))
@@ -704,7 +690,7 @@ define_css_properties! {
 }
 
 pub(crate) fn parse_val_as_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
-    parse_calc_property_with(parser, parse_val)
+    parse_property_value_with(parser, parse_val).map(|v| v.map(ReflectValue::Val))
 }
 
 /// Parses the `gap` shorthand into `row-gap` and `column-gap`.
@@ -887,11 +873,11 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, C
     match_ignore_ascii_case! { &*function,
         "translate" => {
             parser.parse_nested_block_with(|parser| {
-                let translate_x = parse_calc_val(parser)?;
+                let translate_x = parse_val(parser)?;
                 let translate_y = parser
                     .try_parse_with(|parser| {
                         parser.expect_comma()?;
-                        parse_calc_val(parser)
+                        parse_val(parser)
                     })
                     .unwrap_or(Val::ZERO);
                 Ok(Some(Val2::new(translate_x, translate_y)))
@@ -899,13 +885,13 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, C
         },
         "translatex" => {
             parser.parse_nested_block_with(|parser| {
-                let translate_x = parse_calc_val(parser)?;
+                let translate_x = parse_val(parser)?;
                 Ok(Some(Val2::new(translate_x, Val::ZERO)))
             })
         },
         "translatey" => {
             parser.parse_nested_block_with(|parser| {
-                let translate_y = parse_calc_val(parser)?;
+                let translate_y = parse_val(parser)?;
                 Ok(Some(Val2::new(Val::ZERO, translate_y)))
             })
         },
@@ -935,11 +921,11 @@ fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssErro
     match_ignore_ascii_case! { &function,
         "scale" => {
             parser.parse_nested_block_with(|parser| {
-                let scale_x = parse_calc_f32(parser)?;
+                let scale_x = parse_px(parser)?;
                 let scale_y = parser
                     .try_parse_with(|parser| {
                         parser.expect_comma()?;
-                        parse_calc_f32(parser)
+                        parse_px(parser)
                     })
                     .unwrap_or(scale_x);
 
@@ -948,13 +934,13 @@ fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssErro
         },
         "scalex" => {
             parser.parse_nested_block_with(|parser| {
-                let scale_x = parse_calc_f32(parser)?;
+                let scale_x = parse_px(parser)?;
                 Ok(Some(Vec2::new(scale_x, 1.0)))
             })
         },
         "scaley" => {
             parser.parse_nested_block_with(|parser| {
-                let scale_y = parse_calc_f32(parser)?;
+                let scale_y = parse_px(parser)?;
                 Ok(Some(Vec2::new(1.0, scale_y)))
             })
         },
@@ -981,7 +967,7 @@ fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssE
     match_ignore_ascii_case! { &function,
         "rotate" | "rotatez" => {
             parser.parse_nested_block_with(|parser| {
-                Ok(Some(parse_calc_angle(parser)?))
+                Ok(Some(parse_angle(parser)?))
             })
         },
         "scale" | "scalex" | "scaley" | "translate" | "translatey" | "translatex" => {

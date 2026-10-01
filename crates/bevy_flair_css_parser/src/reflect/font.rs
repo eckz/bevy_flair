@@ -1,8 +1,7 @@
-// TODO: FontFeatures parsing
-
-use crate::reflect::parse_calc_angle;
+use crate::calc::{CalcValue, FromCalcValue};
+use crate::reflect::parse_angle;
 use crate::{
-    CssError, ParserExt, ReflectParseCss, error_codes, parse_calc_property_with,
+    CssError, ParserExt, ReflectParseCss, error_codes, parse_calc_property,
     parse_property_value_with,
 };
 use bevy_flair_style::placeholder::FontSourcePlaceholder;
@@ -13,6 +12,65 @@ use bevy_text::{
     GenericFontFamily,
 };
 use cssparser::{Parser, Token, match_ignore_ascii_case};
+
+impl FromCalcValue for FontSize {
+    type Error = String;
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => {
+                Ok(FontSize::Px(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vw") => {
+                Ok(FontSize::Vw(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vh") => {
+                Ok(FontSize::Vh(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vmin") => {
+                Ok(FontSize::VMin(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vmax") => {
+                Ok(FontSize::VMax(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("rem") => {
+                Ok(FontSize::Rem(*value))
+            }
+            CalcValue::Number(_) => {
+                Err("FontSize is expecting a number with dimension, like 16px".to_string())
+            }
+            CalcValue::Percentage(_) => Err("FontSize doesn't support percentages".to_string()),
+            CalcValue::Dimension { dim, .. } => {
+                Err(format!("Dimension '{dim}' is not supported by FontSize"))
+            }
+            CalcValue::MathFunction(math) => Err(format!(
+                "Expression '{math}' cannot be simplified because contains different dimensions"
+            )),
+        }
+    }
+}
+
+impl FromCalcValue for FontWeight {
+    type Error = String;
+
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Number(value) if *value >= 0.0 && *value <= 1000.0 => {
+                Ok(FontWeight(value.floor() as u16))
+            }
+            CalcValue::Number(value) => Err(format!(
+                "Number '{value}' not valid as a font weight because is not between 0 and 1000"
+            )),
+            invalid => Err(format!("Expression '{invalid}' not valid as a font weight")),
+        }
+    }
+
+    fn custom_constants() -> &'static [(&'static str, f32)] {
+        &[
+            ("normal", FontWeight::NORMAL.0 as f32),
+            ("bold", FontWeight::BOLD.0 as f32),
+        ]
+    }
+}
 
 fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
     let path = parser.expect_ident_or_string()?;
@@ -36,67 +94,6 @@ fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssEr
         "math" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Math)),
 
         _ => FontSourcePlaceholder::FontFaceReference(path.to_string())
-    })
-}
-
-pub fn parse_font_size(parser: &mut Parser) -> Result<FontSize, CssError> {
-    let next = parser.located_next()?;
-    Ok(match &*next {
-        Token::Number { value, .. } => FontSize::Px(*value),
-        Token::Dimension { value, unit, .. } => {
-            match_ignore_ascii_case! { unit.as_ref(),
-                "px" => FontSize::Px(*value),
-                "vw" => FontSize::Vw(*value),
-                "vh" => FontSize::Vh(*value),
-                "vmin" => FontSize::VMin(*value),
-                "vmax" => FontSize::VMax(*value),
-                "rem" => FontSize::Rem(*value),
-                _ => {
-                    return Err(CssError::new_located(
-                        &next,
-                        error_codes::font::UNEXPECTED_FONT_SIZE_TOKEN,
-                        format!("Dimension '{unit}' is not recognized for FontSize. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax' | 'rem'")
-                    ));
-                }
-            }
-        }
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::font::UNEXPECTED_FONT_SIZE_TOKEN,
-                "This is not valid FontSize token. 30px, 10rem are valid examples",
-            ));
-        }
-    })
-}
-
-pub fn parse_font_weight(parser: &mut Parser) -> Result<FontWeight, CssError> {
-    let next = parser.located_next()?;
-    Ok(match &*next {
-        Token::Ident(ident) => {
-            match_ignore_ascii_case! { ident.as_ref(),
-                "normal" => FontWeight::NORMAL,
-                "bold" => FontWeight::BOLD,
-                _ => {
-                    return Err(CssError::new_located(
-                        &next,
-                        error_codes::font::UNEXPECTED_FONT_WEIGHT_TOKEN,
-                        format!("Ident '{ident}' is not recognized for FontWeight. Valid weights are 'normal' | 'bold' | 300")
-                    ));
-                }
-            }
-        }
-        Token::Number {
-            int_value: Some(int_value),
-            ..
-        } if *int_value >= 0 && *int_value <= 1000 => FontWeight(*int_value as u16),
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::font::UNEXPECTED_FONT_WEIGHT_TOKEN,
-                "This is not valid FontWeight token. Valid weights are 'normal' | 'bold' | 300",
-            ));
-        }
     })
 }
 
@@ -163,7 +160,7 @@ pub fn parse_font_style(parser: &mut Parser) -> Result<FontStyle, CssError> {
                 "normal" => FontStyle::Normal,
                 "italic" => FontStyle::Italic,
                 "oblique" => {
-                    if let Ok(angle) = parser.try_parse_with(parse_calc_angle) {
+                    if let Ok(angle) = parser.try_parse_with(parse_angle) {
                         FontStyle::Oblique(Some(angle.as_degrees()))
                     } else {
                         FontStyle::Oblique(None)
@@ -294,13 +291,13 @@ impl CreateTypeData<FontSource> for ReflectParseCss {
 
 impl CreateTypeData<FontSize> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_with(parser, parse_font_size))
+        Self(parse_calc_property::<FontSize>)
     }
 }
 
 impl CreateTypeData<FontWeight> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_with(parser, parse_font_weight))
+        Self(parse_calc_property::<FontWeight>)
     }
 }
 

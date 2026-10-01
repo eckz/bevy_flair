@@ -49,8 +49,6 @@ define_errors!(grid => {
 });
 
 define_errors!(ui => {
-    UNEXPECTED_VAL_TOKEN(60, "Unexpected token for a Val type"),
-    UNEXPECTED_F32_TOKEN(61, "Unexpected token for a f32 type"),
     INVALID_NUMBER_OF_SHADOW_VALS(62, "Invalid number of values for BoxShadow"),
     UNEXPECTED_LINE_HEIGHT_TOKEN(63, "Unexpected token for a LineHeight type"),
     UNEXPECTED_ANGLE_TOKEN(64, "Unexpected token for an angle type"),
@@ -75,6 +73,11 @@ define_errors!(vars => {
 
 define_errors!(calc => {
     CALC_ERROR(90, "Could not calculate value"),
+    UNEXPECTED_CALC_TOKEN(91, "Could not calculate value"),
+    CONSTANT_NOT_SUPPORTED(92, "Constant not supported inside calc"),
+    CALC_FN_NOT_SUPPORTED(93, "Not supported function"),
+    CALC_CONVERSION_ERROR(94, "Cannot convert calc expression to final type"),
+    INVALID_ROUNDING_STRATEGY(95, "Invalid rounding strategy"),
 });
 
 define_errors!(media_queries => {
@@ -85,7 +88,6 @@ define_errors!(media_queries => {
 });
 
 define_errors!(animations => {
-    INVALID_DURATION(110, "Invalid duration"),
     INVALID_EASING_FUNCTION_KEYWORD(112, "Invalid easing function keyword"),
     INVALID_EASING_FUNCTION_NAME(113, "Invalid easing function name"),
     INVALID_EASING_FUNCTION_TOKEN(114, "Unexpected easing function token"),
@@ -102,8 +104,6 @@ define_errors!(animations => {
 });
 
 define_errors!(font => {
-    UNEXPECTED_FONT_SIZE_TOKEN(120, "Unexpected token for a FontSize type"),
-    UNEXPECTED_FONT_WEIGHT_TOKEN(121, "Unexpected token for a FontWeight type"),
     UNEXPECTED_FONT_WIDTH_TOKEN(122, "Unexpected token for a FontWidth type"),
     UNEXPECTED_FONT_STYLE_TOKEN(123, "Unexpected token for a FontStyle type"),
     FOUR_ASCII_CHARS_STRING(124, "Expected a four ASCII characters"),

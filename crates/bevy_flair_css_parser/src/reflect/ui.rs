@@ -1,35 +1,39 @@
-use crate::calc::{parse_calc, parse_calc_property_with};
+use crate::calc::{CalcValue, FromCalcValue, parse_calc_property};
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
 use crate::reflect::parse_color;
 use crate::utils::{parse_property_value_with, try_parse_none};
-use crate::{ParserExt, ReflectParseCss};
+use crate::{ParserExt, ReflectParseCss, parse_calc};
 use bevy_flair_core::{PropertyValue, ReflectValue};
 use bevy_math::{Rect, Rot2, Vec2};
 use bevy_reflect::CreateTypeData;
 use bevy_ui::{BoxShadow, CornerRadius, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
-use cssparser::{Parser, Token, match_ignore_ascii_case};
+use cssparser::Parser;
 use smallvec::SmallVec;
 use std::f32::consts;
 
-pub(crate) fn parse_f32(parser: &mut Parser) -> Result<f32, CssError> {
-    let next = parser.located_next()?;
-    Ok(match &*next {
-        Token::Number { value, .. } => *value,
-        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => *value,
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::UNEXPECTED_F32_TOKEN,
-                "This is not a valid float token. 34.2 or 34px are valid numbers",
-            ));
-        }
-    })
-}
+/// Parses a number, but also accepts <number>px and interpret it as a number.
+pub fn parse_px(parser: &mut Parser) -> Result<f32, CssError> {
+    struct NumberOrPx(f32);
 
-pub(crate) fn parse_calc_f32(parser: &mut Parser) -> Result<f32, CssError> {
-    parse_calc(parser, parse_f32)
+    impl FromCalcValue for NumberOrPx {
+        type Error = String;
+
+        fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+            match calc_value {
+                CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => {
+                    Ok(NumberOrPx(*value))
+                }
+                CalcValue::Number(value) => Ok(NumberOrPx(*value)),
+                invalid => Err(format!(
+                    "Expected a <number> or '<number>px', found '{invalid}'"
+                )),
+            }
+        }
+    }
+
+    Ok(parse_calc::<NumberOrPx>(parser)?.0)
 }
 
 pub(crate) fn parse_vec2(parser: &mut Parser) -> Result<Vec2, CssError> {
@@ -37,8 +41,8 @@ pub(crate) fn parse_vec2(parser: &mut Parser) -> Result<Vec2, CssError> {
         return Ok(none);
     }
 
-    let x = parse_calc_f32(parser)?;
-    let y = parser.try_parse_with(parse_calc_f32).unwrap_or(x);
+    let x = parse_px(parser)?;
+    let y = parser.try_parse_with(parse_px).unwrap_or(x);
     Ok(Vec2::new(x, y))
 }
 
@@ -47,11 +51,48 @@ pub(crate) fn parse_rect(parser: &mut Parser) -> Result<Rect, CssError> {
         return Ok(none);
     }
 
-    let x0 = parse_calc_f32(parser)?;
-    let y0 = parse_calc_f32(parser)?;
-    let x1 = parse_calc_f32(parser)?;
-    let y1 = parse_calc_f32(parser)?;
+    let x0 = parse_px(parser)?;
+    let y0 = parse_px(parser)?;
+    let x1 = parse_px(parser)?;
+    let y1 = parse_px(parser)?;
     Ok(Rect::new(x0, y0, x1, y1))
+}
+
+impl FromCalcValue for Val {
+    type Error = String;
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Number(value) => Ok(Val::Px(*value)),
+            CalcValue::Percentage(value) => Ok(Val::Percent(*value * 100.0)),
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => {
+                Ok(Val::Px(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vw") => {
+                Ok(Val::Vw(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vh") => {
+                Ok(Val::Vh(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vmin") => {
+                Ok(Val::VMin(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vmax") => {
+                Ok(Val::VMax(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("em") => {
+                Ok(Val::Em(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("rem") => {
+                Ok(Val::Rem(*value))
+            }
+            CalcValue::Dimension { dim, .. } => Err(format!(
+                "Dimension '{dim}' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax' | 'em' | 'rem'"
+            )),
+            CalcValue::MathFunction(math_fn) => Err(format!(
+                "Expression '{math_fn}' cannot be simplified because contains different dimensions"
+            )),
+        }
+    }
 }
 
 /// Parses a [`Val`] (UI length/size value) from a CSS token.
@@ -83,42 +124,14 @@ pub(crate) fn parse_rect(parser: &mut Parser) -> Result<Rect, CssError> {
 /// assert_eq!(val, Val::Percent(50.0));
 /// ```
 pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
-    let next = parser.located_next()?;
-    Ok(match &*next {
-        Token::Ident(ident) if ident.as_ref() == "auto" => Val::Auto,
-        Token::Number { value, .. } if *value == 0.0 => Val::ZERO,
-        Token::Number { value, .. } => Val::Px(*value),
-        Token::Percentage { unit_value, .. } => Val::Percent(*unit_value * 100.0),
-        Token::Dimension { value, unit, .. } => {
-            match_ignore_ascii_case! { unit.as_ref(),
-                "px" => Val::Px(*value),
-                "vw" => Val::Vw(*value),
-                "vh" => Val::Vh(*value),
-                "vmin" => Val::VMin(*value),
-                "vmax" => Val::VMax(*value),
-                "em" => Val::Em(*value),
-                "rem" => Val::Rem(*value),
-                _ => {
-                    return Err(CssError::new_located(
-                        &next,
-                        error_codes::UNEXPECTED_VAL_TOKEN,
-                        format!("Dimension '{unit}' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax' | 'em' | 'rem'")
-                    ));
-                }
-            }
-        }
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::UNEXPECTED_VAL_TOKEN,
-                "This is not valid Val token. 'auto', 3px, 44.2% are valid examples",
-            ));
-        }
-    })
-}
+    if let Ok(auto) = parser.try_parse_with(|parser| {
+        parser.expect_ident_matching("auto")?;
+        Ok(Val::Auto)
+    }) {
+        return Ok(auto);
+    }
 
-pub(crate) fn parse_calc_val(parser: &mut Parser) -> Result<Val, CssError> {
-    parse_calc(parser, parse_val)
+    parse_calc(parser)
 }
 
 pub(crate) fn parse_val2(parser: &mut Parser) -> Result<Val2, CssError> {
@@ -126,8 +139,8 @@ pub(crate) fn parse_val2(parser: &mut Parser) -> Result<Val2, CssError> {
         return Ok(none);
     }
 
-    let x = parse_calc_val(parser)?;
-    let y = parser.try_parse_with(parse_calc_val).unwrap_or(x);
+    let x = parse_val(parser)?;
+    let y = parser.try_parse_with(parse_val).unwrap_or(x);
     Ok(Val2::new(x, y))
 }
 
@@ -136,60 +149,50 @@ pub(crate) fn parse_corner_radius(parser: &mut Parser) -> Result<CornerRadius, C
         return Ok(none);
     }
 
-    let x = parse_calc_val(parser)?;
-    let y = parser.try_parse_with(parse_calc_val).unwrap_or(Val::Auto);
+    let x = parse_val(parser)?;
+    let y = parser.try_parse_with(parse_val).unwrap_or(Val::Auto);
     Ok(CornerRadius::new(x, y))
 }
 
-pub(crate) fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
+impl FromCalcValue for Rot2 {
+    type Error = String;
+
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("deg") => {
+                Ok(Rot2::degrees(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("grad") => {
+                const RADS_PER_GRAD: f32 = consts::PI / 200.0;
+                Ok(Rot2::radians(*value * RADS_PER_GRAD))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("rad") => {
+                Ok(Rot2::radians(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("turn") => {
+                Ok(Rot2::turn_fraction(*value))
+            }
+            invalid => Err(format!("Expression '{invalid}' not valid as a rotation")),
+        }
+    }
+}
+
+pub fn parse_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
     if let Some(none) = try_parse_none(parser) {
         return Ok(none);
     }
-
-    let next = parser.located_next()?;
-    Ok(match &*next {
-        Token::Number { value, .. } if *value == 0.0 => Rot2::IDENTITY,
-        Token::Dimension { value, unit, .. } => {
-            match_ignore_ascii_case! { unit.as_ref(),
-                "deg" => Rot2::degrees(*value),
-                "grad" => {
-                    const RADS_PER_GRAD: f32 = consts::PI / 200.0;
-                    Rot2::radians(*value * RADS_PER_GRAD)
-                },
-                "rad" => Rot2::radians(*value),
-                "turn" => Rot2::turn_fraction(*value),
-                _ => {
-                    return Err(CssError::new_located(
-                        &next,
-                        error_codes::UNEXPECTED_ANGLE_TOKEN,
-                        format!("Dimension '{unit}' is not recognized as an angle. Valid dimensions are 'deg' | 'grad' | 'rad' | 'turn'")
-                    ));
-                }
-            }
-        }
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::UNEXPECTED_ANGLE_TOKEN,
-                "This is not a valid angle token. 90deg, 100grad or 0.25turn are valid angles",
-            ));
-        }
-    })
-}
-
-pub(crate) fn parse_calc_angle(parser: &mut Parser) -> Result<Rot2, CssError> {
-    parse_calc(parser, parse_angle)
+    parse_calc::<Rot2>(parser)
 }
 
 fn parse_overflow_clip_margin(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Ok(margin) = parser.try_parse_with(parse_calc_f32) {
+    if let Ok(margin) = parser.try_parse_with(parse_px) {
         return Ok(ReflectValue::new(OverflowClipMargin {
             margin,
             ..OverflowClipMargin::DEFAULT
         }));
     }
     let visual_box = parse_enum_value(parser)?;
-    let margin = parse_calc_f32(parser)?;
+    let margin = parse_px(parser)?;
     Ok(ReflectValue::new(OverflowClipMargin { visual_box, margin }))
 }
 
@@ -201,11 +204,11 @@ fn parse_aspect_ratio(parser: &mut Parser) -> Result<ReflectValue, CssError> {
         let auto_value: Option<f32> = None;
         return Ok(ReflectValue::new(auto_value));
     }
-    let dividend = parse_calc_f32(parser)?;
+    let dividend = parse_px(parser)?;
     let divisor = parser
         .try_parse_with(|parser| {
             parser.expect_delim('/')?;
-            parse_calc_f32(parser)
+            parse_px(parser)
         })
         .unwrap_or(1.0);
     let auto_value: Option<f32> = Some(dividend / divisor);
@@ -247,10 +250,10 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
         color = new_color;
     }
 
-    values.push(parse_calc_val(parser)?);
-    values.push(parse_calc_val(parser)?);
+    values.push(parse_val(parser)?);
+    values.push(parse_val(parser)?);
 
-    while let Ok(val) = parser.try_parse_with(parse_calc_val) {
+    while let Ok(val) = parser.try_parse_with(parse_val) {
         values.push(val);
         if values.len() >= 4 {
             break;
@@ -312,7 +315,7 @@ fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
 
 impl CreateTypeData<f32> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_with(parser, parse_f32))
+        Self(parse_calc_property::<f32>)
     }
 }
 
@@ -326,7 +329,9 @@ impl CreateTypeData<Vec2> for ReflectParseCss {
 
 impl CreateTypeData<Val> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_with(parser, parse_val))
+        Self(|parser| {
+            parse_property_value_with(parser, parse_val).map(PropertyValue::into_reflect_value)
+        })
     }
 }
 
@@ -340,7 +345,9 @@ impl CreateTypeData<Val2> for ReflectParseCss {
 
 impl CreateTypeData<Rot2> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(|parser| parse_calc_property_with(parser, parse_angle))
+        Self(|parser| {
+            parse_property_value_with(parser, parse_angle).map(PropertyValue::into_reflect_value)
+        })
     }
 }
 
@@ -442,12 +449,22 @@ mod tests {
         assert_eq!(test_parse_reflect::<Val>("16em"), Val::Em(16.0));
         assert_eq!(test_parse_reflect::<Val>("32rem"), Val::Rem(32.0));
 
-        assert_eq!(test_err_parse_reflect::<Val>("2ch"), "[60] Warning: Unexpected token for a Val type
+        assert_eq!(test_err_parse_reflect::<Val>("2ch"), "[94] Warning: Cannot convert calc expression to final type
    ,-[ test.css:1:1 ]
    |
  1 | 2ch
    | |^^\x20\x20
    | `---- Dimension 'ch' is not recognized for Val. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax' | 'em' | 'rem'
+---'
+"
+        );
+
+        assert_eq!(test_err_parse_reflect::<Val>("calc(3px + 2rem)"), "[94] Warning: Cannot convert calc expression to final type
+   ,-[ test.css:1:1 ]
+   |
+ 1 | calc(3px + 2rem)
+   | |^^^^^^^^^^^^^^^\x20\x20
+   | `----------------- Expression 'calc(3px + 2rem)' cannot be simplified because contains different dimensions
 ---'
 "
         );

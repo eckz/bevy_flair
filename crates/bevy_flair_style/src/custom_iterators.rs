@@ -279,6 +279,7 @@ mod tests {
             .run_system_once(|n_query: Query<&TestNodeOrGhost>, ui_roots: StyledRoots| {
                 n_query
                     .iter_many(ui_roots.ui_roots.iter())
+                    .unwrapped()
                     .copied()
                     .collect::<Vec<_>>()
             })
@@ -481,6 +482,7 @@ mod tests {
             |marker, query: Query<&TestNodeOrGhost>, iterator| {
                 query
                     .iter_many(iterator.iter_ancestors(marker))
+                    .unwrapped()
                     .cloned()
                     .collect::<Vec<_>>()
             },

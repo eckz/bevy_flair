@@ -2,7 +2,7 @@ use crate::error::CssError;
 use crate::error_codes::image as error_codes;
 use crate::reflect::ui::parse_four_values;
 use crate::utils::parse_property_value_with;
-use crate::{ParserExt, ReflectParseCss, parse_calc_f32};
+use crate::{ParserExt, ReflectParseCss, parse_px};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
 use bevy_reflect::CreateTypeData;
@@ -60,7 +60,7 @@ fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssErro
         Token::Ident(ident) if ident.as_ref() == "auto" => Ok(SliceScaleMode::default()),
         Token::Ident(ident) if ident.as_ref() == "stretch" => Ok(SliceScaleMode::Stretch),
         Token::Function(name) if name.eq_ignore_ascii_case("tile") => {
-            let stretch_value = parser.parse_nested_block_with(parse_calc_f32)?;
+            let stretch_value = parser.parse_nested_block_with(parse_px)?;
             Ok(SliceScaleMode::Tile { stretch_value })
         }
         _ => Err(CssError::new_located(
@@ -72,7 +72,7 @@ fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssErro
 }
 
 fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
-    let [top, right, bottom, left] = parse_four_values(parser, parse_calc_f32)?;
+    let [top, right, bottom, left] = parse_four_values(parser, parse_px)?;
 
     let border = BorderRect {
         min_inset: Vec2::new(left, top),
@@ -81,7 +81,7 @@ fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
 
     let center_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();
     let sides_scale_mode = parser.try_parse(parse_slice_scale_mode).unwrap_or_default();
-    let max_corner_scale = parser.try_parse(parse_calc_f32).unwrap_or(1.0);
+    let max_corner_scale = parser.try_parse(parse_px).unwrap_or(1.0);
 
     Ok(TextureSlicer {
         border,
