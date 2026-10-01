@@ -73,25 +73,34 @@ impl FromCalcValue for FontWeight {
 }
 
 fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
+    let mut fonts = parser.parse_comma_separated_with(parse_single_font_source)?;
+    if fonts.len() == 1 {
+        Ok(fonts.pop().unwrap())
+    } else {
+        Ok(FontSourcePlaceholder::List(fonts))
+    }
+}
+
+fn parse_single_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
     let path = parser.expect_ident_or_string()?;
     Ok(match_ignore_ascii_case! { path.as_ref(),
          // basic families
-        "serif"  => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Serif)),
-        "sans-serif" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::SansSerif)),
-        "cursive" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Cursive)),
-        "fantasy" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Fantasy)),
-        "monospace" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Monospace)),
+        "serif"  => FontSourcePlaceholder::Generic(GenericFontFamily::Serif),
+        "sans-serif" => FontSourcePlaceholder::Generic(GenericFontFamily::SansSerif),
+        "cursive" => FontSourcePlaceholder::Generic(GenericFontFamily::Cursive),
+        "fantasy" => FontSourcePlaceholder::Generic(GenericFontFamily::Fantasy),
+        "monospace" => FontSourcePlaceholder::Generic(GenericFontFamily::Monospace),
 
         // system / ui families
-        "system-ui" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::SystemUi)),
-        "ui-serif" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiSerif)),
-        "ui-sans-serif" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiSansSerif)),
-        "ui-monospace" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiMonospace)),
-        "ui-rounded" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::UiRounded)),
+        "system-ui" => FontSourcePlaceholder::Generic(GenericFontFamily::SystemUi),
+        "ui-serif" => FontSourcePlaceholder::Generic(GenericFontFamily::UiSerif),
+        "ui-sans-serif" => FontSourcePlaceholder::Generic(GenericFontFamily::UiSansSerif),
+        "ui-monospace" => FontSourcePlaceholder::Generic(GenericFontFamily::UiMonospace),
+        "ui-rounded" => FontSourcePlaceholder::Generic(GenericFontFamily::UiRounded),
 
         // other types
-        "emoji"  => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Emoji)),
-        "math" => FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Math)),
+        "emoji"  => FontSourcePlaceholder::Generic(GenericFontFamily::Emoji),
+        "math" => FontSourcePlaceholder::Generic(GenericFontFamily::Math),
 
         _ => FontSourcePlaceholder::FontFaceReference(path.to_string())
     })
@@ -347,20 +356,29 @@ mod tests {
             FontSourcePlaceholder::FontFaceReference("some-font".into())
         );
         assert_eq!(
+            test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>(
+                "\"font A\", \"font B\""
+            ),
+            FontSourcePlaceholder::List(vec![
+                FontSourcePlaceholder::FontFaceReference("font A".into()),
+                FontSourcePlaceholder::FontFaceReference("font B".into())
+            ])
+        );
+        assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("some-font"),
             FontSourcePlaceholder::FontFaceReference("some-font".into())
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("monospace"),
-            FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Monospace))
+            FontSourcePlaceholder::Generic(GenericFontFamily::Monospace)
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("sans-serif"),
-            FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::SansSerif))
+            FontSourcePlaceholder::Generic(GenericFontFamily::SansSerif)
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("emoji"),
-            FontSourcePlaceholder::FontSource(FontSource::Generic(GenericFontFamily::Emoji))
+            FontSourcePlaceholder::Generic(GenericFontFamily::Emoji)
         );
     }
 
