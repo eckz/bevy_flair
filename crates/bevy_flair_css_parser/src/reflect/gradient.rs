@@ -1,10 +1,10 @@
 use crate::reflect::parse_color;
-use crate::reflect::ui::{parse_calc_angle, parse_calc_val};
+use crate::reflect::ui::parse_angle;
 use crate::utils::{CombinedParse, parse_property_value_with};
-use crate::{CssError, ParserExt, ReflectParseCss, error_codes};
+use crate::{CssError, ParserExt, ReflectParseCss, error_codes, parse_val};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Rot2;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use bevy_ui::{
     AngularColorStop, BackgroundGradient, BorderGradient, ColorStop, ConicGradient, Gradient,
     InterpolationColorSpace, LinearGradient, RadialGradient, RadialGradientShape, UiPosition, Val,
@@ -34,8 +34,8 @@ fn parse_radial_gradient_shape(
     }
 
     fn parse_circle_or_ellipse(parser: &mut Parser) -> Result<RadialGradientShape, CssError> {
-        let first_val = parse_calc_val(parser)?;
-        if let Ok(second_val) = parser.try_parse_with(parse_calc_val) {
+        let first_val = parse_val(parser)?;
+        if let Ok(second_val) = parser.try_parse_with(parse_val) {
             // Assume it's an ellipse
             Ok(RadialGradientShape::Ellipse(first_val, second_val))
         } else {
@@ -86,7 +86,7 @@ fn parse_radial_gradient_shape(
 fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError> {
     // 1. [ left | center | right | top | bottom | <length-percentage> ]  |
     fn parse_ui_position_case_1(parser: &mut Parser) -> Result<UiPosition, CssError> {
-        let result = if let Ok(first_val) = parser.try_parse_with(parse_calc_val) {
+        let result = if let Ok(first_val) = parser.try_parse_with(parse_val) {
             UiPosition::LEFT.at_x(first_val)
         } else {
             let ident = parser.expect_located_ident()?;
@@ -109,7 +109,7 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
 
     // 2. [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ]  |
     fn parse_ui_position_case_2(parser: &mut Parser) -> Result<UiPosition, CssError> {
-        let mut result = if let Ok(first_val) = parser.try_parse_with(parse_calc_val) {
+        let mut result = if let Ok(first_val) = parser.try_parse_with(parse_val) {
             UiPosition::LEFT.at_x(first_val)
         } else {
             let ident = parser.expect_located_ident()?;
@@ -125,7 +125,7 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
             }
         };
 
-        let vertical_position = if let Ok(second_val) = parser.try_parse_with(parse_calc_val) {
+        let vertical_position = if let Ok(second_val) = parser.try_parse_with(parse_val) {
             UiPosition::TOP.at_y(second_val)
         } else {
             let ident = parser.expect_located_ident()?;
@@ -160,7 +160,7 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
             )),
         };
 
-        let mut result = result.at_x(parse_calc_val(parser)?);
+        let mut result = result.at_x(parse_val(parser)?);
 
         let second_ident = parser.expect_located_ident()?;
         match_ignore_ascii_case! { &second_ident,
@@ -172,7 +172,7 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
                 "Invalid keyword for ui position. Valid keywords here are: 'top' | 'bottom'",
             )),
         }
-        let result = result.at_y(parse_calc_val(parser)?);
+        let result = result.at_y(parse_val(parser)?);
         Ok(result)
     }
 
@@ -196,7 +196,7 @@ fn parse_linear_color_stop(parser: &mut Parser) -> Result<Vec<ColorStop>, CssErr
     let color = parse_color(parser)?;
     let mut result = Vec::with_capacity(1);
 
-    while let Ok(pos) = parser.try_parse_with(parse_calc_val) {
+    while let Ok(pos) = parser.try_parse_with(parse_val) {
         result.push(ColorStop::new(color, pos));
     }
 
@@ -211,7 +211,7 @@ fn parse_angular_color_stop(parser: &mut Parser) -> Result<Vec<AngularColorStop>
     let color = parse_color(parser)?;
     let mut result = Vec::with_capacity(1);
 
-    while let Ok(angle) = parser.try_parse_with(parse_calc_angle) {
+    while let Ok(angle) = parser.try_parse_with(parse_angle) {
         result.push(AngularColorStop::new(color, angle.as_radians()));
     }
 
@@ -294,7 +294,7 @@ fn parse_color_space(parser: &mut Parser) -> Result<Option<InterpolationColorSpa
 
 // parses angle, but also tries to parse 'to right top', 'to left bottom', etc.
 fn parse_linear_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssError> {
-    if let Ok(angle) = parser.try_parse_with(parse_calc_angle) {
+    if let Ok(angle) = parser.try_parse_with(parse_angle) {
         return Ok(Some(angle));
     }
 
@@ -339,7 +339,7 @@ fn parse_conic_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssEr
         return Ok(None);
     }
 
-    Ok(Some(parse_calc_angle(parser)?))
+    Ok(Some(parse_angle(parser)?))
 }
 
 fn fail_if_empty<T>(values: &[T]) -> Result<(), CssError> {
@@ -581,14 +581,14 @@ fn parse_border_gradient(parser: &mut Parser) -> Result<ReflectValue, CssError> 
     )))
 }
 
-impl FromType<BackgroundGradient> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<BackgroundGradient> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_background_gradient))
     }
 }
 
-impl FromType<BorderGradient> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<BorderGradient> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         ReflectParseCss(|parser| parse_property_value_with(parser, parse_border_gradient))
     }
 }

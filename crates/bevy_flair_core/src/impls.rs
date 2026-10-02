@@ -30,10 +30,10 @@ impl_extract_component_properties! {
 
 impl_extract_component_properties! {
     pub struct BorderRadius {
-        pub top_left: Val,
-        pub top_right: Val,
-        pub bottom_right: Val,
-        pub bottom_left: Val,
+        pub top_left: CornerRadius,
+        pub top_right: CornerRadius,
+        pub bottom_right: CornerRadius,
+        pub bottom_left: CornerRadius,
     }
 }
 

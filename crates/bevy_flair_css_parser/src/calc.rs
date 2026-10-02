@@ -1,513 +1,184 @@
+mod ast;
+mod parse;
+mod simplify;
+
 use crate::{CssError, ParserExt};
 use bevy_flair_core::{PropertyValue, ReflectValue};
-use bevy_reflect::{FromReflect, TypePath};
-
-use cssparser::{Parser, Token};
+use bevy_reflect::FromReflect;
+use cssparser::Parser;
 
 use crate::utils::parse_property_global_keyword;
-use bevy_math::Rot2;
-use bevy_text::{FontSize, FontWeight};
-use bevy_ui::Val;
-use smallvec::SmallVec;
-use std::convert::Infallible;
+use smol_str::SmolStr;
 use std::fmt::{Debug, Display};
-use std::ops::{Mul, Neg};
-use std::sync::Arc;
-use std::time::{Duration, TryFromFloatSecsError};
+use std::time::Duration;
 use thiserror::Error;
 
-#[derive(Error)]
-enum CalcError<T: Calculable> {
-    #[error("{0}")]
-    AddError(<T as CalcAdd>::Error),
-    #[error("{0}")]
-    MulError(<T as CalcMul>::Error),
+use crate::calc::parse::{CalcContext, parse_calc_value};
+use crate::calc::simplify::Simplifiable;
+pub use ast::{CalcSumExpr, CalcValue, MathFunction};
+
+#[derive(Error, Debug)]
+pub enum CalcError {
+    #[error("Cannot multiply '{a_dim}' by '{b_dim}'")]
+    CannotMultiplyDimensions { a_dim: SmolStr, b_dim: SmolStr },
+    #[error("Cannot divide '{a_dim}' by '{b_dim}'")]
+    CannotDivideDimensions { a_dim: SmolStr, b_dim: SmolStr },
+    #[error("Cannot multiply two percentage numbers")]
+    CannotMultiplyPercentage,
+    #[error("Interval in round() function can only be omitted if the value is a number")]
+    RoundingIntervalOmitted,
+    #[error("Value and interval in round() must be the same unit type")]
+    RoundingMismatchUnit,
+    #[error("Expression '{0}' is not valid as a number")]
+    NoNumberExpression(String),
 }
 
-/// Generic property value that can be used to represent a value that can be inherited,
-/// set to a specific value, or reference a var.
-#[derive(Debug, Clone)]
-enum CalcOrValue<T> {
-    /// Calculated value
-    Calc(Arc<Calc<T>>),
-    /// Specific Value
-    Value(T),
-}
-
-impl<T> From<Calc<T>> for CalcOrValue<T> {
-    fn from(value: Calc<T>) -> Self {
-        CalcOrValue::Calc(Arc::new(value))
-    }
-}
-
-impl<T: Calculable> CalcOrValue<T> {
-    pub fn calc_value(&self) -> Result<T, CalcError<T>> {
-        match self {
-            CalcOrValue::Value(value) => Ok(value.clone()),
-            CalcOrValue::Calc(calc) => calc.calc_value(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-enum SumOperand<T> {
-    Plus(CalcOrValue<T>),
-    Minus(CalcOrValue<T>),
-}
-
-#[derive(Debug, Clone)]
-enum Calc<T> {
-    Sum(SmallVec<[SumOperand<T>; 2]>),
-    Mul(CalcOrValue<T>, f32),
-}
-
-/// A trait for values that can be used inside CSS `calc()` expressions.
-///
-/// Types implementing this trait must support addition, subtraction,
-/// multiplication by scalars.
-///
-/// This is implemented for [`f32`], [`Duration`], and [`Val`].
-pub trait Calculable:
-    CalcAdd + CalcMul + FromReflect + TypePath + Clone + Debug + Send + Sync
-{
-}
-
-/// A trait for values that can be multiplied by a floating-point scalar
-/// inside a CSS `calc()` expression.
-pub trait CalcMul: Sized {
-    /// The error type returned if multiplication fails.
+/// A trait for types that can be used inside CSS `calc()` or other math expressions.
+pub trait FromCalcValue: Sized {
+    /// The type of error that the conversion can produce. If in doubt use `String` or `Infallible`
     type Error: Display;
 
-    /// Attempts to multiply the given value by a floating-point scalar.
-    fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error>;
-}
+    /// Convert from a [`CalcValue`] into the final type.
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error>;
 
-impl CalcMul for Duration {
-    type Error = TryFromFloatSecsError;
+    /// If this type have any kind of special constant
+    fn custom_constants() -> &'static [(&'static str, f32)] {
+        &[]
+    }
 
-    fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error> {
-        Duration::try_from_secs_f32(b * a.as_secs_f32())
+    /// In case the type requires standardize multiple dimensions into the same one.
+    /// For example, 3ms == 0.001s
+    fn convert_dimension(value: f32, dim: &str) -> Option<(f32, SmolStr)> {
+        let _ = (value, dim);
+        None
     }
 }
 
-impl CalcMul for Rot2 {
-    type Error = Infallible;
-
-    fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error> {
-        Ok(Rot2::radians(a.as_radians() * b))
-    }
-}
-
-impl CalcMul for FontWeight {
-    type Error = Infallible;
-
-    fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error> {
-        Ok(FontWeight((a.0 as f32 * b).floor() as u16))
-    }
-}
-
-macro_rules! impl_calc_mul {
-    ($($ty:ty),*) => {
-        $(
-            impl CalcMul for $ty
-            where
-                $ty: Mul<f32, Output = $ty>,
-            {
-                type Error = Infallible;
-                fn try_mul(a: Self, b: f32) -> Result<Self, Self::Error> {
-                    Ok(a * b)
-                }
-            }
-        )*
-    };
-}
-
-impl_calc_mul!(f32, Val, FontSize);
-
-/// A trait for values that support addition and subtraction inside CSS `calc()` expressions.
-pub trait CalcAdd: Sized {
-    /// The additive identity (zero) for this type.
-    const ZERO: Self;
-
-    /// The error type returned if addition or subtraction fails.
-    type Error: Display;
-
-    /// Attempts to add two values of this type.
-    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error>;
-
-    /// Attempts to subtract one value from another.
-    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error>;
-}
-
-impl CalcAdd for f32 {
-    const ZERO: Self = 0.0;
-
-    type Error = Infallible;
-
-    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
-        Ok(a + b)
-    }
-
-    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
-        Ok(a - b)
-    }
-}
-
-impl CalcAdd for Rot2 {
-    const ZERO: Self = Rot2::IDENTITY;
-
-    type Error = Infallible;
-
-    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
-        Ok(Rot2::radians(a.as_radians() + b.as_radians()))
-    }
-
-    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
-        Ok(Rot2::radians(a.as_radians() - b.as_radians()))
-    }
-}
-
-impl CalcAdd for Val {
-    const ZERO: Self = Val::ZERO;
-
+impl FromCalcValue for f32 {
     type Error = String;
 
-    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
-        if a == Val::ZERO {
-            Ok(b)
-        } else if b == Val::ZERO {
-            Ok(a)
-        } else {
-            match (a, b) {
-                (Val::Px(a), Val::Px(b)) => Ok(Val::Px(a + b)),
-                (Val::Percent(a), Val::Percent(b)) => Ok(Val::Percent(a + b)),
-                (Val::Vw(a), Val::Vw(b)) => Ok(Val::Vw(a + b)),
-                (Val::Vh(a), Val::Vh(b)) => Ok(Val::Vh(a + b)),
-                (Val::VMin(a), Val::VMin(b)) => Ok(Val::VMin(a + b)),
-                (Val::VMax(a), Val::VMax(b)) => Ok(Val::VMax(a + b)),
-                (a, b) => Err(format!(
-                    "Cannot add/sub different val types ({a:?} + {b:?})"
-                )),
-            }
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Number(value) => Ok(*value),
+            invalid => Err(format!("Expected a number, found '{invalid}'")),
         }
-    }
-
-    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
-        CalcAdd::try_add(a, b.neg())
     }
 }
 
-impl CalcAdd for FontSize {
-    const ZERO: Self = FontSize::Px(0.0);
-
+impl FromCalcValue for Duration {
     type Error = String;
 
-    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
-        if a == Self::ZERO {
-            Ok(b)
-        } else if b == Self::ZERO {
-            Ok(a)
-        } else {
-            match (a, b) {
-                (FontSize::Px(a), FontSize::Px(b)) => Ok(FontSize::Px(a + b)),
-                (FontSize::Vw(a), FontSize::Vw(b)) => Ok(FontSize::Vw(a + b)),
-                (FontSize::Vh(a), FontSize::Vh(b)) => Ok(FontSize::Vh(a + b)),
-                (FontSize::VMin(a), FontSize::VMin(b)) => Ok(FontSize::VMin(a + b)),
-                (FontSize::VMax(a), FontSize::VMax(b)) => Ok(FontSize::VMax(a + b)),
-                (FontSize::Rem(a), FontSize::Rem(b)) => Ok(FontSize::Rem(a + b)),
-                (a, b) => Err(format!(
-                    "Cannot add/sub different font size types ({a:?} + {b:?})"
-                )),
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("s") => {
+                Ok(Duration::from_secs_f32(*value))
             }
-        }
-    }
-
-    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
-        Self::try_add(a, b * -1.0)
-    }
-}
-
-impl CalcAdd for FontWeight {
-    const ZERO: Self = FontWeight(0);
-
-    type Error = String;
-
-    fn try_add(a: Self, b: Self) -> Result<Self, Self::Error> {
-        match u16::checked_add(a.0, b.0) {
-            Some(o) => Ok(FontWeight(o)),
-            None => Err(format!("Overflow when doing the operation: {a:?} + {b:?}")),
-        }
-    }
-
-    fn try_sub(a: Self, b: Self) -> Result<Self, Self::Error> {
-        match u16::checked_sub(a.0, b.0) {
-            Some(o) => Ok(FontWeight(o)),
-            None => Err(format!("Overflow when doing the operation: {a:?} - {b:?}")),
-        }
-    }
-}
-
-impl<T> Calculable for T
-where
-    T: CalcAdd + CalcMul,
-    T: FromReflect + TypePath + Clone + Debug + Send + Sync,
-{
-}
-
-impl<T: Calculable> Calc<T> {
-    fn calc_value(&self) -> Result<T, CalcError<T>> {
-        match self {
-            Calc::Sum(values) => values.iter().try_fold(T::ZERO, |a, b| match b {
-                SumOperand::Plus(b) => T::try_add(a, b.calc_value()?).map_err(CalcError::AddError),
-                SumOperand::Minus(b) => T::try_sub(a, b.calc_value()?).map_err(CalcError::AddError),
-            }),
-            Calc::Mul(lhs, rhs) => T::try_mul(lhs.calc_value()?, *rhs).map_err(CalcError::MulError),
-        }
-    }
-}
-
-fn parse_calc_item<T>(
-    parser: &mut Parser,
-    value_parser: &mut dyn FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<CalcOrValue<T>, CssError> {
-    let peek = parser.peek()?;
-
-    match peek {
-        Token::ParenthesisBlock => {
-            parser.expect_parenthesis_block()?;
-            parser.parse_nested_block_with(|parser| parse_calc_inner(parser, value_parser))
-        }
-        Token::Function(name) if name.eq_ignore_ascii_case("calc") => {
-            parse_calc_fn(parser, value_parser)
-        }
-        _ => value_parser(parser).map(CalcOrValue::Value),
-    }
-}
-
-fn parse_calc_product<T>(
-    parser: &mut Parser,
-    value_parser: &mut dyn FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<CalcOrValue<T>, CssError> {
-    let left_operand = parse_calc_item(parser, value_parser)?;
-
-    if parser.is_exhausted() {
-        return Ok(left_operand);
-    }
-
-    let mut right_operand = 1.0;
-
-    while !parser.is_exhausted() {
-        let start = parser.state();
-        let next = parser.located_next()?;
-        match &*next {
-            Token::Delim('*') => {
-                right_operand *= parser.expect_number()?;
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("ms") => {
+                Ok(Duration::from_secs_f32(*value / 1000.0))
             }
-            Token::Delim('/') => {
-                right_operand /= parser.expect_number()?;
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("min") => {
+                Ok(Duration::from_secs_f32(*value * 60.0))
             }
-            _ => {
-                parser.reset(&start);
-                break;
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("h") => {
+                Ok(Duration::from_secs_f32(*value * 3600.0))
             }
+            CalcValue::Number(_) => {
+                Err("Duration is expected to have a dimension, like 5s".to_string())
+            }
+            CalcValue::Dimension { dim, .. } => {
+                Err(format!("Dimension '{dim}' is not supported by Duration"))
+            }
+            CalcValue::Percentage(_) => {
+                Err("Percentages cannot be converted to Duration".to_string())
+            }
+            CalcValue::MathFunction(math_fn) => Err(format!(
+                "Expression '{math_fn}' cannot be simplified because contains incompatible duration units"
+            )),
         }
     }
-    Ok(Calc::Mul(left_operand, right_operand).into())
-}
 
-fn parse_calc_sum<T>(
-    parser: &mut Parser,
-    value_parser: &mut dyn FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<Calc<T>, CssError> {
-    let mut operands = SmallVec::new();
-    let operand = parse_calc_product(parser, value_parser)?;
-    operands.push(SumOperand::Plus(operand));
+    fn convert_dimension(value: f32, dim: &str) -> Option<(f32, SmolStr)> {
+        const SECONDS: SmolStr = SmolStr::new_static("s");
 
-    while !parser.is_exhausted() {
-        let next = parser.located_next()?;
-        let operand = parse_calc_product(parser, value_parser)?;
-        match &*next {
-            Token::Delim('+') => {
-                operands.push(SumOperand::Plus(operand));
-            }
-            Token::Delim('-') => {
-                operands.push(SumOperand::Minus(operand));
-            }
-            _ => {
-                todo!("Wrong operand")
-            }
+        if dim.eq_ignore_ascii_case("ms") {
+            return Some((value / 1000.0, SECONDS));
         }
-    }
-    Ok(Calc::Sum(operands))
-}
-
-fn parse_calc_inner<T>(
-    parser: &mut Parser,
-    value_parser: &mut dyn FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<CalcOrValue<T>, CssError> {
-    parse_calc_sum(parser, value_parser).map(Into::into)
-}
-
-fn parse_calc_fn<T>(
-    parser: &mut Parser,
-    value_parser: &mut dyn FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<CalcOrValue<T>, CssError> {
-    parser.expect_function_matching("calc")?;
-
-    parser.parse_nested_block_with(|parser| parse_calc_inner(parser, value_parser))
-}
-
-fn parse_calc_or_value<T>(
-    parser: &mut Parser,
-    value_parser: &mut dyn FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<CalcOrValue<T>, CssError> {
-    let peek = parser.peek()?;
-    match peek {
-        Token::Function(name) if name.eq_ignore_ascii_case("calc") => {
-            return parse_calc_fn(parser, value_parser);
+        if dim.eq_ignore_ascii_case("m") {
+            return Some((value * 60.0, SECONDS));
         }
-        _ => {}
+        if dim.eq_ignore_ascii_case("h") {
+            return Some((value * 3600.0, SECONDS));
+        }
+        None
     }
-
-    value_parser(parser).map(CalcOrValue::Value)
 }
 
-/// Parses a CSS `calc()` expression or raw value, and computes its result immediately.
+/// Parses a value that can contain `calc()` or any other math expression, like `min()`.
+///
+/// The calculated value is simplified following similar rules as defined in [calc-simplification].
+///
+/// The final calculation can be a number, a percentage or a number with dimension. As long as the type implements
+/// the [`FromCalcValue`] trait and can convert from any of those types, you should not be worried about how the calc parsing is handling.
+///
+/// [calc-simplification]: https://drafts.csswg.org/css-values-4/#calc-simplification
 ///
 /// # Example
 /// ```
 /// # use bevy_ui::Val;
 /// # use cssparser::Parser;
-/// # use bevy_flair_css_parser::{parse_calc_value, parse_val};
+/// # use bevy_flair_css_parser::parse_calc;
 ///
 /// let mut input = cssparser::ParserInput::new("calc(2px + 3px)");
 /// let mut parser = Parser::new(&mut input);
-/// let value = parse_calc_value(&mut parser, parse_val).unwrap();
+/// let value = parse_calc::<Val>(&mut parser).unwrap();
 /// assert_eq!(value, Val::Px(5.0));
 /// ```
-pub fn parse_calc_value<T>(
-    parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<T, CssError>
-where
-    T: Calculable + FromReflect,
-{
-    let calc_or_value = parser.located(|parser| parse_calc_or_value(parser, &mut value_parser))?;
-    calc_or_value.calc_value().map_err(|calc_err| {
+pub fn parse_calc<T: FromCalcValue>(parser: &mut Parser) -> Result<T, CssError> {
+    let ctx = CalcContext::new::<T>();
+    let mut located_calc_value = parser.located(|parser| parse_calc_value(parser, &ctx))?;
+    located_calc_value.try_simplify().map_err(|calc_err| {
         CssError::new_located(
-            &calc_or_value,
+            &located_calc_value,
             crate::error_codes::calc::CALC_ERROR,
+            calc_err.to_string(),
+        )
+    })?;
+
+    T::from_calc_value(&located_calc_value).map_err(|calc_err| {
+        CssError::new_located(
+            &located_calc_value,
+            crate::error_codes::calc::CALC_CONVERSION_ERROR,
             calc_err.to_string(),
         )
     })
 }
 
-/// Parses a CSS property value that may use `calc()` expressions or global keywords.
-///
-/// If a global keyword (such as `unset`, `inherit` or `initial`, this
-/// returns the corresponding [`PropertyValue`]. Otherwise, it parses and evaluates
-/// the value as a calculable expression.
-pub fn parse_calc_property_value_with<T>(
+/// Same as [`parse_calc`] but also accepts global keywords like `inherit` and `initial`, and produces a [`PropertyValue`].
+pub fn parse_calc_property<T: FromCalcValue + FromReflect>(
     parser: &mut Parser,
-    value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<PropertyValue, CssError>
-where
-    T: Calculable + FromReflect,
-{
+) -> Result<PropertyValue, CssError> {
     if let Ok(property_value) = parser.try_parse_with(parse_property_global_keyword) {
         Ok(property_value)
     } else {
-        parse_calc_value(parser, value_parser).map(|v| PropertyValue::Value(ReflectValue::new(v)))
+        parse_calc::<T>(parser).map(|v| PropertyValue::Value(ReflectValue::new(v)))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use bevy_flair_core::PropertyValueComputeContext;
-    use bevy_ui::Val;
-    use cssparser::ParserInput;
+    use super::parse_calc;
+    use crate::test_utils::parse_property_content_with;
+    use std::time::Duration;
 
-    use std::backtrace::BacktraceStatus;
-
-    const TEST_REPORT_CONFIG: ariadne::Config = ariadne::Config::new()
-        .with_color(false)
-        .with_label_attach(ariadne::LabelAttach::Start)
-        .with_char_set(ariadne::CharSet::Ascii);
-
-    fn parse(contents: &str) -> Val {
-        parse_inner(contents)
-    }
-
-    #[allow(clippy::print_stderr)]
-    fn parse_inner(contents: &str) -> Val {
-        let mut input = ParserInput::new(contents);
-        let mut parser = Parser::new(&mut input);
-
-        let property_value =
-            match parse_calc_property_value_with(&mut parser, crate::reflect::parse_val) {
-                Ok(property_value) => property_value,
-                Err(error) => {
-                    if error.backtrace.status() == BacktraceStatus::Captured {
-                        eprintln!("{}", error.backtrace);
-                    }
-
-                    let mut report_generator = crate::error::ErrorReportGenerator::new_with_config(
-                        "test_calc.css",
-                        contents,
-                        TEST_REPORT_CONFIG,
-                    );
-                    report_generator.add_error(error);
-                    let msg = report_generator.into_message();
-                    panic!("{msg}")
-                }
-            };
-
-        let compute_context = PropertyValueComputeContext {
-            unset: &PropertyValue::None,
-            initial: &ReflectValue::Usize(0),
-            ancestors: &|| [],
-        };
-
-        property_value
-            .compute(compute_context)
-            .expect("ComputedValue::None generated")
-            .downcast_value()
-            .expect("Invalid type value generated")
+    fn parse_duration(contents: &str) -> Duration {
+        parse_property_content_with(contents, parse_calc::<Duration>)
     }
 
     #[test]
-    fn basic() {
-        assert_eq!(parse("3px"), Val::Px(3.0));
-    }
-
-    #[test]
-    fn products_and_div() {
-        assert_eq!(parse("calc(2px * 3)"), Val::Px(6.0));
-        assert_eq!(parse("calc(2px * 3 * 5)"), Val::Px(30.0));
-
-        assert_eq!(parse("calc(5px / 2)"), Val::Px(2.5));
-        assert_eq!(parse("calc(5px * 2.0 / 4.0)"), Val::Px(2.5));
-
-        assert_eq!(parse("calc(3px * 2.0)"), Val::Px(6.0));
-    }
-
-    #[test]
-    fn sum() {
-        assert_eq!(parse("calc(2px - 10px)"), Val::Px(-8.0));
-        assert_eq!(parse("calc(2px + 4px)"), Val::Px(6.0));
-        assert_eq!(parse("calc(10% + 5%)"), Val::Percent(15.0));
-        assert_eq!(parse("calc(10vw + 10vw)"), Val::Vw(20.0));
-        assert_eq!(parse("calc(2px - 10px)"), Val::Px(-8.0));
-        assert_eq!(parse("calc(2px - 10px + 16px)"), Val::Px(8.0));
-    }
-
-    #[test]
-    fn combinations() {
-        assert_eq!(parse("calc(2px * 3 + 10px / 2 + 4px)"), Val::Px(15.0));
-        assert_eq!(
-            parse("calc(2px * 3 + calc(10px + 2px) - 8px)"),
-            Val::Px(10.0)
-        );
+    fn test_duration() {
+        assert_eq!(parse_duration("0s"), Duration::ZERO);
+        assert_eq!(parse_duration("1s"), Duration::from_secs(1));
+        assert_eq!(parse_duration("calc(1s * 2)"), Duration::from_secs(2));
+        assert_eq!(parse_duration("calc(1s + 1000ms)"), Duration::from_secs(2));
     }
 }

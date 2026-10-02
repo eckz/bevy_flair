@@ -1,101 +1,108 @@
-// TODO: FontFeatures parsing
-
-use crate::reflect::parse_calc_angle;
+use crate::calc::{CalcValue, FromCalcValue};
+use crate::reflect::parse_angle;
 use crate::{
-    CssError, ParserExt, ReflectParseCss, error_codes, parse_calc_property_value_with,
+    CssError, ParserExt, ReflectParseCss, error_codes, parse_calc_property,
     parse_property_value_with,
 };
 use bevy_flair_style::placeholder::FontSourcePlaceholder;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use bevy_text::{
     FontFeatureTag, FontFeatures, FontFeaturesBuilder, FontSize, FontSource, FontStyle,
     FontVariationTag, FontVariations, FontVariationsBuilder, FontWeight, FontWidth,
+    GenericFontFamily,
 };
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 
+impl FromCalcValue for FontSize {
+    type Error = String;
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => {
+                Ok(FontSize::Px(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vw") => {
+                Ok(FontSize::Vw(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vh") => {
+                Ok(FontSize::Vh(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vmin") => {
+                Ok(FontSize::VMin(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("vmax") => {
+                Ok(FontSize::VMax(*value))
+            }
+            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("rem") => {
+                Ok(FontSize::Rem(*value))
+            }
+            CalcValue::Number(_) => {
+                Err("FontSize is expecting a number with dimension, like 16px".to_string())
+            }
+            CalcValue::Percentage(_) => Err("FontSize doesn't support percentages".to_string()),
+            CalcValue::Dimension { dim, .. } => {
+                Err(format!("Dimension '{dim}' is not supported by FontSize"))
+            }
+            CalcValue::MathFunction(math) => Err(format!(
+                "Expression '{math}' cannot be simplified because contains different dimensions"
+            )),
+        }
+    }
+}
+
+impl FromCalcValue for FontWeight {
+    type Error = String;
+
+    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+        match calc_value {
+            CalcValue::Number(value) if *value >= 0.0 && *value <= 1000.0 => {
+                Ok(FontWeight(value.floor() as u16))
+            }
+            CalcValue::Number(value) => Err(format!(
+                "Number '{value}' not valid as a font weight because is not between 0 and 1000"
+            )),
+            invalid => Err(format!("Expression '{invalid}' not valid as a font weight")),
+        }
+    }
+
+    fn custom_constants() -> &'static [(&'static str, f32)] {
+        &[
+            ("normal", FontWeight::NORMAL.0 as f32),
+            ("bold", FontWeight::BOLD.0 as f32),
+        ]
+    }
+}
+
 fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
+    let mut fonts = parser.parse_comma_separated_with(parse_single_font_source)?;
+    if fonts.len() == 1 {
+        Ok(fonts.pop().unwrap())
+    } else {
+        Ok(FontSourcePlaceholder::List(fonts))
+    }
+}
+
+fn parse_single_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
     let path = parser.expect_ident_or_string()?;
     Ok(match_ignore_ascii_case! { path.as_ref(),
          // basic families
-        "serif"  => FontSourcePlaceholder::FontSource(FontSource::Serif),
-        "sans-serif" => FontSourcePlaceholder::FontSource(FontSource::SansSerif),
-        "cursive" => FontSourcePlaceholder::FontSource(FontSource::Cursive),
-        "fantasy" => FontSourcePlaceholder::FontSource(FontSource::Fantasy),
-        "monospace" => FontSourcePlaceholder::FontSource(FontSource::Monospace),
+        "serif"  => FontSourcePlaceholder::Generic(GenericFontFamily::Serif),
+        "sans-serif" => FontSourcePlaceholder::Generic(GenericFontFamily::SansSerif),
+        "cursive" => FontSourcePlaceholder::Generic(GenericFontFamily::Cursive),
+        "fantasy" => FontSourcePlaceholder::Generic(GenericFontFamily::Fantasy),
+        "monospace" => FontSourcePlaceholder::Generic(GenericFontFamily::Monospace),
 
         // system / ui families
-        "system-ui" => FontSourcePlaceholder::FontSource(FontSource::SystemUi),
-        "ui-serif" => FontSourcePlaceholder::FontSource(FontSource::UiSerif),
-        "ui-sans-serif" => FontSourcePlaceholder::FontSource(FontSource::UiSansSerif),
-        "ui-monospace" => FontSourcePlaceholder::FontSource(FontSource::UiMonospace),
-        "ui-rounded" => FontSourcePlaceholder::FontSource(FontSource::UiRounded),
+        "system-ui" => FontSourcePlaceholder::Generic(GenericFontFamily::SystemUi),
+        "ui-serif" => FontSourcePlaceholder::Generic(GenericFontFamily::UiSerif),
+        "ui-sans-serif" => FontSourcePlaceholder::Generic(GenericFontFamily::UiSansSerif),
+        "ui-monospace" => FontSourcePlaceholder::Generic(GenericFontFamily::UiMonospace),
+        "ui-rounded" => FontSourcePlaceholder::Generic(GenericFontFamily::UiRounded),
 
         // other types
-        "emoji"  => FontSourcePlaceholder::FontSource(FontSource::Emoji),
-        "math" => FontSourcePlaceholder::FontSource(FontSource::Math),
+        "emoji"  => FontSourcePlaceholder::Generic(GenericFontFamily::Emoji),
+        "math" => FontSourcePlaceholder::Generic(GenericFontFamily::Math),
 
         _ => FontSourcePlaceholder::FontFaceReference(path.to_string())
-    })
-}
-
-pub fn parse_font_size(parser: &mut Parser) -> Result<FontSize, CssError> {
-    let next = parser.located_next()?;
-    Ok(match &*next {
-        Token::Number { value, .. } => FontSize::Px(*value),
-        Token::Dimension { value, unit, .. } => {
-            match_ignore_ascii_case! { unit.as_ref(),
-                "px" => FontSize::Px(*value),
-                "vw" => FontSize::Vw(*value),
-                "vh" => FontSize::Vh(*value),
-                "vmin" => FontSize::VMin(*value),
-                "vmax" => FontSize::VMax(*value),
-                "rem" => FontSize::Rem(*value),
-                _ => {
-                    return Err(CssError::new_located(
-                        &next,
-                        error_codes::font::UNEXPECTED_FONT_SIZE_TOKEN,
-                        format!("Dimension '{unit}' is not recognized for FontSize. Valid dimensions are 'px' | 'vw' | 'vh' | 'vmin' | 'vmax' | 'rem'")
-                    ));
-                }
-            }
-        }
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::font::UNEXPECTED_FONT_SIZE_TOKEN,
-                "This is not valid FontSize token. 30px, 10rem are valid examples",
-            ));
-        }
-    })
-}
-
-pub fn parse_font_weight(parser: &mut Parser) -> Result<FontWeight, CssError> {
-    let next = parser.located_next()?;
-    Ok(match &*next {
-        Token::Ident(ident) => {
-            match_ignore_ascii_case! { ident.as_ref(),
-                "normal" => FontWeight::NORMAL,
-                "bold" => FontWeight::BOLD,
-                _ => {
-                    return Err(CssError::new_located(
-                        &next,
-                        error_codes::font::UNEXPECTED_FONT_WEIGHT_TOKEN,
-                        format!("Ident '{ident}' is not recognized for FontWeight. Valid weights are 'normal' | 'bold' | 300")
-                    ));
-                }
-            }
-        }
-        Token::Number {
-            int_value: Some(int_value),
-            ..
-        } if *int_value >= 0 && *int_value <= 1000 => FontWeight(*int_value as u16),
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::font::UNEXPECTED_FONT_WEIGHT_TOKEN,
-                "This is not valid FontWeight token. Valid weights are 'normal' | 'bold' | 300",
-            ));
-        }
     })
 }
 
@@ -162,7 +169,7 @@ pub fn parse_font_style(parser: &mut Parser) -> Result<FontStyle, CssError> {
                 "normal" => FontStyle::Normal,
                 "italic" => FontStyle::Italic,
                 "oblique" => {
-                    if let Ok(angle) = parser.try_parse_with(parse_calc_angle) {
+                    if let Ok(angle) = parser.try_parse_with(parse_angle) {
                         FontStyle::Oblique(Some(angle.as_degrees()))
                     } else {
                         FontStyle::Oblique(None)
@@ -283,48 +290,48 @@ pub fn parse_font_variations(parser: &mut Parser) -> Result<FontVariations, CssE
     Ok(builder.build())
 }
 
-impl FromType<FontSource> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontSource> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(
             |parser| Ok(parse_property_value_with(parser, parse_font_source)?.into_reflect_value()),
         )
     }
 }
 
-impl FromType<FontSize> for ReflectParseCss {
-    fn from_type() -> Self {
-        Self(|parser| parse_calc_property_value_with(parser, parse_font_size))
+impl CreateTypeData<FontSize> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
+        Self(parse_calc_property::<FontSize>)
     }
 }
 
-impl FromType<FontWeight> for ReflectParseCss {
-    fn from_type() -> Self {
-        Self(|parser| parse_calc_property_value_with(parser, parse_font_weight))
+impl CreateTypeData<FontWeight> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
+        Self(parse_calc_property::<FontWeight>)
     }
 }
 
-impl FromType<FontWidth> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontWidth> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_font_width)?.into_reflect_value()))
     }
 }
 
-impl FromType<FontStyle> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontStyle> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_font_style)?.into_reflect_value()))
     }
 }
 
-impl FromType<FontFeatures> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontFeatures> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             Ok(parse_property_value_with(parser, parse_font_features)?.into_reflect_value())
         })
     }
 }
 
-impl FromType<FontVariations> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<FontVariations> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             Ok(parse_property_value_with(parser, parse_font_variations)?.into_reflect_value())
         })
@@ -339,7 +346,7 @@ mod tests {
     use bevy_flair_style::placeholder::FontSourcePlaceholder;
     use bevy_text::{
         FontFeatureTag, FontFeatures, FontSource, FontStyle, FontVariationTag, FontVariations,
-        FontWeight, FontWidth,
+        FontWeight, FontWidth, GenericFontFamily,
     };
 
     #[test]
@@ -349,20 +356,29 @@ mod tests {
             FontSourcePlaceholder::FontFaceReference("some-font".into())
         );
         assert_eq!(
+            test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>(
+                "\"font A\", \"font B\""
+            ),
+            FontSourcePlaceholder::List(vec![
+                FontSourcePlaceholder::FontFaceReference("font A".into()),
+                FontSourcePlaceholder::FontFaceReference("font B".into())
+            ])
+        );
+        assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("some-font"),
             FontSourcePlaceholder::FontFaceReference("some-font".into())
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("monospace"),
-            FontSourcePlaceholder::FontSource(FontSource::Monospace)
+            FontSourcePlaceholder::Generic(GenericFontFamily::Monospace)
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("sans-serif"),
-            FontSourcePlaceholder::FontSource(FontSource::SansSerif)
+            FontSourcePlaceholder::Generic(GenericFontFamily::SansSerif)
         );
         assert_eq!(
             test_parse_reflect_from_to::<FontSource, FontSourcePlaceholder>("emoji"),
-            FontSourcePlaceholder::FontSource(FontSource::Emoji)
+            FontSourcePlaceholder::Generic(GenericFontFamily::Emoji)
         );
     }
 

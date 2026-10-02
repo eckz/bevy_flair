@@ -51,7 +51,7 @@ fn editable_text_enter_observer(
     let items_container = *items_container;
     commands.spawn_scene(bsn! {
         ChildOf(items_container)
-        scenes::list_item(text)
+        @scenes::list_item(text)
     });
 }
 
@@ -77,8 +77,8 @@ mod scenes {
         tab_navigation::{TabGroup, TabIndex},
     };
     use bevy::prelude::*;
-    use bevy::text::{EditableText, TextCursorStyle};
-    use bevy::ui_widgets::{ActivateOnPress, Button};
+    use bevy::text::TextCursorStyle;
+    use bevy::ui_widgets::{ActivateOnPress, Button, TextInput};
 
     use crate::{ItemsContainer, RemoveButton};
     use bevy_flair::prelude::*;
@@ -94,7 +94,7 @@ mod scenes {
 
     pub(crate) fn button(contents: &'static str) -> impl Scene {
         bsn! {
-            text(contents)
+            @text(contents)
             Button
             ActivateOnPress
             TabIndex
@@ -106,7 +106,7 @@ mod scenes {
             #TextInput
             Node
             TypeName("input")
-            EditableText
+            TextInput
             TextCursorStyle
             TabIndex
         }
@@ -118,20 +118,17 @@ mod scenes {
             Styled::StyleSheet("dynamic.css")
             TabGroup
             Children [
-                ( text("Add text below and press enter") ),
-                (
-                    text_input()
-                    AutoFocus
-                ),
-                (
-                    Node
-                    ItemsContainer
-                    ClassList::new("items-container")
-                ),
-                (
-                    text("No items added yet")
-                    ClassList::new("no-items-text")
-                )
+                @text("Add text below and press enter")
+                --
+                @text_input()
+                AutoFocus
+                --
+                Node
+                ItemsContainer
+                ClassList::new("items-container")
+                --
+                @text("No items added yet")
+                ClassList::new("no-items-text")
             ]
         }
     }
@@ -141,15 +138,12 @@ mod scenes {
             Node
             ClassList::new("item")
             Children [
-                (
-                    text(contents)
-                    ClassList::new("item-text")
-                ),
-                (
-                    button("x")
-                    RemoveButton
-                    ClassList::new("remove-button")
-                )
+                @text(contents)
+                ClassList::new("item-text")
+                --
+                @button("x")
+                RemoveButton
+                ClassList::new("remove-button")
             ]
         }
     }

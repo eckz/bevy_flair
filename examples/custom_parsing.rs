@@ -1,6 +1,6 @@
 //! This examples shows how to replace Val parsing with a custom parser.
 //! In this example we're overriding Val parsing to support `rem`.
-use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
+use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollPixelsPerLine, MouseScrollUnit};
 use bevy::prelude::*;
 use bevy::text::RemSize;
 use bevy_flair::{
@@ -83,6 +83,7 @@ fn custom_parsing_plugin(app: &mut App) {
 // Just a simple way to change `RemSize` to effectively change real values of `rem`.
 fn zoom_on_scroll(
     input: Res<AccumulatedMouseScroll>,
+    pixels_per_line: Res<MouseScrollPixelsPerLine>,
     mut rem_size: ResMut<RemSize>,
     mut all_styled: Query<&mut StyleMarkers>,
 ) {
@@ -90,7 +91,7 @@ fn zoom_on_scroll(
         return;
     }
     let delta_pixels_y = match input.unit {
-        MouseScrollUnit::Line => input.delta.y * MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
+        MouseScrollUnit::Line => input.delta.y * *pixels_per_line,
         MouseScrollUnit::Pixel => input.delta.y,
     };
     rem_size.0 = (rem_size.0 + delta_pixels_y * 0.02).clamp(1.0, 50.0);

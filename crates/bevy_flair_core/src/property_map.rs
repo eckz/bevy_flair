@@ -5,7 +5,7 @@ use bevy_reflect::Reflect;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::{Deref, Index, IndexMut, Range};
+use std::ops::{Deref, Index, IndexMut};
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -118,9 +118,16 @@ impl<'a, T> Index<&'a ComponentPropertyId> for PropertyMap<T> {
     }
 }
 
-impl<T> Index<Range<ComponentPropertyId>> for PropertyMap<T> {
+impl<T> Index<std::range::legacy::Range<ComponentPropertyId>> for PropertyMap<T> {
     type Output = [T];
-    fn index(&self, index: Range<ComponentPropertyId>) -> &Self::Output {
+    fn index(&self, index: std::range::legacy::Range<ComponentPropertyId>) -> &Self::Output {
+        &self.0[(index.start.0 as usize)..(index.end.0 as usize)]
+    }
+}
+
+impl<T> Index<std::range::Range<ComponentPropertyId>> for PropertyMap<T> {
+    type Output = [T];
+    fn index(&self, index: std::range::Range<ComponentPropertyId>) -> &Self::Output {
         &self.0[(index.start.0 as usize)..(index.end.0 as usize)]
     }
 }

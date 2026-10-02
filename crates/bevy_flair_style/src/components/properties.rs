@@ -12,7 +12,7 @@ use bevy_flair_core::{
     PropertyMap, PropertyRegistry, PropertyValue, PropertyValueComputeContext, ReflectValue,
 };
 use bevy_reflect::TypeRegistry;
-use bevy_utils::TypeIdMap;
+use bevy_utils::TypeIdHashMap;
 use itertools::izip;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::Entry;
@@ -86,7 +86,7 @@ pub(crate) struct StylePropertyValuesCopy(pub(crate) PropertyMap<PropertyValue>)
 #[require(StyleMarkers, StylePropertyValuesCopy)]
 pub struct StyleProperties {
     // Components that were inserted automatically, so they can be auto removed
-    pub(crate) auto_inserted_components: TypeIdMap<()>,
+    pub(crate) auto_inserted_components: TypeIdHashMap<()>,
 
     pub(crate) pending_property_values: PropertyMap<PropertyValue>,
     pub(crate) property_values: PropertyMap<PropertyValue>,

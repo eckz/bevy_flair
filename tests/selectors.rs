@@ -2,6 +2,7 @@ use bevy::camera::RenderTargetInfo;
 use bevy::color::palettes::css;
 
 use bevy::input_focus::AutoFocus;
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 
 use bevy_flair::prelude::*;
@@ -154,7 +155,7 @@ fn common_selectors() {
                     Element,
                     UniqueName::new("child-with-hovered-grandchild"),
                     ClassList::new("child"),
-                    children![(Element, Interaction::Hovered, ClassList::new("grandchild")),]
+                    children![(Element, Hovered(true), ClassList::new("grandchild")),]
                 ),
             ],
         ));

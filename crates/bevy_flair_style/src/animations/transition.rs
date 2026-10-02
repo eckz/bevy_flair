@@ -1,7 +1,7 @@
 use crate::animations::reflect::BoxedReflectCurve;
 use crate::animations::{EasingFunction, EasingFunctionCurve, ReflectAnimatable};
+use bevy_curve::Curve;
 use bevy_flair_core::{ComponentPropertyId, ReflectValue};
-use bevy_math::Curve;
 use bevy_reflect::prelude::*;
 use bevy_time::{Timer, TimerMode};
 use std::time::Duration;
@@ -255,7 +255,7 @@ mod tests {
     use crate::animations::ReflectAnimatable;
     use bevy_flair_core::{ComponentPropertyId, ReflectValue};
     use bevy_math::Vec2;
-    use bevy_reflect::FromType;
+    use bevy_reflect::CreateTypeData;
     use std::time::Duration;
 
     const ONE_SECOND: Duration = Duration::from_secs(1);
@@ -272,7 +272,8 @@ mod tests {
 
     #[test]
     fn basic_transition() {
-        let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
+        let reflect_animatable_f32 =
+            <ReflectAnimatable as CreateTypeData<f32>>::create_type_data(());
 
         let mut transition = Transition::new(
             ComponentPropertyId::PLACEHOLDER,
@@ -311,7 +312,8 @@ mod tests {
 
     #[test]
     fn easing_can_overshoot() {
-        let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
+        let reflect_animatable_f32 =
+            <ReflectAnimatable as CreateTypeData<f32>>::create_type_data(());
 
         let mut transition = Transition::new(
             ComponentPropertyId::PLACEHOLDER,
@@ -337,7 +339,8 @@ mod tests {
 
     #[test]
     fn zero_duration_transition() {
-        let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
+        let reflect_animatable_f32 =
+            <ReflectAnimatable as CreateTypeData<f32>>::create_type_data(());
 
         let mut transition = Transition::new(
             ComponentPropertyId::PLACEHOLDER,
@@ -368,7 +371,8 @@ mod tests {
 
     #[test]
     fn nano_duration_transition() {
-        let reflect_animatable_f32 = <ReflectAnimatable as FromType<f32>>::from_type();
+        let reflect_animatable_f32 =
+            <ReflectAnimatable as CreateTypeData<f32>>::create_type_data(());
 
         let mut transition = Transition::new(
             ComponentPropertyId::PLACEHOLDER,

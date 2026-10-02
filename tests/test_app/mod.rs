@@ -3,7 +3,7 @@ use bevy::asset::{AssetApp, AssetLoadFailedEvent, AssetPath, AssetPlugin, AssetS
 use bevy::image::{ImagePlugin, TextureAtlasPlugin};
 use bevy::input::InputPlugin;
 use bevy::input_focus::{InputFocus, InputFocusVisible};
-use bevy::picking::{InteractionPlugin, PickingPlugin};
+use bevy::picking::{InteractionPlugin, PickingPlugin, PickingSettings};
 use bevy::prelude::ManualTextureViews;
 use bevy::scene::ScenePlugin;
 use bevy::text::TextPlugin;
@@ -291,6 +291,12 @@ pub(crate) fn test_app() -> App {
         AssetSourceId::Default,
         AssetSourceBuilder::new(|| Box::new(assets_reader().clone())),
     );
+
+    // Disable picking backend so it doesn't update the hover components
+    app.insert_resource(PickingSettings {
+        is_enabled: false,
+        ..Default::default()
+    });
 
     app.add_plugins((
         no_warns_plugin::plugin,

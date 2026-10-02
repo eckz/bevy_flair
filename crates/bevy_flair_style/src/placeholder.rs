@@ -10,9 +10,10 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::error::BevyError;
 use bevy_ecs::world::World;
 use bevy_flair_core::ReflectValue;
-use bevy_reflect::{FromReflect, FromType, Reflect, TypePath, TypeRegistry};
-use bevy_text::FontSource;
+use bevy_reflect::{CreateTypeData, FromReflect, Reflect, TypePath, TypeRegistry};
+use bevy_text::{FontSource, GenericFontFamily};
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 use std::marker::PhantomData;
 use thiserror::Error;
 
@@ -70,13 +71,13 @@ impl ReflectPlaceholder {
     }
 }
 
-impl<T> FromType<T> for ReflectPlaceholder
+impl<T> CreateTypeData<T> for ReflectPlaceholder
 where
     T: Placeholder + FromReflect + TypePath,
     T::ResolvedValue: FromReflect,
     BevyError: From<T::Error>,
 {
-    fn from_type() -> Self {
+    fn create_type_data(_: ()) -> Self {
         ReflectPlaceholder(|value, context| {
             let value = value.downcast_value_ref::<T>().ok_or_else(|| {
                 format!(
@@ -162,13 +163,33 @@ pub struct FontFamilyNotFound(String);
 #[derive(Clone, PartialEq, Debug, Reflect)]
 #[reflect(Debug, PartialEq, Clone, Placeholder)]
 pub enum FontSourcePlaceholder {
-    /// Contains a concrete [`FontSource`] (for example a `FontSource::Serif`).
-    /// Use this when the source is already known and should be used as-is.
-    FontSource(FontSource),
+    /// Contains a [`GenericFontFamily`] (for example a `GenericFontFamily::Serif`).
+    Generic(GenericFontFamily),
     /// Refers to a registered font face by name. During
     /// placeholder resolution the `ResolvePlaceholderContext`'s `@font-face` registered sources
     /// are consulted to look up the corresponding [`FontSource`].
     FontFaceReference(String),
+    /// Represents a list of different fonts references.
+    List(Vec<FontSourcePlaceholder>),
+}
+
+impl FontSourcePlaceholder {
+    fn flatten(&self) -> SmallVec<[FontSourcePlaceholder; 2]> {
+        let mut list = SmallVec::new();
+        self.flatten_into(&mut list);
+        list
+    }
+
+    fn flatten_into(&self, output: &mut SmallVec<[FontSourcePlaceholder; 2]>) {
+        match self {
+            FontSourcePlaceholder::List(fonts) => {
+                for v in fonts {
+                    v.flatten_into(output)
+                }
+            }
+            other => output.push(other.clone()),
+        }
+    }
 }
 
 impl Placeholder for FontSourcePlaceholder {
@@ -180,13 +201,34 @@ impl Placeholder for FontSourcePlaceholder {
         &self,
         context: &mut ResolvePlaceholderContext,
     ) -> Result<Option<FontSource>, FontFamilyNotFound> {
+        let resolve_font_face = |family_name: &String| {
+            let Some(font_source) = context.font_faces.get(family_name) else {
+                return Err(FontFamilyNotFound(family_name.clone()));
+            };
+            Ok(Some(font_source.clone()))
+        };
+
         match self {
-            FontSourcePlaceholder::FontSource(source) => Ok(Some(source.clone())),
-            FontSourcePlaceholder::FontFaceReference(family_name) => {
-                let Some(font_source) = context.font_faces.get(family_name) else {
-                    return Err(FontFamilyNotFound(family_name.clone()));
-                };
-                Ok(Some(font_source.clone()))
+            FontSourcePlaceholder::Generic(generic) => Ok(Some(FontSource::Generic(*generic))),
+            FontSourcePlaceholder::FontFaceReference(family_name) => resolve_font_face(family_name),
+            FontSourcePlaceholder::List(_) => {
+                let mut final_list = Vec::new();
+                for v in self.flatten() {
+                    match v {
+                        FontSourcePlaceholder::Generic(generic) => {
+                            final_list.push(FontSource::Generic(generic))
+                        }
+                        FontSourcePlaceholder::FontFaceReference(family_name) => {
+                            if let Some(f) = resolve_font_face(&family_name)? {
+                                final_list.push(f);
+                            }
+                        }
+                        FontSourcePlaceholder::List(_) => {
+                            unreachable!("FontSourcePlaceholder::List");
+                        }
+                    }
+                }
+                Ok(Some(FontSource::List(final_list)))
             }
         }
     }
@@ -240,7 +282,7 @@ mod tests {
     use bevy_flair_core::ReflectValue;
     use bevy_image::Image;
     use bevy_reflect::TypeRegistry;
-    use bevy_text::{Font, FontSource};
+    use bevy_text::{Font, FontSource, GenericFontFamily};
     use rustc_hash::FxHashMap;
     use std::any::TypeId;
     use std::sync::Arc;
@@ -254,14 +296,17 @@ mod tests {
 
     const DUCK_IMAGE: Handle<Image> = uuid_handle!("461bf93a-46bc-4fba-8857-feab8b67d3b9");
     const COMIC_SANS_FONT: Handle<Font> = uuid_handle!("888bfb21-01a6-4625-8301-a5a0f8f406f2");
+    const WINGDINGS_FONT: Handle<Font> = uuid_handle!("09042c16-3628-43cd-9ae1-a59892c6ead0");
     const INVALID_HANDLE: Handle<Image> = uuid_handle!("25fe86cf-f47a-4947-8733-101a400bbab2");
 
     #[test]
     fn test_resolve_placeholder() {
         let type_registry = test_type_registry();
 
-        let font_faces =
-            FxHashMap::from_iter([("Comic Sans".into(), FontSource::Handle(COMIC_SANS_FONT))]);
+        let font_faces = FxHashMap::from_iter([
+            ("Comic Sans".into(), FontSource::Handle(COMIC_SANS_FONT)),
+            ("Wingdings".into(), FontSource::Handle(WINGDINGS_FONT)),
+        ]);
 
         struct TestLoader;
 
@@ -321,6 +366,20 @@ mod tests {
         assert_eq!(
             try_resolve_placeholder(&font_placeholder, &mut context, &type_registry).unwrap(),
             Some(ReflectValue::new(FontSource::Handle(COMIC_SANS_FONT)))
+        );
+
+        let font_placeholder = ReflectValue::new(FontSourcePlaceholder::List(vec![
+            FontSourcePlaceholder::FontFaceReference("Comic Sans".to_string()),
+            FontSourcePlaceholder::FontFaceReference("Wingdings".to_string()),
+            FontSourcePlaceholder::Generic(GenericFontFamily::Emoji),
+        ]));
+        assert_eq!(
+            try_resolve_placeholder(&font_placeholder, &mut context, &type_registry).unwrap(),
+            Some(ReflectValue::new(FontSource::List(vec![
+                FontSource::Handle(COMIC_SANS_FONT),
+                FontSource::Handle(WINGDINGS_FONT),
+                FontSource::Generic(GenericFontFamily::Emoji)
+            ])))
         );
 
         let invalid_font_placeholder = ReflectValue::new(FontSourcePlaceholder::FontFaceReference(

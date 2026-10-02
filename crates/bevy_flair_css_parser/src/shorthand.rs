@@ -1,8 +1,6 @@
-use crate::calc::{Calculable, parse_calc_property_value_with};
 use crate::reflect::{
-    parse_asset_path, parse_calc_angle, parse_calc_f32, parse_calc_val, parse_color,
-    parse_enum_as_property_value, parse_enum_value, parse_gradient, parse_grid_track_vec,
-    parse_repeated_grid_track_vec, parse_val,
+    parse_angle, parse_asset_path, parse_color, parse_enum_as_property_value, parse_enum_value,
+    parse_gradient, parse_grid_track_vec, parse_px, parse_repeated_grid_track_vec, parse_val,
 };
 use crate::utils::{
     CombinedParse, parse_property_global_keyword, parse_property_value_with, try_parse_none,
@@ -18,8 +16,8 @@ use bevy_image::Image;
 use bevy_math::{Rot2, Vec2};
 use bevy_reflect::FromReflect;
 use bevy_ui::{
-    AlignItems, BackgroundGradient, GridAutoFlow, GridTrack, JustifyItems, OverflowAxis,
-    RepeatedGridTrack, UiTransform, Val, Val2,
+    AlignItems, BackgroundGradient, CornerRadius, GridAutoFlow, GridTrack, JustifyItems,
+    OverflowAxis, RepeatedGridTrack, UiTransform, Val, Val2,
 };
 use cssparser::{ParseError, Parser, match_ignore_ascii_case};
 use rustc_hash::FxHashMap;
@@ -252,18 +250,6 @@ impl ShorthandPropertyRegistry {
     }
 }
 
-/// Parses up to four values and expands them into an array of four [`PropertyValue`]s.
-///
-/// This follows the CSS shorthand pattern for properties like margin and padding.
-fn parse_four_calc_values<T: Calculable>(
-    parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
-) -> Result<[PropertyValue; 4], CssError> {
-    parse_four_values(parser, |parser| {
-        parse_calc_property_value_with(parser, &mut value_parser)
-    })
-}
-
 fn parse_four_property_values<T: FromReflect>(
     parser: &mut Parser,
     mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
@@ -276,11 +262,11 @@ fn parse_four_property_values<T: FromReflect>(
 /// Parses up to four values and expands them into an array of four [`PropertyValue`]s.
 ///
 /// This follows the CSS shorthand pattern for properties like margin and padding.
-fn parse_four_values(
+fn parse_four_values<T: Clone>(
     parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<PropertyValue, CssError>,
-) -> Result<[PropertyValue; 4], CssError> {
-    let mut values = SmallVec::<[PropertyValue; 4]>::new();
+    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+) -> Result<[T; 4], CssError> {
+    let mut values = SmallVec::<[T; 4]>::new();
 
     values.push(value_parser(parser)?);
     while values.len() < 4 {
@@ -346,7 +332,7 @@ fn parse_simple_shorthand_property<const N: usize>(
 }
 
 fn parse_ui_rect(css_name: &'static str, parser: &mut Parser) -> ShorthandParseResult {
-    let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
+    let [top, right, bottom, left] = parse_four_property_values(parser, parse_val)?;
     Ok(vec![
         (CssRef(format_smolstr!("{css_name}-left")), left),
         (CssRef(format_smolstr!("{css_name}-right")), right),
@@ -405,13 +391,42 @@ fn parse_border_color(parser: &mut Parser) -> ShorthandParseResult {
 }
 
 fn parse_border_radius(parser: &mut Parser) -> ShorthandParseResult {
-    let [top_left, top_right, bottom_right, bottom_left] =
-        parse_four_calc_values(parser, parse_val)?;
+    let [
+        mut top_left,
+        mut top_right,
+        mut bottom_right,
+        mut bottom_left,
+    ] = parse_four_values(parser, parse_val)?.map(CornerRadius::circular);
+
+    if let Ok([top_left_y, top_right_y, bottom_right_y, bottom_left_y]) =
+        parser.try_parse(|parser| {
+            parser.expect_delim('/')?;
+            parse_four_values(parser, parse_val)
+        })
+    {
+        top_left.y = top_left_y;
+        top_right.y = top_right_y;
+        bottom_right.y = bottom_right_y;
+        bottom_left.y = bottom_left_y;
+    }
+
     Ok(vec![
-        (BORDER_TOP_LEFT_RADIUS, top_left),
-        (BORDER_TOP_RIGHT_RADIUS, top_right),
-        (BORDER_BOTTOM_LEFT_RADIUS, bottom_left),
-        (BORDER_BOTTOM_RIGHT_RADIUS, bottom_right),
+        (
+            BORDER_TOP_LEFT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(top_left)),
+        ),
+        (
+            BORDER_TOP_RIGHT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(top_right)),
+        ),
+        (
+            BORDER_BOTTOM_LEFT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(bottom_left)),
+        ),
+        (
+            BORDER_BOTTOM_RIGHT_RADIUS,
+            PropertyValue::Value(ReflectValue::new(bottom_right)),
+        ),
     ])
 }
 
@@ -449,7 +464,7 @@ fn parse_border_inner<I: IntoIterator<Item = CssRef>>(
 ) -> ShorthandParseResult {
     let width = match try_parse_none_with_value(parser, Val::ZERO) {
         Some(zero_value) => PropertyValue::Value(ReflectValue::Val(zero_value)),
-        None => parse_calc_property_value_with(parser, parse_val)?,
+        None => parse_property_value_with(parser, parse_val)?.into_reflect_value(),
     };
 
     let mut result: Vec<_> = width_ref
@@ -521,7 +536,7 @@ fn parse_border_width(parser: &mut Parser) -> ShorthandParseResult {
         ]);
     }
 
-    let [top, right, bottom, left] = parse_four_calc_values(parser, parse_val)?;
+    let [top, right, bottom, left] = parse_four_property_values(parser, parse_val)?;
     Ok(vec![
         (BORDER_LEFT_WIDTH, left),
         (BORDER_RIGHT_WIDTH, right),
@@ -554,7 +569,7 @@ fn parse_outline(parser: &mut Parser) -> ShorthandParseResult {
             .or_else(|_| parse_val(parser))
     }
 
-    let width = parse_calc_property_value_with(parser, parse_ident_or_val)?;
+    let width = parse_property_value_with(parser, parse_ident_or_val)?.map(ReflectValue::Val);
 
     let mut result = vec![(OUTLINE_WIDTH, width)];
 
@@ -629,23 +644,44 @@ define_css_properties! {
     const JUSTIFY_ITEMS = "justify-items";
 }
 
+fn convert_align_items_into_justify_items(align_items: AlignItems) -> JustifyItems {
+    match align_items {
+        AlignItems::Default => JustifyItems::Default,
+        AlignItems::Start => JustifyItems::Start,
+        AlignItems::StartSafe => JustifyItems::StartSafe,
+        AlignItems::End => JustifyItems::End,
+        AlignItems::EndSafe => JustifyItems::EndSafe,
+        AlignItems::FlexStart => JustifyItems::Start,
+        AlignItems::FlexStartSafe => JustifyItems::StartSafe,
+        AlignItems::FlexEnd => JustifyItems::End,
+        AlignItems::FlexEndSafe => JustifyItems::EndSafe,
+        AlignItems::Center => JustifyItems::Center,
+        AlignItems::CenterSafe => JustifyItems::CenterSafe,
+        AlignItems::Baseline => JustifyItems::Baseline,
+        AlignItems::Stretch => JustifyItems::Stretch,
+    }
+}
+
 /// Parses the `place-items` shorthand into `align-items` and `justify-items`.
 fn parse_place_items(parser: &mut Parser) -> ShorthandParseResult {
-    parse_simple_shorthand_property(
-        parser,
-        [
-            (
-                ALIGN_ITEMS,
-                UsePrevious::No,
-                parse_enum_as_property_value::<AlignItems>,
-            ),
-            (
-                JUSTIFY_ITEMS,
-                UsePrevious::No,
-                parse_enum_as_property_value::<JustifyItems>,
-            ),
-        ],
-    )
+    let align_items = parse_enum_as_property_value::<AlignItems>(parser)?;
+
+    let justify_items = parser
+        .try_parse_with(parse_enum_as_property_value::<JustifyItems>)
+        .unwrap_or_else(|_| {
+            align_items.clone().map(|v| {
+                ReflectValue::new(
+                    v.downcast_value::<AlignItems>()
+                        .map(convert_align_items_into_justify_items)
+                        .expect("AlignItems"),
+                )
+            })
+        });
+
+    Ok(vec![
+        (ALIGN_ITEMS, align_items),
+        (JUSTIFY_ITEMS, justify_items),
+    ])
 }
 
 define_css_properties! {
@@ -654,7 +690,7 @@ define_css_properties! {
 }
 
 pub(crate) fn parse_val_as_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
-    parse_calc_property_value_with(parser, parse_val)
+    parse_property_value_with(parser, parse_val).map(|v| v.map(ReflectValue::Val))
 }
 
 /// Parses the `gap` shorthand into `row-gap` and `column-gap`.
@@ -837,11 +873,11 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, C
     match_ignore_ascii_case! { &*function,
         "translate" => {
             parser.parse_nested_block_with(|parser| {
-                let translate_x = parse_calc_val(parser)?;
+                let translate_x = parse_val(parser)?;
                 let translate_y = parser
                     .try_parse_with(|parser| {
                         parser.expect_comma()?;
-                        parse_calc_val(parser)
+                        parse_val(parser)
                     })
                     .unwrap_or(Val::ZERO);
                 Ok(Some(Val2::new(translate_x, translate_y)))
@@ -849,13 +885,13 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, C
         },
         "translatex" => {
             parser.parse_nested_block_with(|parser| {
-                let translate_x = parse_calc_val(parser)?;
+                let translate_x = parse_val(parser)?;
                 Ok(Some(Val2::new(translate_x, Val::ZERO)))
             })
         },
         "translatey" => {
             parser.parse_nested_block_with(|parser| {
-                let translate_y = parse_calc_val(parser)?;
+                let translate_y = parse_val(parser)?;
                 Ok(Some(Val2::new(Val::ZERO, translate_y)))
             })
         },
@@ -885,11 +921,11 @@ fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssErro
     match_ignore_ascii_case! { &function,
         "scale" => {
             parser.parse_nested_block_with(|parser| {
-                let scale_x = parse_calc_f32(parser)?;
+                let scale_x = parse_px(parser)?;
                 let scale_y = parser
                     .try_parse_with(|parser| {
                         parser.expect_comma()?;
-                        parse_calc_f32(parser)
+                        parse_px(parser)
                     })
                     .unwrap_or(scale_x);
 
@@ -898,13 +934,13 @@ fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssErro
         },
         "scalex" => {
             parser.parse_nested_block_with(|parser| {
-                let scale_x = parse_calc_f32(parser)?;
+                let scale_x = parse_px(parser)?;
                 Ok(Some(Vec2::new(scale_x, 1.0)))
             })
         },
         "scaley" => {
             parser.parse_nested_block_with(|parser| {
-                let scale_y = parse_calc_f32(parser)?;
+                let scale_y = parse_px(parser)?;
                 Ok(Some(Vec2::new(1.0, scale_y)))
             })
         },
@@ -931,7 +967,7 @@ fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssE
     match_ignore_ascii_case! { &function,
         "rotate" | "rotatez" => {
             parser.parse_nested_block_with(|parser| {
-                Ok(Some(parse_calc_angle(parser)?))
+                Ok(Some(parse_angle(parser)?))
             })
         },
         "scale" | "scalex" | "scaley" | "translate" | "translatey" | "translatex" => {
@@ -1184,8 +1220,8 @@ mod tests {
 
     use bevy_flair_style::placeholder::AssetPathPlaceholder;
     use bevy_ui::{
-        ColorStop, Gradient, GridTrack, LinearGradient, RadialGradient, RadialGradientShape,
-        RepeatedGridTrack, UiPosition,
+        ColorStop, CornerRadius, Gradient, GridTrack, LinearGradient, RadialGradient,
+        RadialGradientShape, RepeatedGridTrack, UiPosition,
     };
     use std::sync::LazyLock;
 
@@ -1237,6 +1273,7 @@ mod tests {
         Val,
         Val2,
         Rot2,
+        CornerRadius,
         AlignItems,
         JustifyItems,
         GridAutoFlow,
@@ -1388,12 +1425,50 @@ mod tests {
             "border-bottom-width" => Val::Px(1.0),
             "border-top-width" => Val::Px(1.0),
         });
+    }
+
+    #[test]
+    fn test_border_radius() {
+        test_shorthand_property!("border-radius", "inherit", {
+            "border-top-left-radius" => PropertyValue::Inherit,
+            "border-top-right-radius" => PropertyValue::Inherit,
+            "border-bottom-left-radius" => PropertyValue::Inherit,
+            "border-bottom-right-radius" => PropertyValue::Inherit,
+        });
+
+        test_shorthand_property!("border-radius", "30px", {
+            "border-top-left-radius" => CornerRadius::circular(Val::Px(30.0)),
+            "border-top-right-radius" => CornerRadius::circular(Val::Px(30.0)),
+            "border-bottom-left-radius" => CornerRadius::circular(Val::Px(30.0)),
+            "border-bottom-right-radius" => CornerRadius::circular(Val::Px(30.0)),
+        });
+
+        test_shorthand_property!("border-radius", "10% / 50%", {
+            "border-top-left-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+            "border-top-right-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+            "border-bottom-left-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+            "border-bottom-right-radius" => CornerRadius::new(Val::Percent(10.0), Val::Percent(50.0)),
+        });
 
         test_shorthand_property!("border-radius", "10px 5%", {
-            "border-top-left-radius" => Val::Px(10.0),
-            "border-top-right-radius" => Val::Percent(5.0),
-            "border-bottom-left-radius" => Val::Percent(5.0),
-            "border-bottom-right-radius" => Val::Px(10.0),
+            "border-top-left-radius" => CornerRadius::circular(Val::Px(10.0)),
+            "border-top-right-radius" => CornerRadius::circular(Val::Percent(5.0)),
+            "border-bottom-left-radius" => CornerRadius::circular(Val::Percent(5.0)),
+            "border-bottom-right-radius" => CornerRadius::circular(Val::Px(10.0)),
+        });
+
+        test_shorthand_property!("border-radius", "50% 20% / 10% 40%", {
+            "border-top-left-radius" => CornerRadius::new(Val::Percent(50.0), Val::Percent(10.0)),
+            "border-top-right-radius" => CornerRadius::new(Val::Percent(20.0), Val::Percent(40.0)),
+            "border-bottom-left-radius" => CornerRadius::new(Val::Percent(20.0), Val::Percent(40.0)),
+            "border-bottom-right-radius" => CornerRadius::new(Val::Percent(50.0), Val::Percent(10.0)),
+        });
+
+        test_shorthand_property!("border-radius", "10px 100px / 120px", {
+            "border-top-left-radius" => CornerRadius::new(Val::Px(10.0), Val::Px(120.0)),
+            "border-top-right-radius" => CornerRadius::new(Val::Px(100.0), Val::Px(120.0)),
+            "border-bottom-left-radius" => CornerRadius::new(Val::Px(100.0), Val::Px(120.0)),
+            "border-bottom-right-radius" => CornerRadius::new(Val::Px(10.0), Val::Px(120.0)),
         });
     }
 
@@ -1471,6 +1546,11 @@ mod tests {
 
     #[test]
     fn test_place_items() {
+        test_shorthand_property!("place-items", "center", {
+            "align-items" => AlignItems::Center,
+            "justify-items" => JustifyItems::Center,
+        });
+
         test_shorthand_property!("place-items", "center center", {
             "align-items" => AlignItems::Center,
             "justify-items" => JustifyItems::Center,
@@ -1478,6 +1558,7 @@ mod tests {
 
         test_shorthand_property!("place-items", "flex-start", {
             "align-items" => AlignItems::FlexStart,
+            "justify-items" => JustifyItems::Start,
         });
 
         test_shorthand_property!("place-items", "flex-end stretch", {

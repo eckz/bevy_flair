@@ -1,11 +1,11 @@
 use crate::reflect::parse_color;
-use crate::reflect::ui::parse_calc_f32;
+use crate::reflect::ui::parse_px;
 use crate::utils::{parse_property_value_with, try_parse_none_with_value};
 use crate::{CssError, ParserExt, ReflectParseCss, error_codes};
 use bevy_color::Color;
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
-use bevy_reflect::FromType;
+use bevy_reflect::CreateTypeData;
 use bevy_text::{LetterSpacing, LineHeight};
 use bevy_ui::widget::TextShadow;
 use cssparser::{Parser, Token, match_ignore_ascii_case};
@@ -82,16 +82,16 @@ fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     }
 
     if let Ok(color) = parser.try_parse_with(parse_color) {
-        let offset_x = parse_calc_f32(parser)?;
-        let offset_y = parse_calc_f32(parser)?;
+        let offset_x = parse_px(parser)?;
+        let offset_y = parse_px(parser)?;
 
         Ok(ReflectValue::new(TextShadow {
             offset: Vec2::new(offset_x, offset_y),
             color,
         }))
     } else {
-        let offset_x = parse_calc_f32(parser)?;
-        let offset_y = parse_calc_f32(parser)?;
+        let offset_x = parse_px(parser)?;
+        let offset_y = parse_px(parser)?;
 
         let color = parser
             .try_parse_with(parse_color)
@@ -104,30 +104,30 @@ fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     }
 }
 
-impl FromType<LineHeight> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<LineHeight> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(
             |parser| Ok(parse_property_value_with(parser, parse_line_height)?.into_reflect_value()),
         )
     }
 }
 
-impl FromType<LetterSpacing> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<LetterSpacing> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| {
             Ok(parse_property_value_with(parser, parse_letter_spacing)?.into_reflect_value())
         })
     }
 }
 
-impl FromType<TextShadow> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<TextShadow> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| parse_property_value_with(parser, parse_text_shadow))
     }
 }
 
-impl FromType<String> for ReflectParseCss {
-    fn from_type() -> Self {
+impl CreateTypeData<String> for ReflectParseCss {
+    fn create_type_data(_: ()) -> Self {
         Self(|parser| Ok(parse_property_value_with(parser, parse_string)?.into_reflect_value()))
     }
 }

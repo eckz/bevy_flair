@@ -1,4 +1,6 @@
-use crate::{CssError, ErrorReportGenerator, ParserExt, error_codes::animations as error_codes};
+use crate::{
+    CssError, ErrorReportGenerator, ParserExt, error_codes::animations as error_codes, parse_calc,
+};
 use bevy_flair_style::ToCss;
 use bevy_flair_style::animations::{
     AnimationDirection, AnimationFillMode, AnimationPlayState, AnimationProperty,
@@ -239,29 +241,7 @@ pub(crate) mod easing {
 /// assert_eq!(duration, Duration::from_secs_f32(3.0));
 /// ```
 pub fn parse_duration(parser: &mut Parser) -> Result<Duration, CssError> {
-    let next = parser.located_next()?;
-
-    Ok(match &*next {
-        Token::Dimension { value, unit, .. }
-            if *value >= 0.0 && unit.as_ref().eq_ignore_ascii_case("s") =>
-        {
-            Duration::from_secs_f32(*value)
-        }
-        Token::Dimension {
-            int_value: Some(int_value),
-            unit,
-            ..
-        } if *int_value >= 0 && unit.as_ref().eq_ignore_ascii_case("ms") => {
-            Duration::from_millis(*int_value as u64)
-        }
-        _ => {
-            return Err(CssError::new_located(
-                &next,
-                error_codes::INVALID_DURATION,
-                "Expected a dimensional number, like 5s",
-            ));
-        }
-    })
+    parse_calc::<Duration>(parser)
 }
 
 fn parse_animation_name(parser: &mut Parser) -> Result<Arc<str>, CssError> {
@@ -894,6 +874,13 @@ mod tests {
             AnimationProperty::new_specific_property(
                 AnimationPropertyId::Duration,
                 [Duration::ZERO]
+            )
+        );
+        assert_eq!(
+            test_animation_property("animation-duration: calc(1s * 2)"),
+            AnimationProperty::new_specific_property(
+                AnimationPropertyId::Duration,
+                [Duration::from_secs(2)]
             )
         );
         assert_eq!(

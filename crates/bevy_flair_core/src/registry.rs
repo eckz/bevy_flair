@@ -11,7 +11,8 @@ use rustc_hash::FxHashMap;
 use std::any::TypeId;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
-use std::ops::{Index, Range};
+use std::ops::Index;
+use std::range::Range;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use thiserror::Error;
 use tracing::{debug, trace};
@@ -171,6 +172,12 @@ impl From<ComponentPropertyId> for usize {
     }
 }
 
+impl From<ComponentPropertyId> for u32 {
+    fn from(value: ComponentPropertyId) -> Self {
+        value.0
+    }
+}
+
 impl ComponentPropertyId {
     /// A placeholder property id that is never valid.
     pub const PLACEHOLDER: Self = Self(u32::MAX);
@@ -295,7 +302,7 @@ impl PropertyRegistry {
             vacant.insert(property_id);
         }
         let end_id = ComponentPropertyId(inner.properties.len() as u32);
-        start_id..end_id
+        (start_id..end_id).into()
     }
 
     /// Sets the unset value for a given property.

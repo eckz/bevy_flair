@@ -8,17 +8,19 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::StyleSystems;
 pub use cssparser::{self, BasicParseError, CowRcStr, Parser, Token};
-use derive_more::Deref;
+use derive_more::{Deref, DerefMut};
 pub use error::*;
 pub use inline_styles::*;
 pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Range;
+use std::range::Range;
 use tracing::debug;
 
-pub use calc::{CalcAdd, CalcMul, Calculable, parse_calc_property_value_with, parse_calc_value};
+pub use calc::{
+    CalcSumExpr, CalcValue, FromCalcValue, MathFunction, parse_calc, parse_calc_property,
+};
 pub use parser::parse_duration;
 pub use utils::parse_property_value_with;
 
@@ -37,9 +39,10 @@ mod utils;
 mod vars;
 
 /// Wrapper for a value that has a location in a byte range
-#[derive(Clone, Deref)]
+#[derive(Clone, Deref, DerefMut)]
 pub struct Located<T> {
     #[deref]
+    #[deref_mut]
     item: T,
 
     /// Location in byte range
@@ -49,8 +52,14 @@ pub struct Located<T> {
 impl<T> Located<T> {
     /// Wraps a value with the given location.
     /// The range is the byte range from the original source.
-    pub fn new(item: T, location: Range<usize>) -> Self {
+    pub fn new(item: T, location: impl Into<Range<usize>>) -> Self {
+        let location = location.into();
         Self { item, location }
+    }
+
+    /// Extracts the inner value
+    pub fn into_inner(self) -> T {
+        self.item
     }
 }
 
@@ -283,6 +292,7 @@ pub(crate) mod test_utils {
     use crate::{CssError, ErrorReportGenerator};
     use bevy_flair_style::{VarResolver, VarTokens};
     use cssparser::{ParseError, Parser, ParserInput};
+    use std::assert_matches;
     use std::backtrace::BacktraceStatus;
     use std::sync::Arc;
 
@@ -337,8 +347,9 @@ pub(crate) mod test_utils {
             let result = parse_fn(parser)?;
             let important_level = try_parse_important_level(parser);
 
-            assert!(
-                matches!(important_level, ImportantLevel::Important(_)),
+            assert_matches!(
+                important_level,
+                ImportantLevel::Important(_),
                 "Missing trailing !important from parser. Remaining contents: '{remaining_contents}'",
                 remaining_contents = &contents[parser.position().byte_index()..]
             );

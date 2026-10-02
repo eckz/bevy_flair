@@ -162,6 +162,7 @@ mod tests {
     use crate::test_utils::{ExpectExt, NoVarsSupportedResolver};
     use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, EasingFunction};
     use indoc::indoc;
+    use std::assert_matches;
 
     #[test]
     fn basic() {
@@ -192,7 +193,7 @@ mod tests {
         assert!(
             matches!(fifty, ParserAnimationKeyFrame::Valid { ref times, .. } if times == &[0.5])
         );
-        assert!(matches!(to, ParserAnimationKeyFrame::Valid { ref times, .. } if times == &[1.0]));
+        assert_matches!(to, ParserAnimationKeyFrame::Valid { ref times, .. } if times == &[1.0]);
 
         let (_, from_properties) = from.unwrap();
         let (_, fifty_properties) = fifty.unwrap();

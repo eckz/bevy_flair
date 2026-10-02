@@ -1,13 +1,14 @@
 //! This examples tries to represent a complex ui with many elements and serves as a
 //! benchmark of Bevy Flair.
 
+use bevy::picking::hover::Hovered;
 use bevy::{
     color::palettes::css,
     dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin},
     prelude::*,
+    ui_widgets::Button,
     window::{PresentMode, WindowResolution},
 };
-
 use bevy_flair::prelude::*;
 
 fn main() {
@@ -45,7 +46,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .spawn((Node::default(), Styled::new(asset_server.load("grid.css"))))
         .with_children(|parent| {
             for _ in 0..(50 * 50) {
-                parent.spawn(Button);
+                parent.spawn((Button, Node::default(), Hovered::default()));
             }
         });
 }
