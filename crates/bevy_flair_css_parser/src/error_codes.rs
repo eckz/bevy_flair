@@ -21,6 +21,8 @@ define_errors!(basic => {
     UNEXPECTED_FONT_FACE_PROPERTY(07, "Invalid @font-face property"),
     INCOMPLETE_FONT_FACE_RULE(08, "Incomplete @font-face rule"),
     DUPLICATED_KEYFRAMES_ANIMATION(09, "Duplicated @keyframes rule"),
+    ASSET_PATH_PARSE_ERROR(10, "Cannot parse asset path"),
+    CANNOT_LOAD_IMPORT(11, "Cannot load import url"),
 });
 
 define_errors!(color => {

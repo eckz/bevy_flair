@@ -233,10 +233,12 @@ mod tests {
                 std::iter::once($inline_style.style_block_id()),
             );
             let mut property_map = $property_registry.create_unset_values_map();
+            let mut origin = $property_registry.create_property_map(None);
             resolver.resolve_property_values(
                 &$property_registry,
                 &crate::test_utils::NoVarsSupportedResolver,
                 &mut property_map,
+                &mut origin,
             );
             property_map
         }};

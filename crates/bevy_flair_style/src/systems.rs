@@ -3,7 +3,7 @@ mod calculate_styles;
 mod resolve_property_values;
 
 use crate::components::*;
-use crate::{GlobalChangeDetection, NodePseudoState, StyleSheet};
+use crate::{GlobalChangeDetection, NodePseudoState, StyleBlock, StyleSheet};
 use bevy_ecs::entity::hash_set::EntityHashSet;
 use std::cmp::Ordering;
 
@@ -681,12 +681,14 @@ pub(crate) fn resolve_placeholders(
     )>,
     asset_server: Res<AssetServer>,
     style_sheets: Res<Assets<StyleSheet>>,
+    style_blocks: Res<Assets<StyleBlock>>,
     app_type_registry: Res<AppTypeRegistry>,
     debug_helper: PropertyIdDebugHelperParam,
     mut pending_computed_values_scratch: Local<
         Vec<(
             Entity,
             AssetId<StyleSheet>,
+            Option<AssetId<StyleBlock>>,
             ComponentPropertyId,
             ReflectValue,
         )>,
@@ -717,6 +719,7 @@ pub(crate) fn resolve_placeholders(
                 pending_computed_values_scratch.push((
                     entity,
                     style_sheet_handle.id(),
+                    properties.origin[property_id],
                     property_id,
                     reflect_value.clone(),
                 ));
@@ -724,14 +727,20 @@ pub(crate) fn resolve_placeholders(
         }
     }
 
-    for (entity, stylesheet_asset_id, property_id, reflect_value) in
+    for (entity, stylesheet_asset_id, style_block_id, property_id, reflect_value) in
         pending_computed_values_scratch.drain(..)
     {
         let Some(style_sheet) = style_sheets.get(stylesheet_asset_id) else {
             continue;
         };
 
+        let current_working_path = style_block_id
+            .and_then(|id| style_blocks.get(id))
+            .and_then(|style_block| style_block.original_path.as_ref())
+            .and_then(|original_path| original_path.parent());
+
         let mut context = ResolvePlaceholderContext {
+            current_working_path,
             entity: Some(entity),
             world: Some(queries_param_set.p2()),
             asset_loader: &mut StyleAssetLoader::from_asset_server(&asset_server),

@@ -3,7 +3,7 @@ use crate::animations::{
     TransitionPropertyId, from_properties_to_animation_configuration,
     from_properties_to_transition_configuration,
 };
-use bevy_asset::{Asset, AssetId, Assets};
+use bevy_asset::{Asset, AssetId, AssetPath, Assets};
 use bevy_flair_core::{
     ComponentPropertyId, ComponentPropertyRef, CssPropertyRegistry, CssResolveError,
     CssResolveResult, PropertiesHashMap, PropertyMap, PropertyRegistry, PropertyValue,
@@ -101,6 +101,7 @@ impl StyleProperty {
 /// [declaration block]: https://drafts.csswg.org/css2/#rule-sets
 #[derive(Debug, Clone, Default, Asset, TypePath)]
 pub struct StyleBlock {
+    pub(crate) original_path: Option<AssetPath<'static>>,
     #[cfg(test)]
     pub(crate) original_id: Option<crate::builder::StyleSheetBuilderBlockId>,
     pub(super) vars: Vec<(Arc<str>, VarTokens)>,
@@ -128,6 +129,10 @@ where
     }
 
     fn blocks(&self) -> impl Iterator<Item = &'a StyleBlock> {
+        self.blocks_with_id().map(|(_, block)| block)
+    }
+
+    fn blocks_with_id(&self) -> impl Iterator<Item = (AssetId<StyleBlock>, &'a StyleBlock)> {
         cfg_select! {
             debug_assertions => {
                 self.ids.clone().into_iter().filter_map(|id| {
@@ -135,11 +140,11 @@ where
                     if opt.is_none() {
                         warn!("StyleBlock not available when resolving styles: {:?}", id);
                     }
-                    opt
+                    Some((id, opt?))
                 })
             }
             _ => {
-                self.ids.clone().into_iter().map(|id| self.blocks.get(id).unwrap())
+                self.ids.clone().into_iter().map(|id| (id, self.blocks.get(id).unwrap()))
             }
         }
     }
@@ -149,12 +154,14 @@ where
         &self,
         property_registry: &PropertyRegistry,
         var_resolver: &V,
-        output: &mut PropertyMap<PropertyValue>,
+        output_properties: &mut PropertyMap<PropertyValue>,
+        output_origin: &mut PropertyMap<Option<AssetId<StyleBlock>>>,
     ) {
-        for block in self.blocks() {
+        for (id, block) in self.blocks_with_id() {
             for property in block.properties.iter() {
                 property.resolve(property_registry, var_resolver, |property_id, value| {
-                    output.set_if_neq(property_id, value);
+                    output_properties.set_if_neq(property_id, value);
+                    output_origin.set_if_neq(property_id, Some(id));
                 });
             }
         }

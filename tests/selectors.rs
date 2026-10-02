@@ -299,8 +299,8 @@ fn media_queries() {
 
 #[test]
 fn imports() {
-    include_test_css!("imports.css", "_import_1.css", "_import_2.css");
-    include_assets!("fonts/FiraSans-Regular.ttf");
+    include_test_css!("imports.css", "folder/_import_1.css", "_import_2.css");
+    include_assets!("fonts/FiraSans-Regular.ttf", "panel-border-010.png");
 
     fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         commands.spawn((
@@ -321,25 +321,44 @@ fn imports() {
     };
     assert_eq!(color.to_srgba(), css::RED);
 
-    let Some(node) = app.world().get::<Node>(root) else {
-        panic!("No node set for entity {root}");
-    };
+    let node = app.world().get::<Node>(root).unwrap();
+    let image_node = app.world().get::<ImageNode>(root).unwrap();
 
-    // This comes from _import_2.css
+    // Defined in _import_2.css
     assert_eq!(node.margin.left, Val::Px(10.0));
+    // Defined in folder/_import_1.css, using url("../panel-border-010.png")
+    assert_eq!(
+        image_node
+            .image
+            .path()
+            .expect("No path for image")
+            .to_string(),
+        "panel-border-010.png"
+    );
 
     let text = app.get_entity_by_unique_name("text");
-    let Some(font) = app.world().get::<TextFont>(text) else {
-        panic!("No TextFont set for entity {text}");
-    };
+    let font = app.world().get::<TextFont>(text).unwrap();
 
     let font_path = match &font.font {
         FontSource::Handle(handle) => handle.path().expect("Fount source handle without path"),
         _ => panic!("Invalid font source: {:?}", font.font),
     };
 
-    // Font family url is defined in _import_2.css
+    // @font-face Defined in folder/_import_1.css, using url("../fonts/FiraSans-Regular.ttf")
     assert_eq!(font_path.to_string(), "fonts/FiraSans-Regular.ttf");
+
+    let image_node = app.world().get::<ImageNode>(text).unwrap();
+
+    // Defined in folder/_import_1.css, using vars, and resolving to url("../panel-border-010.png")
+    // var is defined in _import_2.css as url("../panel-border-010.png"), but the resolution happens in folder/_import_1.css
+    assert_eq!(
+        image_node
+            .image
+            .path()
+            .expect("No path for image")
+            .to_string(),
+        "panel-border-010.png"
+    );
 }
 
 macro_rules! set_inline_style {

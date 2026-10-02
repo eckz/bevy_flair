@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `calc()` internals are greatly improved to support more use cases.
   Previously to support custom types, it was required to implement `CalcAdd`, `CalcSum`. 
   Now only the trait `FromCalcValue` needs to be implemented 
+- All imports and any kind of asset load are relative to the css file. `@import "../file.css"` should work fine now. Before, imports were always absolute which caused some confusion when using folders. See #59
 
 ## [0.8.1] - 21-Aug-2026
 

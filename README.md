@@ -92,7 +92,7 @@ It enables you to style UI components, taking advantage of the power of CSS.
 - No global stylesheets.
 - No real support for `!important`.
   - Currently, `!important` is detected but ignored with a warning.
-- Limited font support: only single fonts via `@font-face`. No local or fallback fonts.
+- Limited font support: only single fonts via `@font-face`. No local fonts.
 - No advanced color functions like `color-mix()` or relative color syntax (e.g. `lch(from blue calc(l + 20) c h)`).
 
 

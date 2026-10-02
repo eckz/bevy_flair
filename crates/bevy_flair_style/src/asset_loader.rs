@@ -2,6 +2,7 @@
 
 use crate::StyleBlock;
 use bevy_asset::{Asset, AssetPath, AssetServer, Handle, LoadContext};
+use std::path::Path;
 use std::sync::Arc;
 use tracing::trace;
 
@@ -47,16 +48,63 @@ impl<'a, 'c> StyleAssetLoader<'a, 'c> {
     }
 }
 
+fn resolve_asset_path<'a>(
+    parent: Option<&AssetPath<'a>>,
+    path: &AssetPath<'a>,
+) -> AssetPath<'static> {
+    match parent {
+        Some(parent) => parent.resolve(path),
+        None => AssetPath::from_path(Path::new("")).resolve(path),
+    }
+}
+
+#[test]
+fn test_resolve_asset_path() {
+    macro_rules! assert_resolve_asset_path {
+        ($path:literal, $expected:literal) => {
+            assert_eq!(
+                &resolve_asset_path(None, &AssetPath::parse($path)),
+                &AssetPath::parse($expected)
+            );
+        };
+        ($parent:literal, $path:literal, $expected:literal) => {
+            assert_eq!(
+                &resolve_asset_path(Some(&AssetPath::parse($parent)), &AssetPath::parse($path)),
+                &AssetPath::parse($expected)
+            );
+        };
+    }
+
+    assert_resolve_asset_path!("a.txt", "a.txt");
+    assert_resolve_asset_path!("a/../b.txt", "b.txt");
+    assert_resolve_asset_path!("../b.txt", "../b.txt");
+    assert_resolve_asset_path!("parent", "a.txt", "parent/a.txt");
+    assert_resolve_asset_path!("parent", "./a.txt", "parent/a.txt");
+    assert_resolve_asset_path!("parent", "../a.txt", "a.txt");
+    assert_resolve_asset_path!("parent", "/a.txt", "a.txt");
+    assert_resolve_asset_path!("src://parent", "../a.txt", "src://a.txt");
+    assert_resolve_asset_path!("src://parent", "../a.txt#label", "src://a.txt#label");
+    assert_resolve_asset_path!("src://parent", "other://a.txt", "other://a.txt");
+    assert_resolve_asset_path!("", "../a.txt", "../a.txt");
+}
+
 impl StyleAssetLoader<'_, '_> {
     /// Load an asset of type `A` from the provided path using the underlying
     /// loader implementation.
-    pub(crate) fn load_asset<'a, A: Asset>(&mut self, path: impl Into<AssetPath<'a>>) -> Handle<A> {
+    pub(crate) fn load_asset<A: Asset>(
+        &mut self,
+        current_path: Option<&AssetPath<'static>>,
+        path: AssetPath<'_>,
+    ) -> Handle<A> {
         match &mut self.0 {
-            InnerAssetLoader::AssetServer(asset_server) => asset_server.load(path),
-            InnerAssetLoader::LoadContext(load_context) => load_context.load(path),
+            InnerAssetLoader::AssetServer(asset_server) => {
+                asset_server.load(resolve_asset_path(current_path, &path))
+            }
+            InnerAssetLoader::LoadContext(load_context) => {
+                load_context.load(resolve_asset_path(current_path, &path))
+            }
             #[cfg(test)]
             InnerAssetLoader::Custom(custom_loader) => {
-                let path = path.into();
                 let handle = custom_loader.load(std::any::TypeId::of::<A>(), path);
                 handle.typed()
             }

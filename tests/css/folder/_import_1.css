@@ -1,0 +1,15 @@
+@import "../_import_2.css";
+
+@font-face {
+    font-family: "FiraSans";
+    src: url("../fonts/FiraSans-Regular.ttf");
+}
+
+:root {
+    --import-1-var: var(--import-2-var);
+    background-image: url("../panel-border-010.png");
+}
+
+text {
+    background-image: var(--background-image);
+}

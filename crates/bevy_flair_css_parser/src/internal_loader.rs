@@ -5,7 +5,7 @@ use crate::utils::ImportantLevel;
 use crate::{
     CssStyleLoaderError, CssStyleLoaderErrorMode, ErrorReportGenerator, ShorthandPropertyRegistry,
 };
-use bevy_asset::{AssetId, Handle};
+use bevy_asset::{AssetId, AssetPath, Handle};
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::animations::{AnimationKeyframes, AnimationProperty, AnimationPropertyId};
 use bevy_flair_style::css_selector::CssSelector;
@@ -26,6 +26,7 @@ pub(crate) struct InternalStylesheetLoader<'a> {
     pub(crate) css_property_registry: &'a CssPropertyRegistry,
     pub(crate) shorthand_property_registry: &'a ShorthandPropertyRegistry,
     pub(crate) error_mode: CssStyleLoaderErrorMode,
+    pub(crate) asset_path: Option<AssetPath<'static>>,
     pub(crate) imports: &'a Imports,
 }
 
@@ -94,7 +95,7 @@ impl InternalStylesheetLoader<'_> {
         path_name: &str,
         contents: &str,
     ) -> Result<StyleSheetBuilder, CssStyleLoaderError> {
-        let mut builder = StyleSheetBuilder::new();
+        let mut builder = StyleSheetBuilder::new().with_asset_path(self.asset_path.clone());
         let mut report_generator =
             ErrorReportGenerator::new_with_config(path_name, contents, NO_COLOR_REPORT_CONFIG);
 
@@ -130,7 +131,8 @@ impl InternalStylesheetLoader<'_> {
             match ruleset.selectors {
                 Ok(selectors) => {
                     debug_assert!(!selectors.is_empty());
-                    let mut ruleset_builder = builder.new_ruleset();
+                    let mut ruleset_builder =
+                        builder.new_ruleset().with_asset_path(ruleset.original_path);
 
                     let selectors = match parent_selectors {
                         None => selectors,
@@ -147,13 +149,15 @@ impl InternalStylesheetLoader<'_> {
                     for property in ruleset.declaration_block {
                         match property {
                             CssDeclaration::NestedRuleset(nested_ruleset) => {
+                                let original_path = nested_ruleset.original_path.clone();
                                 process_ruleset_recursively(
                                     nested_ruleset,
                                     Some(&selectors),
                                     builder,
                                     report_generator,
                                 );
-                                ruleset_builder = builder.new_ruleset();
+                                ruleset_builder =
+                                    builder.new_ruleset().with_asset_path(original_path);
                                 for selector in selectors.iter().cloned() {
                                     ruleset_builder.add_css_selector(selector);
                                 }
@@ -305,6 +309,7 @@ impl InternalStylesheetLoader<'_> {
             self.property_registry,
             self.css_property_registry,
             self.shorthand_property_registry,
+            self.asset_path.clone(),
             self.imports,
             contents,
             |item| {

@@ -1,11 +1,8 @@
 
-@font-face {
-    font-family: "FiraSans";
-    src: url("fonts/FiraSans-Regular.ttf");
-}
-
 :root {
     --import-2-var: red;
     --font-family: FiraSans;
+    /* This url is resolved from the used place (./folder/_import_1.css) */
+    --background-image: url("../panel-border-010.png");
     margin-left: 10px;
 }

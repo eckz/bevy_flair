@@ -22,6 +22,8 @@ use thiserror::Error;
 /// Contains an asset loader to resolve asset path placeholders and a mapping of
 /// font-family names to `Handle<Font>` for resolving font placeholders.
 pub struct ResolvePlaceholderContext<'a, 'b, 'c> {
+    /// Asset loads should happen relative to this path
+    pub current_working_path: Option<AssetPath<'static>>,
     /// Entity for which the placeholder is being resolved, if any.
     pub entity: Option<Entity>,
     /// World access
@@ -30,6 +32,13 @@ pub struct ResolvePlaceholderContext<'a, 'b, 'c> {
     pub asset_loader: &'b mut StyleAssetLoader<'a, 'c>,
     /// Mapping of font-family names to registered `Handle<Font>`.
     pub font_faces: &'b FxHashMap<String, FontSource>,
+}
+
+impl ResolvePlaceholderContext<'_, '_, '_> {
+    pub(crate) fn load_asset<A: Asset>(&mut self, path: AssetPath<'_>) -> Handle<A> {
+        self.asset_loader
+            .load_asset(self.current_working_path.as_ref(), path)
+    }
 }
 
 /// Trait implemented by types that can be used as placeholders
@@ -143,7 +152,7 @@ impl<A: Asset> Placeholder for AssetPathPlaceholder<A> {
         context: &mut ResolvePlaceholderContext,
     ) -> Result<Option<Handle<A>>, ParseAssetPathError> {
         let path = AssetPath::try_parse(&self.path)?;
-        let handle = context.asset_loader.load_asset::<A>(path);
+        let handle = context.load_asset::<A>(path);
         Ok(Some(handle))
     }
 }
@@ -333,6 +342,7 @@ mod tests {
         let mut test_loader = TestLoader;
 
         let mut context = ResolvePlaceholderContext {
+            current_working_path: None,
             entity: None,
             world: None,
             asset_loader: &mut StyleAssetLoader::custom(&mut test_loader),

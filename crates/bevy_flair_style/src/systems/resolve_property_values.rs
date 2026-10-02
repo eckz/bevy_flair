@@ -116,17 +116,20 @@ pub(crate) fn resolve_property_values(
                 &entity_var_resolver,
             ));
 
+            let mut origin = property_registry.create_property_map(None);
             let mut property_values = property_registry.create_unset_values_map();
             style_resolver.resolve_property_values(
                 &property_registry,
                 &entity_var_resolver,
                 &mut property_values,
+                &mut origin,
             );
 
             debug_assert!(properties.pending_property_values.is_empty());
 
             property_values_copy.0 = property_values.clone();
             properties.pending_property_values = property_values;
+            properties.origin = origin;
 
             if properties.property_values.is_empty() {
                 for (property_id, value) in properties.pending_property_values.iter() {

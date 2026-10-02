@@ -74,6 +74,8 @@ pub enum StyleFontSource {
 /// Represents a font face defined in a style sheet.
 #[derive(Clone, Debug)]
 pub struct StyleFontFace {
+    // Where the style font was defined, required to do proper asset loading
+    pub(super) original_path: Option<AssetPath<'static>>,
     pub(super) font_family: String,
     pub(super) source: StyleFontSource,
 }
@@ -340,6 +342,12 @@ impl StyleSheetRulesetBuilder<'_> {
         self.add_css_selector(selector);
         self
     }
+
+    /// Define where this ruleset was loaded from.
+    pub fn with_asset_path(self, asset_path: Option<AssetPath<'static>>) -> Self {
+        self.block.original_path = asset_path;
+        self
+    }
 }
 
 impl_block_builder!(StyleSheetRulesetBuilder<'_>);
@@ -347,6 +355,7 @@ impl_block_builder!(StyleSheetRulesetBuilder<'_>);
 /// Representation of a ruleset in the [`StyleSheetBuilder`].
 #[derive(Default)]
 struct InternalStyleSheetBuilderBlock {
+    pub(crate) original_path: Option<AssetPath<'static>>,
     pub(super) vars: FxHashMap<VarName, VarTokens>,
     pub(super) properties: Vec<StyleBuilderProperty>,
 
@@ -378,7 +387,9 @@ impl InternalStyleSheetBuilderBlock {
 
         let properties = resolve_properties(property_registry, self.properties)?;
         let vars = self.vars.into_iter().collect();
+        let original_path = self.original_path;
         Ok(StyleBlock {
+            original_path,
             vars,
             properties,
             animation_properties: self.animation_properties,
@@ -393,6 +404,7 @@ impl InternalStyleSheetBuilderBlock {
 /// Make sure that style sheet does not have any issues.
 #[derive(Default)]
 pub struct StyleSheetBuilder {
+    asset_path: Option<AssetPath<'static>>,
     layers_hierarchy: LayersHierarchy,
     font_faces: Vec<StyleFontFace>,
     blocks: Vec<InternalStyleSheetBuilderBlock>,
@@ -410,9 +422,17 @@ impl StyleSheetBuilder {
         Self::default()
     }
 
+    /// Defines which asset_path is used for the StyleSheet.
+    /// This is used to loading dependency assets relative to the stylesheet path.
+    pub fn with_asset_path(mut self, asset_path: Option<AssetPath<'static>>) -> Self {
+        self.asset_path = asset_path;
+        self
+    }
+
     /// Add a font-face for the current style sheet.
     pub fn register_font_face(&mut self, font_family: impl Into<String>, source: StyleFontSource) {
         self.font_faces.push(StyleFontFace {
+            original_path: self.asset_path.clone(),
             font_family: font_family.into(),
             source,
         })
@@ -603,9 +623,11 @@ impl StyleSheetBuilder {
         &mut self,
         type_registry: &TypeRegistry,
         resolved_font_faces: &FxHashMap<String, FontSource>,
+        current_working_path: Option<AssetPath<'static>>,
         asset_loader: &mut StyleAssetLoader,
     ) -> Result<(), StyleSheetBuilderError> {
         let mut context = ResolvePlaceholderContext {
+            current_working_path,
             entity: None,
             world: None,
             asset_loader,
@@ -646,6 +668,8 @@ impl StyleSheetBuilder {
     ) -> Result<StyleSheet, StyleSheetBuilderError> {
         let font_faces = self.font_faces.clone();
 
+        let current_working_path = self.asset_path.as_ref().and_then(|p| p.parent());
+
         let resolved_font_faces: FxHashMap<String, FontSource> = mem::take(&mut self.font_faces)
             .into_iter()
             .map(|ff| match ff.source {
@@ -656,7 +680,8 @@ impl StyleSheetBuilder {
                             error,
                         }
                     })?;
-                    let handle = asset_loader.load_asset(path);
+                    let original_working_path = ff.original_path.as_ref().and_then(|p| p.parent());
+                    let handle = asset_loader.load_asset(original_working_path.as_ref(), path);
                     Ok((ff.font_family, FontSource::Handle(handle)))
                 }
                 StyleFontSource::Local(local) => {
@@ -665,7 +690,12 @@ impl StyleSheetBuilder {
             })
             .collect::<Result<_, StyleSheetBuilderError>>()?;
 
-        self.resolve_placeholders(type_registry, &resolved_font_faces, &mut asset_loader)?;
+        self.resolve_placeholders(
+            type_registry,
+            &resolved_font_faces,
+            current_working_path,
+            &mut asset_loader,
+        )?;
         self.run_all_validations()?;
 
         let blocks = self

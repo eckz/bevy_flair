@@ -187,10 +187,12 @@ mod tests {
         ($blocks:expr, $ids:expr) => {{
             let block_resolver = crate::StyleResolver::new(&$blocks, $ids);
             let mut property_map = PROPERTY_REGISTRY.create_unset_values_map();
+            let mut origin = PROPERTY_REGISTRY.create_property_map(None);
             block_resolver.resolve_property_values(
                 &PROPERTY_REGISTRY,
                 &crate::test_utils::NoVarsSupportedResolver,
                 &mut property_map,
+                &mut origin,
             );
             property_map
         }};

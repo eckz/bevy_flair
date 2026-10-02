@@ -3,7 +3,8 @@ use crate::animations::{
     ResolvedAnimationKeyframes, Transition, TransitionOptions, TransitionState,
 };
 use crate::components::StyleMarkers;
-use crate::{AnimationEvent, AnimationEventType, TransitionEvent, TransitionEventType};
+use crate::{AnimationEvent, AnimationEventType, StyleBlock, TransitionEvent, TransitionEventType};
+use bevy_asset::AssetId;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::{Commands, FromWorld, Resource, World};
@@ -30,6 +31,8 @@ pub(crate) struct StaticPropertyMaps {
     pub(crate) initial: PropertyMap<ReflectValue>,
     /// Default value when a property is not set.
     pub(crate) unset: PropertyMap<PropertyValue>,
+    /// Default value when a property is not set.
+    pub(crate) empty_origin: PropertyMap<Option<AssetId<StyleBlock>>>,
 }
 
 impl StaticPropertyMaps {
@@ -43,6 +46,7 @@ impl StaticPropertyMaps {
             empty_computed,
             initial: property_registry.create_initial_values_map(),
             unset: property_registry.create_unset_values_map(),
+            empty_origin: property_registry.create_property_map(None),
         }
     }
 }
@@ -88,8 +92,11 @@ pub struct StyleProperties {
     // Components that were inserted automatically, so they can be auto removed
     pub(crate) auto_inserted_components: TypeIdHashMap<()>,
 
-    pub(crate) pending_property_values: PropertyMap<PropertyValue>,
     pub(crate) property_values: PropertyMap<PropertyValue>,
+    pub(crate) pending_property_values: PropertyMap<PropertyValue>,
+
+    // Where is the origin of each property value
+    pub(crate) origin: PropertyMap<Option<AssetId<StyleBlock>>>,
 
     pub(crate) pending_computed_values: PropertyMap<ComputedValue>,
     pub(crate) computed_values: PropertyMap<ComputedValue>,
@@ -533,6 +540,8 @@ impl StyleProperties {
 
         self.pending_property_values = PropertyMap::default();
         self.property_values = PropertyMap::default();
+
+        self.origin = static_properties.empty_origin.clone();
 
         self.pending_computed_values = PropertyMap::default();
         self.computed_values = static_properties.empty_computed.clone();

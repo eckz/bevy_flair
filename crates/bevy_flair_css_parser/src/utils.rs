@@ -1,8 +1,20 @@
 use crate::{CssError, ParserExt, error_codes::vars as error_codes};
+use bevy_asset::AssetPath;
 use bevy_flair_core::PropertyValue;
 use cssparser::{Parser, match_ignore_ascii_case, parse_important};
+use std::path::Path;
 use std::range::Range;
 use variadics_please::all_tuples;
+
+pub(crate) fn resolve_asset_path<'a>(
+    parent: Option<&'a AssetPath<'a>>,
+    path: &AssetPath<'a>,
+) -> AssetPath<'static> {
+    match parent {
+        Some(parent) => parent.resolve(path),
+        None => AssetPath::from_path(Path::new("")).resolve(path),
+    }
+}
 
 pub(crate) fn parse_property_global_keyword<T>(
     parser: &mut Parser,
