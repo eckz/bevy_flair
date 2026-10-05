@@ -1,3 +1,6 @@
+//! Shows how to define a custom component properties
+//! In this example we're defining a component that plays sounds
+
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::Button;

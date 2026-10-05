@@ -9,13 +9,20 @@
     justify-content: center;
     
     background-color: black;
+    font-size: 16px;
+
+    --custom-width: 20ex;
 }
 
 .child {
-    width: 20rem;
-    height: 20rem;
+    width: calc(var(--custom-width) * 1);
+    height: calc(var(--custom-width) * 1.5);;
 
     background-color: blue;
-    
     border: 1px white;
+
+    /* Just to show that the size is really based on the font-size */
+    &:hover {
+        font-size: 20px;
+    }
 }
