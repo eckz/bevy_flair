@@ -1,0 +1,113 @@
+@import "tailwind-colors.css";
+@import "widgets/_switch.css";
+@import "widgets/_tab.css";
+@import "widgets/_button.css";
+
+@font-face {
+    font-family: "Poppins-Regular";
+    src: url("fonts/Poppins-Regular.ttf");
+}
+
+@font-face {
+    font-family: "Poppins-SemiBold";
+    src: url("fonts/Poppins-SemiBold.ttf");
+}
+
+:root {
+    --bg: var(--color-slate-100);
+    --card: var(--color-white);
+    --text: var(--color-slate-900);
+    --muted: var(--color-slate-500);
+    --line: var(--color-slate-200);
+
+    --font-size: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: var(--color-slate-950);
+        --card: var(--color-slate-900);
+        --text: var(--color-slate-100);
+        --muted: var(--color-slate-400);
+        --line: var(--color-slate-800);
+    }
+}
+
+
+:root {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+
+    font-family: "Poppins-Regular";
+    font-size: var(--font-size);
+    color: var(--text);
+    background-color: var(--bg);
+}
+
+main {
+    display: flex;
+    width: 100%;
+    height: auto;
+
+
+    max-width: 600px;
+}
+
+header {
+    display: flex;
+    width: 100%;
+
+    font-size: 20px;
+    padding: 16px 0 16px 8px;
+
+    &:not(:first-child) {
+        margin-top: 16px;
+    }
+
+    font-family: "Poppins-SemiBold";
+}
+
+.card {
+    width: 100%;
+    height: auto;
+
+    background: var(--card);
+    border: 1px var(--line);
+    border-radius: 14px;
+    padding: 8px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 2px rgb(0 0 0 / .04), 0 8px 24px rgb(0 0 0 / .05);
+}
+
+
+.inline {
+    display: flex;
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+
+.grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+
+    width: 100%;
+    gap: 10px;
+}
+
+.dark_light_switch {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: auto;
+    height: auto;
+
+    font-size: 12px;
+}

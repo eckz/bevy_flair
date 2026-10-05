@@ -1,0 +1,166 @@
+@import "../tailwind-colors.css";
+
+:root {
+    --tabs-h: 38px;
+    --tabs-gap: 3px;
+    --tabs-accent: var(--color-indigo-600);
+    --tabs-text: var(--color-slate-500);
+    --tabs-text-hover: var(--color-slate-700);
+    --tabs-text-active: var(--color-slate-900);
+    --tabs-line: var(--color-slate-200);
+    --tabs-fill: var(--color-slate-100);
+    --tabs-pill: var(--color-white);
+
+    --tabs-duration: 260ms;
+    /* springy — for the indicator */
+    --tabs-ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+    /* no overshoot — for the panels */
+    --tabs-ease-panel: cubic-bezier(0.32, 0.72, 0, 1);
+
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --tabs-accent: var(--color-indigo-400);
+        --tabs-text: var(--color-slate-400);
+        --tabs-text-hover: var(--color-slate-300);
+        --tabs-text-active: var(--color-slate-50);
+        --tabs-line: var(--color-slate-800);
+        --tabs-fill: var(--color-slate-800);
+        --tabs-pill: var(--color-slate-600);
+    }
+}
+
+
+.tabs {
+    height: auto;
+    width: 100%;
+
+    display: flex;
+    flex-direction: column;
+
+    /* The correct value is assigned on creation */
+    --tabs-count: 0;
+    /* This is updated directly in code */
+    --tabs-selected-index: 0;
+
+    .tabs__headers {
+
+        width: 100%;
+        display: flex;
+        border-bottom: 1px var(--tabs-line);
+
+        .tabs__tab_header {
+            z-index: 1;
+
+            width: 100%;
+            flex: 1 1 0;
+            display: grid;
+            place-items: center center;
+            height: var(--tabs-h);
+            padding: 0 8px;
+            color: var(--tabs-text);
+
+            line-height: 1.2;
+            text-align: center;
+
+            -bevy-line-break: no-wrap;
+
+            border-radius: 8px;
+            transition: color var(--tabs-duration) ease;
+
+            outline: 2px transparent;
+            outline-offset: initial;
+
+            &:hover {
+                color: var(--tabs-text-hover);
+            }
+
+            &:checked {
+                color: var(--tabs-text-active);
+            }
+
+            &:focus-visible {
+                outline: 2px var(--tabs-accent);
+                outline-offset: 2px;
+            }
+        }
+
+        .tabs__indicator {
+            position: absolute;
+            left: 0;
+            /* sit on top of the list's border */
+            bottom: -1px;
+            width: calc(100% / var(--tabs-count));
+            height: 2px;
+            border-radius: 2px;
+            background: var(--tabs-accent);
+            transform: translateX(calc(100% * var(--tabs-selected-index)));
+            transition: transform var(--tabs-duration) var(--tabs-ease);
+        }
+    }
+
+    .tabs__panels {
+        width: 100%;
+        display: flex;
+        overflow: hidden;
+
+        .tabs__track {
+            display: flex;
+
+            width: calc(100% * var(--tabs-count));
+            height: auto;
+            min-height: 10px;
+            transform: translateX(calc(-100% * var(--tabs-selected-index)));
+            transition: transform var(--tabs-duration) var(--tabs-ease-panel);
+        }
+
+        .tabs__panel {
+            flex: 0 0 100%;
+
+            flex-direction: column;
+            padding: 16px;
+
+            border: 3px transparent;
+
+            /* TODO: There is a bug that prevents this from properly working */
+            /* This would be required to have tab navigation properly working */
+            /*visibility: hidden;*/
+            visibility: visible;
+        }
+    }
+}
+
+.tabs:has(> .tabs__headers > .tabs__tab_header:nth-child(1):checked) > .tabs__panels > .tabs__track > .tabs__panel:nth-child(1) {
+    visibility: visible;
+}
+.tabs:has(> .tabs__headers > .tabs__tab_header:nth-child(2):checked) > .tabs__panels > .tabs__track > .tabs__panel:nth-child(2) {
+    visibility: visible;
+}
+.tabs:has(> .tabs__headers > .tabs__tab_header:nth-child(3):checked) > .tabs__panels > .tabs__track > .tabs__panel:nth-child(3) {
+    visibility: visible;
+}
+
+.tabs.tabs__pills_variant {
+    .tabs__headers {
+        padding: var(--tabs-gap);
+        border-bottom: 0;
+        border-radius: 999px;
+        background: var(--tabs-fill);
+    }
+
+    .tabs__indicator {
+        left: var(--tabs-gap);
+        top: var(--tabs-gap);
+        bottom: var(--tabs-gap);
+        width: calc(100% / var(--tabs-count));
+        height: auto;
+        border-radius: 999px;
+        background: var(--tabs-pill);
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+    }
+
+    .tabs__tab_header:checked {
+        color: var(--tabs-text-active);
+    }
+}

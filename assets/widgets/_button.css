@@ -1,0 +1,171 @@
+@import "../tailwind-colors.css";
+
+/* theme */
+:root {
+    --button-h: 38px;
+    --button-px: 16px;
+    --button-radius: 10px;
+
+    --button-bg: var(--color-white);
+    --button-bg-hover: var(--color-slate-100);
+    --button-bg-active: var(--color-slate-200);
+    --button-text: var(--color-slate-700);
+    --button-border: var(--color-slate-300);
+    --button-ring: var(--color-indigo-600);
+
+    /* disabled palette — opaque, so it works over any background */
+    --button-bg-disabled: var(--color-slate-100);
+    --button-text-disabled: var(--color-slate-400);
+    --button-border-disabled: var(--color-slate-200);
+
+    --button-duration: 160ms;
+    --button-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+
+.button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-sizing: border-box;
+    height: var(--button-h);
+    padding: 0 var(--button-px);
+    border: 1px var(--button-border);
+    border-radius: var(--button-radius);
+    background: var(--button-bg);
+    color: var(--button-text);
+
+    /* We need a baseline for transitions */
+    transform: translate(0);
+
+    /* We need a baseline when the focus is not visible */
+    outline: 2px transparent;
+    outline-offset: initial;
+    
+    line-height: 1;
+    text-align: center;
+
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+    transition:
+            background-color var(--button-duration) var(--button-ease),
+            border-color var(--button-duration) var(--button-ease),
+            color var(--button-duration) var(--button-ease),
+            box-shadow var(--button-duration) var(--button-ease),
+            transform var(--button-duration) var(--button-ease);
+
+    &:hover {
+        background: var(--button-bg-hover);
+    }
+
+    &:active {
+        background: var(--button-bg-active);
+        transform: translateY(1px);
+        box-shadow: none;
+    }
+
+    &:focus-visible {
+        outline: 2px var(--button-ring);
+        outline-offset: 2px;
+    }
+
+    &:disabled {
+        background: var(--button-bg-disabled);
+        border-color: var(--button-border-disabled);
+        color: var(--button-text-disabled);
+        box-shadow: none;
+        transform: none;
+    }
+}
+
+/** Variants **/
+.button {
+    &.button--variant--primary {
+        --button-bg: var(--color-indigo-600);
+        --button-bg-hover: var(--color-indigo-700);
+        --button-bg-active: var(--color-indigo-800);
+        --button-text: var(--color-white);
+        --button-border: transparent;
+    }
+
+    &.button--variant--danger {
+        --button-bg: var(--color-red-600);
+        --button-bg-hover: var(--color-red-700);
+        --button-bg-active: var(--color-red-800);
+        --button-text: var(--color-white);
+        --button-border: transparent;
+        --button-ring: var(--color-red-600);
+    }
+
+    &.button--variant--success {
+        --button-bg: var(--color-emerald-600);
+        --button-bg-hover: var(--color-emerald-700);
+        --button-bg-active: var(--color-emerald-800);
+        --button-text: var(--color-white);
+        --button-border: transparent;
+        --button-ring: var(--color-emerald-600);
+    }
+
+    &.button--variant--ghost {
+        --button-bg: transparent;
+        --button-bg-hover: var(--color-slate-100);
+        --button-bg-active: var(--color-slate-200);
+        --button-text: var(--color-slate-700);
+        --button-border: transparent;
+        --button-bg-disabled: transparent;
+        --button-border-disabled: transparent;
+        box-shadow: none;
+    }
+}
+
+
+/** dark scheme **/
+
+@media (prefers-color-scheme: dark) {
+    .button {
+        --button-bg: var(--color-slate-800);
+        --button-bg-hover: var(--color-slate-700);
+        --button-bg-active: var(--color-slate-600);
+        --button-text: var(--color-slate-100);
+        --button-border: var(--color-slate-700);
+        --button-ring: var(--color-indigo-400);
+        --button-bg-disabled: var(--color-slate-800);
+        --button-text-disabled: var(--color-slate-500);
+        --button-border-disabled: var(--color-slate-700);
+
+
+        &.button--variant--primary {
+            --button-bg: var(--color-indigo-500);
+            --button-bg-hover: var(--color-indigo-400);
+            --button-bg-active: var(--color-indigo-600);
+            --button-border: transparent;
+        }
+
+        &.button--variant--danger {
+            --button-bg: var(--color-red-500);
+            --button-bg-hover: var(--color-red-400);
+            --button-bg-active: var(--color-red-600);
+            --button-border: transparent;
+            --button-ring: var(--color-red-400);
+        }
+
+        &.button--variant--success {
+            --button-bg: var(--color-emerald-500);
+            --button-bg-hover: var(--color-emerald-400);
+            --button-bg-active: var(--color-emerald-600);
+            --button-border: transparent;
+            --button-ring: var(--color-emerald-400);
+        }
+
+        &.button--variant--ghost {
+            --button-bg: transparent;
+            --button-bg-hover: var(--color-slate-800);
+            --button-bg-active: var(--color-slate-700);
+            --button-text: var(--color-slate-300);
+            --button-border: transparent;
+            --button-bg-disabled: transparent;
+            --button-border-disabled: transparent;
+        }
+    }
+
+}

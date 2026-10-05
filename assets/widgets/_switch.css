@@ -1,0 +1,162 @@
+@import "../tailwind-colors.css";
+
+:root {
+    --switch-track-w: 52px;
+    --switch-track-h: 28px;
+
+    --switch-gap: 3px;
+
+    --switch-off: var(--color-slate-300);
+    --switch-on: var(--color-indigo-500);
+    --switch-thumb: var(--color-white);
+
+    --switch-off-hover: var(--color-slate-400);
+    --switch-on-hover: var(--color-indigo-600);
+
+    --switch-off-disabled: var(--color-slate-200);
+    --switch-on-disabled: var(--color-indigo-200);
+    --switch-thumb-disabled: var(--color-slate-50);
+    --switch-text-disabled: var(--color-slate-400);
+    --switch-edge-disabled: var(--color-slate-300);
+
+    --switch-duration: 260ms;
+    /* slight overshoot = "springy" */
+    --switch-ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* don't set these directly  */
+    --switch-thumb-size: calc(var(--switch-track-h) - var(--switch-gap) * 2);
+    --switch-travel: calc(var(--switch-track-w) - var(--switch-track-h));
+}
+
+.switch--variant-danger {
+    --switch-on: var(--color-red-500);
+    --switch-on-hover: var(--color-red-600);
+    --switch-on-disabled: var(--color-red-200);
+}
+
+.switch {
+    /* Default state variables */
+    --switch-x: 0;
+    --switch-s: 1;
+
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    flex-direction: row-reverse;
+
+    .switch__track {
+        box-sizing: border-box;
+        width: var(--switch-track-w);
+        height: var(--switch-track-h);
+        padding: var(--switch-gap);
+        border-radius: 100%;
+        background: var(--switch-off);
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+        /* placeholder so the focus ring can animate */
+        outline: 2px transparent; 
+        outline-offset: 2px;
+        transition:
+                background-color var(--switch-duration) ease,
+                box-shadow var(--switch-duration) ease,
+                outline-color 120ms ease,
+                outline-offset 120ms ease;
+
+        .switch__thumb {
+            display: grid;
+            place-items: center;
+            width: var(--switch-thumb-size);
+            height: var(--switch-thumb-size);
+            border-radius: 50%;
+            background: var(--switch-thumb);
+            box-shadow:
+                    0 1px 2px rgb(0 0 0 / 0.28),
+                    0 2px 6px rgb(0 0 0 / 0.14);
+
+            transform: translateX(var(--switch-x)) scaleX(var(--switch-s));
+            transition: transform var(--switch-duration) var(--switch-ease);
+        }
+
+        .switch__visual_check {
+            display:flex;
+
+            width: 34%;
+            height: 18%;
+
+            border-width: 0 0 2px 2px;
+            border-color: transparent;
+
+            border-radius: 1px;
+            transform: translate(0px) scale(1.4) rotate(-45deg);
+            transition:
+                    transform var(--switch-duration) var(--switch-ease),
+                    border-color var(--switch-duration) var(--switch-ease);
+        }
+    }
+
+
+}
+
+/* Switch states */
+
+.switch {
+    /* We need a baseline when the focus is not visible */
+    outline: 2px transparent;
+    outline-offset: initial;
+    
+    &:checked {
+        .switch__track {
+            --switch-x: var(--switch-travel);
+            background: var(--switch-on);
+        }
+
+        .switch__visual_check {
+            border-color: var(--switch-on);
+        }
+    }
+
+    &:hover:not(:disabled) {
+        &:checked {
+            .switch__track {
+                background: var(--switch-on-hover);
+            }
+        }
+        &:not(:checked) {
+            .switch__track {
+                background: var(--switch-off-hover);
+            }
+        }
+
+    }
+
+    &:active {
+        .switch__track {
+            --switch-s: 0.88;
+        }
+    }
+
+    &:focus-visible {
+        outline-color: var(--switch-on);
+        outline-offset: 3px;
+    }
+
+    &:disabled {
+        color: var(--switch-text-disabled);
+        .switch__track {
+            background: var(--switch-off-disabled);
+            box-shadow: 0 0 0 1px rgb(15 23 42 / 0.08);
+
+            .switch__thumb {
+                background: var(--switch-thumb-disabled);
+                box-shadow: 0 0 0 1px rgb(15 23 42 / 0.1);
+            }
+        }
+
+    }
+
+    &:disabled:checked {
+        .switch__track {
+            background: var(--switch-on-disabled);
+        }
+    }
+}
