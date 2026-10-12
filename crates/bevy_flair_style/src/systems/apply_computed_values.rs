@@ -172,7 +172,7 @@ mod tests {
                 simulate_calculate_style_and_compute_properties,
                 apply_computed_properties,
             )
-                .chain(),
+                .chain_weak(),
         );
 
         let entity_1 = world

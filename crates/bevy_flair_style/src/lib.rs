@@ -383,12 +383,12 @@ impl Plugin for FlairStylePlugin {
                         StyleSystems::ComputeProperties,
                         StyleSystems::ResolveAnimations,
                         StyleSystems::SetAnimationValues,
-                        StyleSystems::ApplyComputedProperties.before(bevy_ui::UiSystems::Content),
+                        StyleSystems::ApplyComputedProperties.before_weak(bevy_ui::UiSystems::Content),
                         StyleSystems::EmitRedrawEvent,
                     )
-                        .chain(),
-                    StyleSystems::TickAnimations.before(StyleSystems::ResolvePropertyValues),
-                    StyleSystems::EmitAnimationEvents.after(StyleSystems::SetAnimationValues),
+                        .chain_weak(),
+                    StyleSystems::TickAnimations.before_weak(StyleSystems::ResolvePropertyValues),
+                    StyleSystems::EmitAnimationEvents.after_weak(StyleSystems::SetAnimationValues),
                 ),
             )
             .add_systems(PreStartup, |mut commands: Commands| {
@@ -414,7 +414,7 @@ impl Plugin for FlairStylePlugin {
                             systems::calculate_effective_style_sheet,
                             systems::reset_properties,
                         )
-                            .chain(),
+                            .chain_weak(),
                     )
                         .in_set(StyleSystems::Prepare),
                     (
@@ -453,9 +453,9 @@ impl Plugin for FlairStylePlugin {
                             systems::recalculate_style_on_render_target_info_change,
                             systems::recalculate_style_on_window_media_features_changes,
                         )
-                            .after(bevy_ui::UiSystems::Propagate),
+                            .after_weak(bevy_ui::UiSystems::Propagate),
                     )
-                        .chain()
+                        .chain_weak()
                         .in_set(StyleSystems::MarkEntitiesForStyleRecalculation),
                     systems::calculate_styles_and_set_vars.in_set(StyleSystems::CalculateStyles),
                     systems::resolve_property_values.in_set(StyleSystems::ResolvePropertyValues),
@@ -471,7 +471,7 @@ impl Plugin for FlairStylePlugin {
                         systems::auto_remove_components
                             .run_if(systems::auto_remove_components_condition),
                     )
-                        .chain()
+                        .chain_weak()
                         .in_set(StyleSystems::ApplyComputedProperties),
                 ),
             );

@@ -1306,7 +1306,7 @@ mod tests {
         world.add_observer(observe_on_component_auto_inserted);
 
         let mut schedule = Schedule::default();
-        schedule.add_systems((reset_properties, auto_remove_components).chain());
+        schedule.add_systems((reset_properties, auto_remove_components).chain_weak());
 
         let mut property_registry = PropertyRegistry::new();
         property_registry.register::<TestComponent>();
@@ -1493,7 +1493,7 @@ mod tests {
 
         let mut schedule = Schedule::default();
         schedule
-            .add_systems((calculate_effective_style_sheet, reset_on_style_sheet_change).chain());
+            .add_systems((calculate_effective_style_sheet, reset_on_style_sheet_change).chain_weak());
 
         let entity_1 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE)).id();
         let entity_2 = world.spawn((Styled::Inherited, ChildOf(entity_1))).id();
@@ -1646,7 +1646,7 @@ mod tests {
         world.init_resource::<RemSize>();
 
         let mut schedule = Schedule::default();
-        schedule.add_systems((reset_properties, sync_em_size).chain());
+        schedule.add_systems((reset_properties, sync_em_size).chain_weak());
 
         let entity = world
             .spawn((Node::default(), Styled::new(TEST_STYLE_SHEET_HANDLE)))
