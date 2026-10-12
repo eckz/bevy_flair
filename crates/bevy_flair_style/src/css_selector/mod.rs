@@ -465,28 +465,80 @@ impl CssSelector {
         self.media_selectors.matches(provider)
     }
 
+    /// Test-only one-shot matcher
+    #[cfg(test)]
     pub(crate) fn matches_selector<E: Element<Impl = CssSelectorImpl>>(&self, element: &E) -> bool {
         let mut selector_caches = SelectorCaches::default();
-        let mut matching_context = MatchingContext::new(
+        let mut matching_context = Self::new_matching_context(&mut selector_caches);
+        self.matches_selector_in_context(element, &mut matching_context)
+    }
+
+    /// Builds a [`MatchingContext`] meant to be reused across many [`Self::matches_selector_in_context`] calls.
+    pub(crate) fn new_matching_context(
+        selector_caches: &mut SelectorCaches,
+    ) -> MatchingContext<'_, CssSelectorImpl> {
+        MatchingContext::new(
             MatchingMode::Normal,
             None,
-            &mut selector_caches,
+            selector_caches,
             QuirksMode::NoQuirks,
             NeedsSelectorFlags::Yes,
             MatchingForInvalidation::No,
-        );
-        selectors::matching::matches_selector(
-            &self.selector,
-            0,
-            None,
-            element,
-            &mut matching_context,
         )
+    }
+
+    pub(crate) fn matches_selector_in_context<E: Element<Impl = CssSelectorImpl>>(
+        &self,
+        element: &E,
+        matching_context: &mut MatchingContext<CssSelectorImpl>,
+    ) -> bool {
+        selectors::matching::matches_selector(&self.selector, 0, None, element, matching_context)
     }
 
     pub(crate) fn specificity(&self) -> u32 {
         self.selector.specificity()
     }
+
+    /// Key derived from this selector's rightmost class/id/tag, used to bucket selectors by
+    /// what they can possibly match.
+    pub(crate) fn bucket_key(&self) -> SelectorBucketKey {
+        use selectors::parser::Component;
+
+        let mut class_key = None;
+        let mut local_name_key = None;
+
+        let mut iter = self.selector.iter();
+        for component in iter.by_ref() {
+            match component {
+                Component::ID(id) => return SelectorBucketKey::Id(id.0.clone()),
+                Component::Class(cls) if class_key.is_none() => {
+                    class_key = Some(cls.0.clone());
+                }
+                Component::LocalName(local_name) if local_name_key.is_none() => {
+                    local_name_key = Some(local_name.name.0.clone());
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(class_name) = class_key {
+            SelectorBucketKey::Class(class_name)
+        } else if let Some(tag_name) = local_name_key {
+            SelectorBucketKey::LocalName(tag_name)
+        } else {
+            SelectorBucketKey::Universal
+        }
+    }
+}
+
+/// See [`CssSelector::bucket_key`].
+#[derive(Debug, Clone)]
+pub(crate) enum SelectorBucketKey {
+    /// No class/id/tag anchor (e.g. `*`, `:hover`); always tested.
+    Universal,
+    Id(SmolStr),
+    Class(SmolStr),
+    LocalName(SmolStr),
 }
 
 impl crate::ToCss for CssSelector {
