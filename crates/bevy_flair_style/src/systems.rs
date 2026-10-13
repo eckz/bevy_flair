@@ -1492,8 +1492,9 @@ mod tests {
         MessageRegistry::register_message::<AssetEvent<StyleSheet>>(world);
 
         let mut schedule = Schedule::default();
-        schedule
-            .add_systems((calculate_effective_style_sheet, reset_on_style_sheet_change).chain_weak());
+        schedule.add_systems(
+            (calculate_effective_style_sheet, reset_on_style_sheet_change).chain_weak(),
+        );
 
         let entity_1 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE)).id();
         let entity_2 = world.spawn((Styled::Inherited, ChildOf(entity_1))).id();

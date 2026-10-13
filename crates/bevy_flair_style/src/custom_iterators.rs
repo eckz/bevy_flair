@@ -1,4 +1,4 @@
-use bevy_ecs::entity::Entity;
+use bevy_ecs::entity::{Entity, EntityHashSet};
 use bevy_ecs::hierarchy::{ChildOf, Children};
 use bevy_ecs::prelude::Without;
 use bevy_ecs::query::Has;
@@ -102,6 +102,62 @@ impl<'w, 's> StyledChildren<'w, 's> {
     /// Returns an iterator over all ancestors (parents up the tree) of the given entity.
     pub fn iter_ancestors(&self, entity: Entity) -> StyledAncestorIter<'_, '_> {
         StyledAncestorIter::new(self, entity)
+    }
+
+    /// Marks each dirty entity's ancestor spine up to the root, stopping a walk early once
+    /// it hits an already-marked entity. Returns `(marked, leaves, roots)`.
+    pub(crate) fn mark_ancestor_spine(
+        &self,
+        dirty_entities: impl IntoIterator<Item = Entity>,
+    ) -> (EntityHashSet, EntityHashSet, Vec<Entity>) {
+        let mut marked = EntityHashSet::default();
+        let mut leaves = EntityHashSet::default();
+        let mut roots = Vec::new();
+        for entity in dirty_entities {
+            if !marked.contains(&entity) {
+                leaves.insert(entity);
+            }
+            let mut current = entity;
+            loop {
+                if !marked.insert(current) {
+                    leaves.remove(&current);
+                    break;
+                }
+                match self.get_parent(current) {
+                    Some(parent) => current = parent,
+                    None => {
+                        roots.push(current);
+                        break;
+                    }
+                }
+            }
+        }
+        (marked, leaves, roots)
+    }
+
+    /// Visits the full subtree of each root at most once, calling `mark` for every visited
+    /// entity.
+    pub(crate) fn mark_descendants(
+        &self,
+        roots: impl IntoIterator<Item = Entity>,
+        mut mark: impl FnMut(Entity),
+    ) {
+        let mut visited = EntityHashSet::default();
+        let mut queue = Vec::new();
+        for entity in roots {
+            if !visited.insert(entity) {
+                continue;
+            }
+            queue.push(entity);
+            while let Some(entity) = queue.pop() {
+                mark(entity);
+                for child in self.iter_children(entity) {
+                    if visited.insert(child) {
+                        queue.push(child);
+                    }
+                }
+            }
+        }
     }
 }
 

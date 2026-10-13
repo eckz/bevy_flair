@@ -383,7 +383,8 @@ impl Plugin for FlairStylePlugin {
                         StyleSystems::ComputeProperties,
                         StyleSystems::ResolveAnimations,
                         StyleSystems::SetAnimationValues,
-                        StyleSystems::ApplyComputedProperties.before_weak(bevy_ui::UiSystems::Content),
+                        StyleSystems::ApplyComputedProperties
+                            .before_weak(bevy_ui::UiSystems::Content),
                         StyleSystems::EmitRedrawEvent,
                     )
                         .chain_weak(),

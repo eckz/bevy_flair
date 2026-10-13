@@ -286,8 +286,13 @@ impl Styled {
 /// Contains all vars defined for the current entity
 #[derive(Clone, Debug, Default, Component, Reflect, Deref, DerefMut)]
 #[reflect(Debug, Default, Clone, Component)]
+#[require(NearestVarAncestor)]
 // Note: Using std::collections::HashMap instead of FxHashMap because it's reflectable
 pub struct StyleVars(std::collections::HashMap<Arc<str>, VarTokens>);
+
+/// Nearest ancestor with a non-empty [`StyleVars`]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Component)]
+pub(crate) struct NearestVarAncestor(pub(crate) Option<Entity>);
 
 impl StyleVars {
     pub(crate) fn replace_vars(

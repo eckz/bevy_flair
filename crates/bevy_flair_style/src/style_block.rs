@@ -134,18 +134,18 @@ where
 
     fn blocks_with_id(&self) -> impl Iterator<Item = (AssetId<StyleBlock>, &'a StyleBlock)> {
         cfg_select! {
-            debug_assertions => {
-                self.ids.clone().into_iter().filter_map(|id| {
-                    let opt = self.blocks.get(id);
-                    if opt.is_none() {
-                        warn!("StyleBlock not available when resolving styles: {:?}", id);
-                    }
-                    Some((id, opt?))
-                })
-            }
-            _ => {
-                self.ids.clone().into_iter().map(|id| (id, self.blocks.get(id).unwrap()))
-            }
+            debug_assertions => self.ids.clone().into_iter().filter_map(|id| {
+                let opt = self.blocks.get(id);
+                if opt.is_none() {
+                    warn!("StyleBlock not available when resolving styles: {:?}", id);
+                }
+                Some((id, opt?))
+            }),
+            _ => self
+                .ids
+                .clone()
+                .into_iter()
+                .map(|id| (id, self.blocks.get(id).unwrap())),
         }
     }
 

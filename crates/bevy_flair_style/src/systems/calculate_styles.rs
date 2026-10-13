@@ -8,7 +8,6 @@ use crate::media_selector::MediaFeaturesProvider;
 use crate::{ColorScheme, StyleBlock, StyleResolver, StyleSheet, css_selector};
 use bevy_asset::{AssetServer, Assets};
 use bevy_camera::{NormalizedRenderTarget, RenderTarget};
-use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use bevy_ecs::system::SystemParam;
@@ -162,33 +161,8 @@ pub(crate) fn calculate_styles_and_set_vars(
         return;
     }
 
-    // Pass 2: mark each dirty entity and its ancestors up to the root,
-    // stopping a walk early once it hits an already-marked entity.
-    let mut marked = EntityHashSet::default();
-    let mut leaves = EntityHashSet::default();
-    let mut roots = Vec::new();
-    for &entity in &dirty_entities {
-        if !marked.contains(&entity) {
-            leaves.insert(entity);
-        }
-        let mut current = entity;
-        loop {
-            if !marked.insert(current) {
-                // Already has a marked descendant, so not a leaf.
-                leaves.remove(&current);
-                break;
-            }
-            match styled_children.get_parent(current) {
-                Some(parent) => {
-                    current = parent;
-                }
-                None => {
-                    roots.push(current);
-                    break;
-                }
-            }
-        }
-    }
+    // Pass 2: mark each dirty entity's ancestor spine up to the root.
+    let (marked, leaves, roots) = styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
 
     // TODO: Parallelize disjoint entity tree execution
 
@@ -245,28 +219,16 @@ pub(crate) fn calculate_styles_and_set_vars(
         }
     }
 
-    // Pass 4: Efficiently mark descendants that need to resolve property values
-    // Logic avoids iterating subtrees multiple times
+    // Pass 4: mark descendants needing resolved properties, visiting each subtree once.
     let mut marker_query = param_set.p1();
-    let mut visited: EntityHashSet = EntityHashSet::new();
-    let mut queue = Vec::new();
-    for entity in to_mark.mark_descendants_resolve_property_values.drain(..) {
-        if !visited.insert(entity) {
-            continue;
-        }
-        queue.push(entity);
-        while let Some(entity) = queue.pop() {
+    styled_children.mark_descendants(
+        to_mark.mark_descendants_resolve_property_values.drain(..),
+        |entity| {
             if let Ok(mut marker) = marker_query.get_mut(entity) {
                 marker.set_needs_resolve_property_values();
             }
-            for child in styled_children.iter_children(entity) {
-                if !visited.insert(child) {
-                    continue;
-                }
-                queue.push(child);
-            }
-        }
-    }
+        },
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
