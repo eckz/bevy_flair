@@ -1,5 +1,6 @@
 mod apply_computed_values;
 mod calculate_styles;
+mod parallel_dfs;
 mod resolve_property_values;
 
 use crate::components::*;

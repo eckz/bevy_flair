@@ -5,13 +5,18 @@ use crate::components::{
 use crate::css_selector::style_data_unique_hashes;
 use crate::custom_iterators::StyledChildren;
 use crate::media_selector::MediaFeaturesProvider;
+use crate::systems::parallel_dfs::{self, MIN_BATCH_SIZE};
 use crate::{ColorScheme, StyleBlock, StyleResolver, StyleSheet, css_selector};
 use bevy_asset::{AssetServer, Assets};
 use bevy_camera::{NormalizedRenderTarget, RenderTarget};
+use bevy_ecs::entity::EntityHashMap;
+use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use bevy_ecs::system::SystemParam;
+use bevy_tasks::{ComputeTaskPool, Scope};
 use bevy_ui::{ComputedUiRenderTargetInfo, ComputedUiTargetCamera};
+use bevy_utils::Parallel;
 use bevy_window::PrimaryWindow;
 use std::borrow::Borrow;
 use tracing::{debug, trace, warn};
@@ -107,13 +112,7 @@ impl MediaFeaturesProvider for MediaFeaturesProviderImpl<'_, '_, '_> {
     }
 }
 
-// Helper to store entities that needs extra marking
-#[derive(Default)]
-pub(crate) struct ToMark {
-    mark_descendants_resolve_property_values: Vec<Entity>,
-}
-
-/// One DFS step in [`calculate_styles_and_set_vars`]: enter (push hashes) or leave (pop them).
+/// One DFS step in [`calculate_styles_and_set_vars`]
 enum TraversalOp {
     Enter(Entity),
     Leave(Vec<u32>),
@@ -133,18 +132,23 @@ pub(crate) struct StyledEntityData {
     vars: &'static mut StyleVars,
 }
 
+#[derive(SystemParam)]
+pub(crate) struct ParallelDfsParam<'w, 's> {
+    asset_server: Res<'w, AssetServer>,
+    style_sheets: Res<'w, Assets<StyleSheet>>,
+    style_blocks: Res<'w, Assets<StyleBlock>>,
+    media_features_param: MediaFeaturesParam<'w, 's>,
+    element_ref_system_param: css_selector::ElementRefSystemParam<'w, 's>,
+    styled_children: StyledChildren<'w, 's>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn calculate_styles_and_set_vars(
-    asset_server: Res<AssetServer>,
-    style_sheets: Res<Assets<StyleSheet>>,
-    style_blocks: Res<Assets<StyleBlock>>,
     mut param_set: ParamSet<(Query<StyledEntityData>, Query<&mut StyleMarkers>)>,
-    element_ref_system_param: css_selector::ElementRefSystemParam,
-    styled_children: StyledChildren,
-    media_features_param: MediaFeaturesParam,
-    mut to_mark: Local<ToMark>,
+    parallel: ParallelDfsParam,
+    mut mark_descendants_resolve_property_values: Local<Parallel<Vec<Entity>>>,
 ) {
-    let mut styled_entities_query = param_set.p0();
+    let styled_entities_query = param_set.p0();
 
     // Pass 1: find entities that need recalculation.
     let dirty_entities: Vec<Entity> = styled_entities_query
@@ -162,16 +166,87 @@ pub(crate) fn calculate_styles_and_set_vars(
     }
 
     // Pass 2: mark each dirty entity's ancestor spine up to the root.
-    let (marked, leaves, roots) =
-        styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
+    let (marked, leaves, roots) = parallel
+        .styled_children
+        .mark_ancestor_spine(dirty_entities.iter().copied());
 
     // Pass 3: DFS from the roots, maintaining a shared ancestor `BloomFilter` via push/pop.
     // Non-recursive to avoid stack overflow on deep UI.
-    // TODO: Add parallelization using maybe Query reborrow unchecked and precondition checking
-    // to split large enough subtree calculation in separate tasks
-    let mut filter = selectors::bloom::BloomFilter::new();
-    let mut stack: Vec<TraversalOp> = roots.into_iter().map(TraversalOp::Enter).collect();
 
+    // Large enough subtrees are split off into their own `ComputeTaskPool` tasks.
+    // We need to calculate subtree sizes
+    let sizes: Option<EntityHashMap<usize>> = (marked.len() > 4 * MIN_BATCH_SIZE).then(|| {
+        parallel
+            .styled_children
+            .compute_marked_subtree_sizes(&marked, &roots)
+    });
+
+    let ctx = Ctx {
+        parallel: &parallel,
+        marked: &marked,
+        leaves: &leaves,
+        sizes: sizes.as_ref(),
+        styled_entities_query: &styled_entities_query,
+        mark_descendants_resolve_property_values: &mark_descendants_resolve_property_values,
+    };
+
+    if let Some(sizes) = ctx.sizes {
+        // Process each UI tree separately
+        ComputeTaskPool::get().scope(|scope| {
+            for root in roots.into_iter() {
+                let size = sizes.get(&root).copied().unwrap_or(1);
+                let initial_stack = vec![TraversalOp::Enter(root)];
+                let scope: &Scope<_> = scope;
+                scope.spawn(async move {
+                    process_chunk(
+                        initial_stack,
+                        selectors::bloom::BloomFilter::new(),
+                        size,
+                        ctx,
+                        Some(scope),
+                    );
+                });
+            }
+        });
+    } else {
+        process_chunk(
+            roots.into_iter().map(TraversalOp::Enter).collect(),
+            selectors::bloom::BloomFilter::new(),
+            0,
+            ctx,
+            None,
+        );
+    }
+
+    // Pass 4: mark descendants needing resolved properties, visiting each subtree once.
+    let mut marker_query = param_set.p1();
+    parallel.styled_children.mark_descendants(
+        mark_descendants_resolve_property_values.drain(),
+        |entity| {
+            if let Ok(mut marker) = marker_query.get_mut(entity) {
+                marker.set_needs_resolve_property_values();
+            }
+        },
+    );
+}
+
+#[derive(Copy, Clone)]
+struct Ctx<'env, 'w, 's, 'qw, 'qs> {
+    parallel: &'env ParallelDfsParam<'w, 's>,
+    marked: &'env EntityHashSet,
+    leaves: &'env EntityHashSet,
+    sizes: Option<&'env EntityHashMap<usize>>,
+    styled_entities_query: &'env Query<'qw, 'qs, StyledEntityData>,
+    mark_descendants_resolve_property_values: &'env Parallel<Vec<Entity>>,
+}
+
+fn process_chunk<'env, 'scope>(
+    mut stack: Vec<TraversalOp>,
+    mut filter: selectors::bloom::BloomFilter,
+    mut remaining_size: usize,
+    ctx: Ctx<'env, '_, '_, '_, '_>,
+    scope: Option<&'scope Scope<'scope, 'env, ()>>,
+) {
     while let Some(op) = stack.pop() {
         match op {
             TraversalOp::Leave(hashes) => {
@@ -181,21 +256,24 @@ pub(crate) fn calculate_styles_and_set_vars(
             }
             TraversalOp::Enter(entity) => {
                 let maybe_element_ref =
-                    css_selector::ElementRef::get(entity, &element_ref_system_param);
+                    css_selector::ElementRef::get(entity, &ctx.parallel.element_ref_system_param);
 
                 if let Some(element_ref) = &maybe_element_ref
-                    && let Ok(mut entity_data) = styled_entities_query.get_mut(entity)
+                    // SAFETY: Ancestor nodes are already processed and this subtree is
+                    // currently being processed here, so no aliasing can happen
+                    && let Ok(mut entity_data) =
+                        unsafe { ctx.styled_entities_query.get_unchecked(entity) }
                     && entity_data.marker.needs_calculate_style()
                 {
                     recalculate_one(
-                        &asset_server,
-                        &style_sheets,
-                        &style_blocks,
-                        &media_features_param,
+                        &ctx.parallel.asset_server,
+                        &ctx.parallel.style_sheets,
+                        &ctx.parallel.style_blocks,
+                        &ctx.parallel.media_features_param,
                         element_ref,
                         &filter,
                         &mut entity_data,
-                        &mut to_mark,
+                        ctx.mark_descendants_resolve_property_values,
                     );
                 }
 
@@ -209,27 +287,44 @@ pub(crate) fn calculate_styles_and_set_vars(
                     stack.push(TraversalOp::Leave(hashes));
                 }
 
-                if !leaves.contains(&entity) {
-                    for child in styled_children.iter_children(entity) {
-                        if marked.contains(&child) {
+                if !ctx.leaves.contains(&entity) {
+                    let prefix_start = stack.len();
+
+                    let valid_children = ctx
+                        .parallel
+                        .styled_children
+                        .iter_children(entity)
+                        .filter(|child| ctx.marked.contains(child));
+
+                    if let Some(scope) = scope {
+                        let mut prefix_size = 0;
+                        for child in valid_children {
                             stack.push(TraversalOp::Enter(child));
+                            prefix_size += parallel_dfs::child_size(ctx.sizes, child);
+
+                            if parallel_dfs::should_fork(prefix_size, remaining_size) {
+                                let sub_stack = stack.split_off(prefix_start);
+                                remaining_size -= prefix_size;
+                                let child_filter = filter.clone();
+                                scope.spawn(async move {
+                                    process_chunk(
+                                        sub_stack,
+                                        child_filter,
+                                        prefix_size,
+                                        ctx,
+                                        Some(scope),
+                                    );
+                                });
+                                prefix_size = 0;
+                            }
                         }
+                    } else {
+                        stack.extend(valid_children.map(TraversalOp::Enter));
                     }
                 }
             }
         }
     }
-
-    // Pass 4: mark descendants needing resolved properties, visiting each subtree once.
-    let mut marker_query = param_set.p1();
-    styled_children.mark_descendants(
-        to_mark.mark_descendants_resolve_property_values.drain(..),
-        |entity| {
-            if let Ok(mut marker) = marker_query.get_mut(entity) {
-                marker.set_needs_resolve_property_values();
-            }
-        },
-    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -241,7 +336,7 @@ fn recalculate_one(
     element_ref: &css_selector::ElementRef,
     ancestor_filter: &selectors::bloom::BloomFilter,
     entity_data: &mut StyledEntityDataItem<'_, '_>,
-    to_mark: &mut ToMark,
+    mark_descendants_resolve_property_values: &Parallel<Vec<Entity>>,
 ) {
     let entity = entity_data.name_or_entity.entity;
     let name_or_entity = &entity_data.name_or_entity;
@@ -304,8 +399,6 @@ fn recalculate_one(
             "Setting vars on '{name_or_entity}': {:?}",
             &**entity_data.vars
         );
-        to_mark
-            .mark_descendants_resolve_property_values
-            .push(entity);
+        mark_descendants_resolve_property_values.scope(|v| v.push(entity));
     }
 }

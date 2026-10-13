@@ -1,4 +1,4 @@
-use bevy_ecs::entity::{Entity, EntityHashSet};
+use bevy_ecs::entity::{Entity, EntityHashMap, EntityHashSet};
 use bevy_ecs::hierarchy::{ChildOf, Children};
 use bevy_ecs::prelude::Without;
 use bevy_ecs::query::Has;
@@ -127,6 +127,44 @@ impl<'w, 's> StyledChildren<'w, 's> {
             }
         }
         (marked, leaves, roots)
+    }
+
+    /// Computes, for every entity in `marked`,
+    /// the size of its subtree restricted to `marked` descendants (including itself).
+    pub(crate) fn compute_marked_subtree_sizes(
+        &self,
+        marked: &EntityHashSet,
+        roots: &[Entity],
+    ) -> EntityHashMap<usize> {
+        enum Op {
+            Enter(Entity),
+            Leave(Entity, usize),
+        }
+
+        let mut sizes = EntityHashMap::default();
+        let mut stack: Vec<Op> = roots.iter().copied().map(Op::Enter).collect();
+        let mut current_size = 0;
+
+        while let Some(op) = stack.pop() {
+            match op {
+                Op::Enter(entity) => {
+                    stack.push(Op::Leave(entity, current_size));
+                    current_size = 0;
+                    for child in self.iter_children(entity) {
+                        if marked.contains(&child) {
+                            stack.push(Op::Enter(child));
+                        }
+                    }
+                }
+                Op::Leave(entity, parent_size) => {
+                    current_size += 1;
+                    sizes.insert(entity, current_size);
+                    current_size += parent_size;
+                }
+            }
+        }
+
+        sizes
     }
 
     /// Visits the full subtree of each root at most once,

@@ -4,11 +4,16 @@ use crate::components::{
     StyleActiveBlocks, StyleMarkers, StyleProperties, StylePropertyValuesCopy, StyleVars,
 };
 use crate::custom_iterators::StyledChildren;
+use crate::systems::parallel_dfs::{self, MIN_BATCH_SIZE};
 use crate::{GlobalChangeDetection, StyleBlock, StyleResolver, StyleSheet, VarResolver, VarTokens};
 use bevy_asset::Assets;
+use bevy_ecs::entity::{EntityHashMap, EntityHashSet};
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::system::SystemParam;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry, PropertyValue};
+use bevy_tasks::{ComputeTaskPool, Scope};
+use bevy_utils::Parallel;
 use itertools::izip;
 use rustc_hash::FxHashSet;
 use std::sync::Arc;
@@ -27,8 +32,15 @@ impl<'w, 's> VarResolverParam<'w, 's> {
             .is_ok_and(|vars| !vars.is_empty())
     }
 
-    fn set_nearest_var_ancestor(&mut self, entity: Entity, nearest: Option<Entity>) {
-        if let Ok(mut pointer) = self.nearest_query.get_mut(entity) {
+    /// Writes `entity`'s nearest var-defining ancestor pointer.
+    /// Takes `&self` (not `&mut self`) so it can be called concurrently from multiple threads.
+    ///
+    /// # Safety
+    /// The caller must ensure no other concurrently-running logic accesses `entity`'s
+    /// `NearestVarAncestor` (read or write) while this call is in progress.
+    unsafe fn set_nearest_var_ancestor_unchecked(&self, entity: Entity, nearest: Option<Entity>) {
+        // SAFETY: forwarded from this method's own safety contract.
+        if let Ok(mut pointer) = unsafe { self.nearest_query.get_unchecked(entity) } {
             pointer.set_if_neq(NearestVarAncestor(nearest));
         }
     }
@@ -81,44 +93,47 @@ impl VarResolver for EntityVarResolver<'_, '_, '_> {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct ToMark {
-    mark_descendants_compute_property_values: Vec<Entity>,
+struct TraversalOp {
+    entity: Entity,
+    inherited_nearest_var_ancestor: Option<Entity>,
+}
+
+#[derive(SystemParam)]
+pub(crate) struct ParallelResolveParam<'w, 's> {
+    style_blocks: Res<'w, Assets<StyleBlock>>,
+    property_registry: Res<'w, PropertyRegistry>,
+    css_property_registry: Res<'w, CssPropertyRegistry>,
+    global_change_detection: Res<'w, GlobalChangeDetection>,
+    var_resolver: VarResolverParam<'w, 's>,
+    styled_children: StyledChildren<'w, 's>,
+}
+
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub(crate) struct StyledPropData {
+    name_or_entity: NameOrEntity,
+    active_blocks: &'static StyleActiveBlocks,
+    marker: &'static mut StyleMarkers,
+    properties: &'static mut StyleProperties,
+    property_values_copy: &'static mut StylePropertyValuesCopy,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_property_values(
-    style_blocks: Res<Assets<StyleBlock>>,
-    styled_children: StyledChildren,
-    mut var_resolver: VarResolverParam,
-    mut queries: ParamSet<(
-        Query<(
-            NameOrEntity,
-            &StyleActiveBlocks,
-            &mut StyleMarkers,
-            &mut StyleProperties,
-            &mut StylePropertyValuesCopy,
-        )>,
-        Query<&mut StyleMarkers>,
-    )>,
-    property_registry: Res<PropertyRegistry>,
-    css_property_registry: Res<CssPropertyRegistry>,
-    global_change_detection: Res<GlobalChangeDetection>,
-    mut to_mark: Local<ToMark>,
+    parallel: ParallelResolveParam,
+    mut queries: ParamSet<(Query<StyledPropData>, Query<&mut StyleMarkers>)>,
+    mut mark_descendants_compute_property_values: Local<Parallel<Vec<Entity>>>,
 ) {
-    let property_values_changed_this_frame =
-        &global_change_detection.property_values_changed_this_frame;
-    let properties_that_inherit = &global_change_detection.properties_that_inherit;
-
-    let mut styled_entities_query = queries.p0();
+    let styled_entities_query = queries.p0();
 
     // Pass 1: find entities that need their property values resolved.
     let dirty_entities: Vec<Entity> = styled_entities_query
         .iter()
-        .filter_map(|(name_or_entity, _, marker, _, _)| {
-            marker
+        .filter_map(|entity_data| {
+            entity_data
+                .marker
                 .needs_resolve_property_values()
-                .then_some(name_or_entity.entity)
+                .then_some(entity_data.name_or_entity.entity)
         })
         .collect();
 
@@ -127,135 +142,241 @@ pub(crate) fn resolve_property_values(
     }
 
     // Pass 2: mark each dirty entity's ancestor spine up to the root.
-    let (marked, leaves, roots) =
-        styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
+    let (marked, leaves, roots) = parallel
+        .styled_children
+        .mark_ancestor_spine(dirty_entities.iter().copied());
 
     // Pass 3: non-recursive DFS from the roots,
     // update each entity's `NearestVarAncestor` and update property values
-    // TODO: Add parallelization using maybe Query reborrow unchecked and precondition checking
-    // to split large enough subtree calculation in separate tasks
-    struct TraversalOp {
-        entity: Entity,
-        inherited_nearest_var_ancestor: Option<Entity>,
-    }
 
-    let mut stack: Vec<TraversalOp> = roots
-        .into_iter()
-        .map(|entity| TraversalOp {
-            entity,
-            inherited_nearest_var_ancestor: None,
-        })
-        .collect();
+    // If tree size is large enough, precompute subtree size
+    let sizes: Option<EntityHashMap<usize>> = (marked.len() > 4 * MIN_BATCH_SIZE).then(|| {
+        parallel
+            .styled_children
+            .compute_marked_subtree_sizes(&marked, &roots)
+    });
 
-    while let Some(TraversalOp {
-        entity,
-        inherited_nearest_var_ancestor,
-    }) = stack.pop()
-    {
-        let nearest_for_children = if var_resolver.has_vars(entity) {
-            Some(entity)
-        } else {
-            inherited_nearest_var_ancestor
-        };
+    let ctx = Ctx {
+        parallel: &parallel,
+        marked: &marked,
+        leaves: &leaves,
+        sizes: sizes.as_ref(),
+        styled_entities_query: &styled_entities_query,
+        mark_descendants_compute_property_values: &mark_descendants_compute_property_values,
+    };
 
-        var_resolver.set_nearest_var_ancestor(entity, inherited_nearest_var_ancestor);
-
-        if let Ok((
-            name_or_entity,
-            active_blocks,
-            mut marker,
-            mut properties,
-            mut property_values_copy,
-        )) = styled_entities_query.get_mut(entity)
-            && marker.needs_resolve_property_values()
-        {
-            marker.finish_resolve_property_values();
-
-            let entity_var_resolver = var_resolver.resolver_for_entity(name_or_entity.entity);
-
-            let style_resolver = StyleResolver::new(&style_blocks, active_blocks);
-
-            properties.set_transition_options(style_resolver.resolve_transition_options(
-                &property_registry,
-                &css_property_registry,
-                &entity_var_resolver,
-            ));
-
-            let mut origin = property_registry.create_property_map(None);
-            let mut property_values = property_registry.create_unset_values_map();
-            style_resolver.resolve_property_values(
-                &property_registry,
-                &entity_var_resolver,
-                &mut property_values,
-                &mut origin,
-            );
-
-            debug_assert!(properties.pending_property_values.is_empty());
-
-            property_values_copy.0 = property_values.clone();
-            properties.pending_property_values = property_values;
-            properties.origin = origin;
-
-            if properties.property_values.is_empty() {
-                for (property_id, value) in properties.pending_property_values.iter() {
-                    if matches!(value, PropertyValue::Inherit) {
-                        properties_that_inherit.insert(property_id);
-                    }
-                    property_values_changed_this_frame.insert(property_id);
-                }
-            } else if properties.pending_property_values != properties.property_values {
-                let mut changed_property_ids = izip!(
-                    properties.pending_property_values.iter(),
-                    properties.property_values.values()
-                )
-                .filter_map(|((id, p), v)| (p != v).then_some(id));
-
-                changed_property_ids.clone().for_each(|property_id| {
-                    if matches!(
-                        properties.pending_property_values[property_id],
-                        PropertyValue::Inherit
-                    ) {
-                        properties_that_inherit.insert(property_id);
-                    }
-                    property_values_changed_this_frame.insert(property_id);
+    if let Some(sizes) = ctx.sizes {
+        // Process each UI tree separately
+        ComputeTaskPool::get().scope(|scope| {
+            for root in roots.into_iter() {
+                let size = sizes.get(&root).copied().unwrap_or(1);
+                let initial_stack = vec![TraversalOp {
+                    entity: root,
+                    inherited_nearest_var_ancestor: None,
+                }];
+                let scope: &Scope<_> = scope;
+                scope.spawn(async move {
+                    process_chunk(initial_stack, size, ctx, Some(scope));
                 });
-
-                if changed_property_ids.any(|id| properties_that_inherit.contains(id)) {
-                    to_mark
-                        .mark_descendants_compute_property_values
-                        .push(name_or_entity.entity);
-                }
             }
-
-            let animation_configs = style_resolver.resolve_animation_configs(&entity_var_resolver);
-
-            if animation_configs != properties.current_animation_configs {
-                debug!("New animations for '{name_or_entity}': {animation_configs:?}'");
-                properties.pending_animation_configs = Some(animation_configs);
-            }
-        }
-        if !leaves.contains(&entity) {
-            for child in styled_children.iter_children(entity) {
-                if marked.contains(&child) {
-                    stack.push(TraversalOp {
-                        entity: child,
-                        inherited_nearest_var_ancestor: nearest_for_children,
-                    });
-                }
-            }
-        }
+        });
+    } else {
+        process_chunk(
+            roots
+                .into_iter()
+                .map(|entity| TraversalOp {
+                    entity,
+                    inherited_nearest_var_ancestor: None,
+                })
+                .collect(),
+            0,
+            ctx,
+            None,
+        );
     }
 
     // Pass 4: mark descendants needing recomputed properties, visiting each subtree once.
     let mut markers_query = queries.p1();
-    styled_children.mark_descendants(
-        to_mark.mark_descendants_compute_property_values.drain(..),
+    parallel.styled_children.mark_descendants(
+        mark_descendants_compute_property_values.drain(),
         |entity| {
             if let Ok(mut marker) = markers_query.get_mut(entity) {
                 marker.set_needs_compute_property_values();
             }
         },
     );
+}
+
+#[derive(Copy, Clone)]
+struct Ctx<'env, 'w, 's, 'qw, 'qs> {
+    parallel: &'env ParallelResolveParam<'w, 's>,
+    marked: &'env EntityHashSet,
+    leaves: &'env EntityHashSet,
+    sizes: Option<&'env EntityHashMap<usize>>,
+    styled_entities_query: &'env Query<'qw, 'qs, StyledPropData>,
+    mark_descendants_compute_property_values: &'env Parallel<Vec<Entity>>,
+}
+
+fn process_chunk<'env, 'scope>(
+    mut stack: Vec<TraversalOp>,
+    mut remaining_size: usize,
+    ctx: Ctx<'env, '_, '_, '_, '_>,
+    scope: Option<&'scope Scope<'scope, 'env, ()>>,
+) {
+    while let Some(TraversalOp {
+        entity,
+        inherited_nearest_var_ancestor,
+    }) = stack.pop()
+    {
+        let nearest_for_children = if ctx.parallel.var_resolver.has_vars(entity) {
+            Some(entity)
+        } else {
+            inherited_nearest_var_ancestor
+        };
+
+        // SAFETY: Ancestor nodes are already processed and this subtree is
+        // currently being processed here, so no aliasing can happen
+        unsafe {
+            ctx.parallel
+                .var_resolver
+                .set_nearest_var_ancestor_unchecked(entity, inherited_nearest_var_ancestor);
+        }
+
+        if let Ok(mut entity_data) =
+            // SAFETY: Ancestor nodes are already processed and this subtree is
+            // currently being processed here, so no aliasing can happen
+            (unsafe { ctx.styled_entities_query.get_unchecked(entity) })
+            && entity_data.marker.needs_resolve_property_values()
+        {
+            entity_data.marker.finish_resolve_property_values();
+
+            let name_or_entity = &entity_data.name_or_entity;
+            let entity_var_resolver = ctx
+                .parallel
+                .var_resolver
+                .resolver_for_entity(name_or_entity.entity);
+
+            let style_resolver =
+                StyleResolver::new(&ctx.parallel.style_blocks, entity_data.active_blocks);
+
+            entity_data.properties.set_transition_options(
+                style_resolver.resolve_transition_options(
+                    &ctx.parallel.property_registry,
+                    &ctx.parallel.css_property_registry,
+                    &entity_var_resolver,
+                ),
+            );
+
+            let mut origin = ctx.parallel.property_registry.create_property_map(None);
+            let mut property_values = ctx.parallel.property_registry.create_unset_values_map();
+            style_resolver.resolve_property_values(
+                &ctx.parallel.property_registry,
+                &entity_var_resolver,
+                &mut property_values,
+                &mut origin,
+            );
+
+            debug_assert!(entity_data.properties.pending_property_values.is_empty());
+
+            entity_data.property_values_copy.0 = property_values.clone();
+            entity_data.properties.pending_property_values = property_values;
+            entity_data.properties.origin = origin;
+
+            if entity_data.properties.property_values.is_empty() {
+                for (property_id, value) in entity_data.properties.pending_property_values.iter() {
+                    if matches!(value, PropertyValue::Inherit) {
+                        ctx.parallel
+                            .global_change_detection
+                            .properties_that_inherit
+                            .insert(property_id);
+                    }
+                    ctx.parallel
+                        .global_change_detection
+                        .property_values_changed_this_frame
+                        .insert(property_id);
+                }
+            } else if entity_data.properties.pending_property_values
+                != entity_data.properties.property_values
+            {
+                let mut changed_property_ids = izip!(
+                    entity_data.properties.pending_property_values.iter(),
+                    entity_data.properties.property_values.values()
+                )
+                .filter_map(|((id, p), v)| (p != v).then_some(id));
+
+                changed_property_ids.clone().for_each(|property_id| {
+                    if matches!(
+                        entity_data.properties.pending_property_values[property_id],
+                        PropertyValue::Inherit
+                    ) {
+                        ctx.parallel
+                            .global_change_detection
+                            .properties_that_inherit
+                            .insert(property_id);
+                    }
+                    ctx.parallel
+                        .global_change_detection
+                        .property_values_changed_this_frame
+                        .insert(property_id);
+                });
+
+                if changed_property_ids.any(|id| {
+                    ctx.parallel
+                        .global_change_detection
+                        .properties_that_inherit
+                        .contains(id)
+                }) {
+                    ctx.mark_descendants_compute_property_values
+                        .scope(|v| v.push(entity_data.name_or_entity.entity));
+                }
+            }
+
+            let animation_configs = style_resolver.resolve_animation_configs(&entity_var_resolver);
+
+            if animation_configs != entity_data.properties.current_animation_configs {
+                debug!(
+                    "New animations for '{}': {animation_configs:?}'",
+                    entity_data.name_or_entity
+                );
+                entity_data.properties.pending_animation_configs = Some(animation_configs);
+            }
+        }
+
+        if !ctx.leaves.contains(&entity) {
+            let prefix_start = stack.len();
+
+            let valid_children = ctx
+                .parallel
+                .styled_children
+                .iter_children(entity)
+                .filter(|child| ctx.marked.contains(child));
+
+            if let Some(scope) = scope {
+                let mut prefix_size = 0;
+                for child in valid_children {
+                    stack.push(TraversalOp {
+                        entity: child,
+                        inherited_nearest_var_ancestor: nearest_for_children,
+                    });
+                    prefix_size += parallel_dfs::child_size(ctx.sizes, child);
+
+                    if parallel_dfs::should_fork(prefix_size, remaining_size) {
+                        let sub_stack = stack.split_off(prefix_start);
+                        remaining_size -= prefix_size;
+                        scope.spawn(async move {
+                            process_chunk(sub_stack, prefix_size, ctx, Some(scope));
+                        });
+                        prefix_size = 0;
+                    }
+                }
+            } else {
+                stack.extend(valid_children.map(|child| TraversalOp {
+                    entity: child,
+                    inherited_nearest_var_ancestor: nearest_for_children,
+                }));
+            }
+        }
+    }
 }
 
 pub(crate) fn resolve_animations(
