@@ -4,6 +4,7 @@ mod resolve_property_values;
 
 use crate::components::*;
 use crate::{GlobalChangeDetection, NodePseudoState, StyleBlock, StyleSheet};
+use bevy_ecs::batching::BatchingStrategy;
 use bevy_ecs::entity::hash_set::EntityHashSet;
 use std::cmp::Ordering;
 use std::rc::Rc;
@@ -652,27 +653,30 @@ pub(crate) fn compute_property_values(
         }
     };
 
-    for (entity, mut properties, mut marker) in &mut properties_query {
-        if !marker.needs_compute_property_values() {
-            continue;
-        }
-        marker.finish_compute_property_values();
+    properties_query
+        .par_iter_mut()
+        .batching_strategy(BatchingStrategy::default().min_batch_size(256))
+        .for_each(|(entity, mut properties, mut marker)| {
+            if !marker.needs_compute_property_values() {
+                return;
+            }
+            marker.finish_compute_property_values();
 
-        trace!("Calling `compute_pending_property_values` on {entity}");
-        properties.compute_pending_property_values(
-            &type_registry,
-            &property_registry,
-            &static_property_maps,
-            Some(&global_change_detection.property_values_changed_this_frame),
-            || {
-                styled_children
-                    .iter_ancestors(entity.entity)
-                    .map(|ancestor| &property_values_copy_query.get(ancestor).unwrap().0)
-            },
-        );
-        #[cfg(feature = "detailed_trace")]
-        trace_new_properties(&entity, &properties);
-    }
+            trace!("Calling `compute_pending_property_values` on {entity}");
+            properties.compute_pending_property_values(
+                &type_registry,
+                &property_registry,
+                &static_property_maps,
+                Some(&global_change_detection.property_values_changed_this_frame),
+                || {
+                    styled_children
+                        .iter_ancestors(entity.entity)
+                        .map(|ancestor| &property_values_copy_query.get(ancestor).unwrap().0)
+                },
+            );
+            #[cfg(feature = "detailed_trace")]
+            trace_new_properties(&entity, &properties);
+        });
 }
 
 pub(crate) fn tick_animations<T: Default + Send + Sync + 'static>(
