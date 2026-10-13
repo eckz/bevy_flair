@@ -6,6 +6,7 @@ use crate::components::*;
 use crate::{GlobalChangeDetection, NodePseudoState, StyleBlock, StyleSheet};
 use bevy_ecs::entity::hash_set::EntityHashSet;
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
@@ -136,33 +137,51 @@ pub(crate) fn calculate_effective_style_sheet(
         &mut StyleFlags,
         &mut StyleMarkers,
     )>,
-    styled_query: Query<&Styled>,
     styled_children: StyledChildren,
 ) {
-    let mut set_effective_style_sheet = |entity| {
+    let dirty_entities: EntityHashSet = changed_style_sheets_query
+        .iter()
+        .chain(changed_child_of_query.iter())
+        .collect();
+
+    if dirty_entities.is_empty() {
+        return;
+    }
+
+    let (marked, _, roots) = styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
+
+    // Shared instance for the common `None` case
+    let none: Rc<EffectiveStyleSheet> = Rc::new(EffectiveStyleSheet::None);
+
+    let mut resolve = |entity: Entity,
+                       inherited: Rc<EffectiveStyleSheet>,
+                       force: bool|
+     -> (Rc<EffectiveStyleSheet>, bool) {
         let Ok((name_or_entity, style_sheet, mut effective_style_sheet, mut flags, mut marker)) =
             style_data_query.get_mut(entity)
         else {
-            return false;
+            return (inherited, force);
         };
 
+        if !force && !dirty_entities.contains(&entity) {
+            if *effective_style_sheet == *inherited {
+                return (inherited, false);
+            }
+            return (Rc::new(effective_style_sheet.clone()), false);
+        }
+
         let new_effective_style_sheet = match style_sheet {
-            Styled::Inherited => styled_children
-                .iter_ancestors(name_or_entity.entity)
-                .find_map(|e| {
-                    let style_sheet = styled_query.get(e).ok()?;
-                    match style_sheet {
-                        Styled::Inherited => None,
-                        Styled::StyleSheet(style_sheet) => {
-                            Some(EffectiveStyleSheet::Handle(style_sheet.clone()))
-                        }
-                        Styled::Block => Some(EffectiveStyleSheet::None),
-                    }
-                })
-                .unwrap_or(EffectiveStyleSheet::None),
-            Styled::StyleSheet(style_sheet) => EffectiveStyleSheet::Handle(style_sheet.clone()),
-            Styled::Block => EffectiveStyleSheet::None,
+            Styled::Inherited => inherited,
+            Styled::StyleSheet(style_sheet) => {
+                Rc::new(EffectiveStyleSheet::Handle(style_sheet.clone()))
+            }
+            Styled::Block => none.clone(),
         };
+
+        if *effective_style_sheet == *new_effective_style_sheet {
+            // Nothing changes
+            return (new_effective_style_sheet, false);
+        }
 
         if let Styled::StyleSheet(style_sheet_handle) = style_sheet {
             debug!(
@@ -172,28 +191,45 @@ pub(crate) fn calculate_effective_style_sheet(
         }
         trace!("Effective stylesheet for {name_or_entity} is {new_effective_style_sheet:?}");
 
-        let effective_change = effective_style_sheet.set_if_neq(new_effective_style_sheet);
-        if effective_change {
-            marker.reset();
-            flags.reset();
-        }
-        effective_change
+        *effective_style_sheet = (*new_effective_style_sheet).clone();
+        marker.reset();
+        flags.reset();
+        (new_effective_style_sheet, true)
     };
 
-    let mut effective_style_sheet_changed = EntityHashSet::default();
-    for entity in changed_style_sheets_query
-        .iter()
-        .chain(changed_child_of_query.iter())
-    {
-        if set_effective_style_sheet(entity) {
-            effective_style_sheet_changed.insert(entity);
-        }
+    // DFS from the roots, carrying each entity's resolved effective stylesheet down to its
+    // children. Only dirty entities (and anything below a changed value) are recomputed;
+    struct TraversalOp {
+        entity: Entity,
+        inherited: Rc<EffectiveStyleSheet>,
+        force: bool,
     }
 
-    // For all modified entities, we need to recursively recalculate all descendants
-    for entity in effective_style_sheet_changed {
-        for child in styled_children.iter_descendants(entity) {
-            set_effective_style_sheet(child);
+    let mut stack: Vec<TraversalOp> = roots
+        .into_iter()
+        .map(|entity| TraversalOp {
+            entity,
+            inherited: none.clone(),
+            force: false,
+        })
+        .collect();
+
+    while let Some(TraversalOp {
+        entity,
+        inherited,
+        force,
+    }) = stack.pop()
+    {
+        let (current, changed) = resolve(entity, inherited, force);
+
+        for child in styled_children.iter_children(entity) {
+            if changed || marked.contains(&child) {
+                stack.push(TraversalOp {
+                    entity: child,
+                    inherited: current.clone(),
+                    force: changed,
+                });
+            }
         }
     }
 }
@@ -432,6 +468,7 @@ pub(crate) fn recalculate_style_on_changed_children(
     mut markers_query: Query<&mut StyleMarkers>,
     styled_children: StyledChildren,
     mut to_be_marked: Local<EntityHashSet>,
+    mut descendant_roots: Local<Vec<Entity>>,
     mut removed_children: RemovedComponents<Children>,
 ) {
     use selectors::matching::ElementSelectorFlags;
@@ -449,8 +486,12 @@ pub(crate) fn recalculate_style_on_changed_children(
             to_be_marked.insert(entity);
         }
 
-        to_be_marked.extend(styled_children.iter_descendants(entity));
+        descendant_roots.push(entity);
     }
+
+    styled_children.mark_descendants(descendant_roots.drain(..), |entity| {
+        to_be_marked.insert(entity);
+    });
 
     for entity in to_be_marked.drain() {
         if let Ok(mut marker) = markers_query.get_mut(entity) {
@@ -479,6 +520,7 @@ pub(crate) fn recalculate_style_on_related_entities_changes(
     )>,
     styled_children: StyledChildren,
     mut to_be_marked: Local<EntityHashSet>,
+    mut descendant_roots: Local<Vec<Entity>>,
 ) {
     let entities_changed_query = queries.p0();
 
@@ -498,12 +540,16 @@ pub(crate) fn recalculate_style_on_related_entities_changes(
             to_be_marked.extend(styled_children.iter_siblings(entity));
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
-            to_be_marked.extend(styled_children.iter_descendants(entity));
+            descendant_roots.push(entity);
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_ANCESTORS) {
             to_be_marked.extend(styled_children.iter_ancestors(entity));
         }
     }
+
+    styled_children.mark_descendants(descendant_roots.drain(..), |entity| {
+        to_be_marked.insert(entity);
+    });
 
     let mut markers_query = queries.p1();
     for entity in to_be_marked.drain() {
@@ -1306,7 +1352,7 @@ mod tests {
         world.add_observer(observe_on_component_auto_inserted);
 
         let mut schedule = Schedule::default();
-        schedule.add_systems((reset_properties, auto_remove_components).chain());
+        schedule.add_systems((reset_properties, auto_remove_components).chain_weak());
 
         let mut property_registry = PropertyRegistry::new();
         property_registry.register::<TestComponent>();
@@ -1492,8 +1538,9 @@ mod tests {
         MessageRegistry::register_message::<AssetEvent<StyleSheet>>(world);
 
         let mut schedule = Schedule::default();
-        schedule
-            .add_systems((calculate_effective_style_sheet, reset_on_style_sheet_change).chain());
+        schedule.add_systems(
+            (calculate_effective_style_sheet, reset_on_style_sheet_change).chain_weak(),
+        );
 
         let entity_1 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE)).id();
         let entity_2 = world.spawn((Styled::Inherited, ChildOf(entity_1))).id();
@@ -1646,7 +1693,7 @@ mod tests {
         world.init_resource::<RemSize>();
 
         let mut schedule = Schedule::default();
-        schedule.add_systems((reset_properties, sync_em_size).chain());
+        schedule.add_systems((reset_properties, sync_em_size).chain_weak());
 
         let entity = world
             .spawn((Node::default(), Styled::new(TEST_STYLE_SHEET_HANDLE)))

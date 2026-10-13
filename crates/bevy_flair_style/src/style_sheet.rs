@@ -5,14 +5,86 @@ use std::borrow::Borrow;
 use crate::animations::*;
 use crate::components::StyleData;
 
-use crate::css_selector::CssSelector;
+use crate::css_selector::{CssSelector, SelectorBucketKey};
 
 use crate::media_selector::MediaFeaturesProvider;
 use bevy_asset::{Asset, AssetId, Handle};
 use bevy_reflect::TypePath;
 use bevy_text::FontSource;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use selectors::bloom::BloomFilter;
+use selectors::context::SelectorCaches;
+use smol_str::SmolStr;
 use std::sync::Arc;
+
+/// Buckets selectors by rightmost class/id/tag so matching only tests selectors that could
+/// plausibly match a given element, instead of every selector in the style sheet.
+#[derive(Debug, Clone, Default)]
+pub(super) struct SelectorBuckets {
+    universal: Vec<u32>,
+    by_id: FxHashMap<SmolStr, Vec<u32>>,
+    by_class: FxHashMap<SmolStr, Vec<u32>>,
+    by_tag: FxHashMap<SmolStr, Vec<u32>>,
+}
+
+impl SelectorBuckets {
+    const fn empty() -> Self {
+        Self {
+            universal: Vec::new(),
+            by_id: FxHashMap::with_hasher(FxBuildHasher),
+            by_class: FxHashMap::with_hasher(FxBuildHasher),
+            by_tag: FxHashMap::with_hasher(FxBuildHasher),
+        }
+    }
+
+    pub(super) fn build(selectors: &[(CssSelector, AssetId<StyleBlock>)]) -> Self {
+        let mut buckets = Self::empty();
+        for (index, (selector, _)) in selectors.iter().enumerate() {
+            let index = index as u32;
+            match selector.bucket_key() {
+                SelectorBucketKey::Universal => buckets.universal.push(index),
+                SelectorBucketKey::Id(name) => buckets.by_id.entry(name).or_default().push(index),
+                SelectorBucketKey::Class(name) => {
+                    buckets.by_class.entry(name).or_default().push(index)
+                }
+                SelectorBucketKey::LocalName(name) => {
+                    buckets.by_tag.entry(name).or_default().push(index)
+                }
+            }
+        }
+        buckets
+    }
+
+    /// Indices into `css_selectors_to_blocks` that could plausibly match `element`, in
+    /// ascending (original) order.
+    fn candidate_indices<E: StyleMatchableElement>(&self, element: &E) -> Vec<u32> {
+        let style_data: &StyleData = element.borrow();
+
+        let mut candidates = self.universal.clone();
+
+        if let Some(id) = style_data.get_id()
+            && let Some(matches) = self.by_id.get(id)
+        {
+            candidates.extend_from_slice(matches);
+        }
+
+        for class in style_data.active_classes() {
+            if let Some(matches) = self.by_class.get(class.as_ref()) {
+                candidates.extend_from_slice(matches);
+            }
+        }
+
+        if let Some(type_name) = style_data.type_name
+            && let Some(matches) = self.by_tag.get(type_name)
+        {
+            candidates.extend_from_slice(matches);
+        }
+
+        // Buckets are disjoint, so no duplicates to remove, just the order to restore.
+        candidates.sort_unstable();
+        candidates
+    }
+}
 
 pub(crate) trait StyleMatchableElement:
     selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<StyleData>
@@ -64,6 +136,7 @@ pub struct StyleSheet {
     pub(super) block_handles: Vec<Handle<StyleBlock>>,
     pub(super) animation_keyframes: FxHashMap<Arc<str>, AnimationKeyframes>,
     pub(super) css_selectors_to_blocks: Vec<(CssSelector, AssetId<StyleBlock>)>,
+    pub(super) selector_buckets: SelectorBuckets,
 }
 
 impl StyleSheet {
@@ -80,6 +153,7 @@ impl StyleSheet {
             block_handles: Vec::new(),
             animation_keyframes: FxHashMap::with_hasher(FxBuildHasher),
             css_selectors_to_blocks: Vec::new(),
+            selector_buckets: SelectorBuckets::empty(),
         }
     }
 
@@ -92,12 +166,21 @@ impl StyleSheet {
         &self,
         element: &E,
         media_provider: &M,
+        ancestor_bloom_filter: Option<&BloomFilter>,
     ) -> Vec<AssetId<StyleBlock>> {
-        self.css_selectors_to_blocks
-            .iter()
-            .filter_map(|(s, id)| {
-                (s.matches_selector(element) && s.matches_media_selector(media_provider))
-                    .then_some(*id)
+        let candidate_indices = self.selector_buckets.candidate_indices(element);
+
+        let mut selector_caches = SelectorCaches::default();
+        let mut matching_context = CssSelector::new_matching_context(&mut selector_caches);
+        matching_context.bloom_filter = ancestor_bloom_filter;
+
+        candidate_indices
+            .into_iter()
+            .filter_map(|index| {
+                let (s, id) = &self.css_selectors_to_blocks[index as usize];
+                (s.matches_selector_in_context(element, &mut matching_context)
+                    && s.matches_media_selector(media_provider))
+                .then_some(*id)
             })
             .collect()
     }
@@ -351,24 +434,30 @@ mod tests {
         );
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &media_provider),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &media_provider, None),
             vec![block_any_id]
         );
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text.class_1), &media_provider),
+            style_sheet.get_matching_block_ids_for_element(
+                element!(Text.class_1),
+                &media_provider,
+                None
+            ),
             vec![block_any_id, block_class_id]
         );
         assert_eq!(
             style_sheet.get_matching_block_ids_for_element(
                 element!(text.class_1 #test_name),
-                &media_provider
+                &media_provider,
+                None
             ),
             vec![block_any_id, block_class_id, block_with_name_id]
         );
         assert_eq!(
             style_sheet.get_matching_block_ids_for_element(
                 element!(text.class_1 :hover #test_name),
-                &media_provider
+                &media_provider,
+                None
             ),
             vec![
                 block_any_id,
@@ -580,7 +669,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media, None),
             vec![block_dark]
         );
 
@@ -590,7 +679,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media, None),
             vec![block_light]
         );
 
@@ -601,7 +690,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media, None),
             vec![block_light, block_min_width_500]
         );
 
@@ -612,7 +701,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media, None),
             vec![block_light, block_min_width_500, block_width_exact_600]
         );
 
@@ -623,7 +712,11 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_800x600),
+            style_sheet.get_matching_block_ids_for_element(
+                element!(Text),
+                &resolution_800x600,
+                None
+            ),
             vec![block_aspect_ratio_ge_1]
         );
 
@@ -634,7 +727,11 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_600x800),
+            style_sheet.get_matching_block_ids_for_element(
+                element!(Text),
+                &resolution_600x800,
+                None
+            ),
             vec![block_aspect_ratio_le_1]
         );
     }

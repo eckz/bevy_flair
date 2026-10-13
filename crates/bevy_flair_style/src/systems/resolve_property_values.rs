@@ -1,7 +1,7 @@
 use crate::animations::{AnimationConfiguration, KeyframesResolver};
 use crate::components::{
-    EffectiveStyleSheet, PropertyIdDebugHelperParam, StaticPropertyMaps, StyleActiveBlocks,
-    StyleMarkers, StyleProperties, StylePropertyValuesCopy, StyleVars,
+    EffectiveStyleSheet, NearestVarAncestor, PropertyIdDebugHelperParam, StaticPropertyMaps,
+    StyleActiveBlocks, StyleMarkers, StyleProperties, StylePropertyValuesCopy, StyleVars,
 };
 use crate::custom_iterators::StyledChildren;
 use crate::{GlobalChangeDetection, StyleBlock, StyleResolver, StyleSheet, VarResolver, VarTokens};
@@ -11,35 +11,51 @@ use bevy_ecs::system::SystemParam;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry, PropertyValue};
 use itertools::izip;
 use rustc_hash::FxHashSet;
-use std::iter;
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
 
 #[derive(SystemParam)]
 pub(crate) struct VarResolverParam<'w, 's> {
-    styled_children: StyledChildren<'w, 's>,
+    nearest_query: Query<'w, 's, &'static mut NearestVarAncestor>,
     vars_query: Query<'w, 's, &'static StyleVars>,
 }
 
 impl<'w, 's> VarResolverParam<'w, 's> {
-    fn iter_self_and_ancestors(&self, entity: Entity) -> impl Iterator<Item = Entity> {
-        iter::once(entity).chain(self.styled_children.iter_ancestors(entity))
+    fn has_vars(&self, entity: Entity) -> bool {
+        self.vars_query
+            .get(entity)
+            .is_ok_and(|vars| !vars.is_empty())
+    }
+
+    fn set_nearest_var_ancestor(&mut self, entity: Entity, nearest: Option<Entity>) {
+        if let Ok(mut pointer) = self.nearest_query.get_mut(entity) {
+            pointer.set_if_neq(NearestVarAncestor(nearest));
+        }
     }
 
     fn get_all_names(&self, entity: Entity) -> FxHashSet<Arc<str>> {
         let mut names = FxHashSet::default();
-        for vars in self
-            .iter_self_and_ancestors(entity)
-            .filter_map(move |entity| self.vars_query.get(entity).ok())
-        {
-            names.extend(vars.keys().cloned());
+        let mut current = Some(entity);
+        while let Some(e) = current {
+            if let Ok(vars) = self.vars_query.get(e) {
+                names.extend(vars.keys().cloned());
+            }
+            current = self.nearest_query.get(e).ok().and_then(|n| n.0);
         }
         names
     }
 
     fn get_var_tokens(&self, entity: Entity, var_name: &str) -> Option<&'_ VarTokens> {
-        self.iter_self_and_ancestors(entity)
-            .find_map(move |entity| self.vars_query.get(entity).ok()?.get(var_name))
+        let mut current = Some(entity);
+        while let Some(e) = current {
+            if let Ok(vars) = self.vars_query.get(e)
+                && let Some(tokens) = vars.get(var_name)
+            {
+                return Some(tokens);
+            }
+            current = self.nearest_query.get(e).ok().and_then(|n| n.0);
+        }
+        None
     }
 
     fn resolver_for_entity(&self, entity: Entity) -> EntityVarResolver<'_, 'w, 's> {
@@ -65,11 +81,16 @@ impl VarResolver for EntityVarResolver<'_, '_, '_> {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct ToMark {
+    mark_descendants_compute_property_values: Vec<Entity>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_property_values(
     style_blocks: Res<Assets<StyleBlock>>,
     styled_children: StyledChildren,
-    var_resolver: VarResolverParam,
+    mut var_resolver: VarResolverParam,
     mut queries: ParamSet<(
         Query<(
             NameOrEntity,
@@ -83,27 +104,71 @@ pub(crate) fn resolve_property_values(
     property_registry: Res<PropertyRegistry>,
     css_property_registry: Res<CssPropertyRegistry>,
     global_change_detection: Res<GlobalChangeDetection>,
-    mut to_mark_compute_values_parallel: Local<bevy_utils::Parallel<Vec<Entity>>>,
+    mut to_mark: Local<ToMark>,
 ) {
     let property_values_changed_this_frame =
         &global_change_detection.property_values_changed_this_frame;
-
     let properties_that_inherit = &global_change_detection.properties_that_inherit;
 
     let mut styled_entities_query = queries.p0();
-    styled_entities_query.par_iter_mut().for_each_init(
-        || to_mark_compute_values_parallel.borrow_local_mut(),
-        |to_mark_compute_values,
-         (
+
+    // Pass 1: find entities that need their property values resolved.
+    let dirty_entities: Vec<Entity> = styled_entities_query
+        .iter()
+        .filter_map(|(name_or_entity, _, marker, _, _)| {
+            marker
+                .needs_resolve_property_values()
+                .then_some(name_or_entity.entity)
+        })
+        .collect();
+
+    if dirty_entities.is_empty() {
+        return;
+    }
+
+    // Pass 2: mark each dirty entity's ancestor spine up to the root.
+    let (marked, leaves, roots) =
+        styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
+
+    // Pass 3: non-recursive DFS from the roots,
+    // update each entity's `NearestVarAncestor` and update property values
+    // TODO: Add parallelization using maybe Query reborrow unchecked and precondition checking
+    // to split large enough subtree calculation in separate tasks
+    struct TraversalOp {
+        entity: Entity,
+        inherited_nearest_var_ancestor: Option<Entity>,
+    }
+
+    let mut stack: Vec<TraversalOp> = roots
+        .into_iter()
+        .map(|entity| TraversalOp {
+            entity,
+            inherited_nearest_var_ancestor: None,
+        })
+        .collect();
+
+    while let Some(TraversalOp {
+        entity,
+        inherited_nearest_var_ancestor,
+    }) = stack.pop()
+    {
+        let nearest_for_children = if var_resolver.has_vars(entity) {
+            Some(entity)
+        } else {
+            inherited_nearest_var_ancestor
+        };
+
+        var_resolver.set_nearest_var_ancestor(entity, inherited_nearest_var_ancestor);
+
+        if let Ok((
             name_or_entity,
             active_blocks,
             mut marker,
             mut properties,
             mut property_values_copy,
-        )| {
-            if !marker.needs_resolve_property_values() {
-                return;
-            }
+        )) = styled_entities_query.get_mut(entity)
+            && marker.needs_resolve_property_values()
+        {
             marker.finish_resolve_property_values();
 
             let entity_var_resolver = var_resolver.resolver_for_entity(name_or_entity.entity);
@@ -133,10 +198,7 @@ pub(crate) fn resolve_property_values(
 
             if properties.property_values.is_empty() {
                 for (property_id, value) in properties.pending_property_values.iter() {
-                    if matches!(
-                        value,
-                        PropertyValue::Inherit
-                    ) {
+                    if matches!(value, PropertyValue::Inherit) {
                         properties_that_inherit.insert(property_id);
                     }
                     property_values_changed_this_frame.insert(property_id);
@@ -159,7 +221,9 @@ pub(crate) fn resolve_property_values(
                 });
 
                 if changed_property_ids.any(|id| properties_that_inherit.contains(id)) {
-                    to_mark_compute_values.push(name_or_entity.entity);
+                    to_mark
+                        .mark_descendants_compute_property_values
+                        .push(name_or_entity.entity);
                 }
             }
 
@@ -169,21 +233,29 @@ pub(crate) fn resolve_property_values(
                 debug!("New animations for '{name_or_entity}': {animation_configs:?}'");
                 properties.pending_animation_configs = Some(animation_configs);
             }
-        },
-    );
-
-    let mut markers_query = queries.p1();
-
-    for to_mark in to_mark_compute_values_parallel.iter_mut() {
-        for entity in to_mark
-            .drain(..)
-            .flat_map(|entity| styled_children.iter_descendants(entity))
-        {
-            if let Ok(mut mark) = markers_query.get_mut(entity) {
-                mark.set_needs_compute_property_values();
+        }
+        if !leaves.contains(&entity) {
+            for child in styled_children.iter_children(entity) {
+                if marked.contains(&child) {
+                    stack.push(TraversalOp {
+                        entity: child,
+                        inherited_nearest_var_ancestor: nearest_for_children,
+                    });
+                }
             }
         }
     }
+
+    // Pass 4: mark descendants needing recomputed properties, visiting each subtree once.
+    let mut markers_query = queries.p1();
+    styled_children.mark_descendants(
+        to_mark.mark_descendants_compute_property_values.drain(..),
+        |entity| {
+            if let Ok(mut marker) = markers_query.get_mut(entity) {
+                marker.set_needs_compute_property_values();
+            }
+        },
+    );
 }
 
 pub(crate) fn resolve_animations(
