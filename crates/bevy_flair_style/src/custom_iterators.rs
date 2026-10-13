@@ -7,7 +7,6 @@ use bevy_ui::Node;
 use bevy_ui::experimental::{UiChildren, UiRootNodes};
 use bevy_ui::widget::Text;
 use itertools::Either;
-use std::collections::VecDeque;
 
 /// Utility class for iterating over styled root entities.
 ///
@@ -79,17 +78,12 @@ impl<'w, 's> StyledChildren<'w, 's> {
     }
 
     /// Returns a breadth-first iterator over descendants with their direct parent.
+    #[cfg(test)]
     pub(crate) fn iter_descendants_with_parent(
         &'s self,
         entity: Entity,
     ) -> StyledDescendantWithParentIter<'w, 's> {
         StyledDescendantWithParentIter::new(self, entity)
-    }
-
-    /// Returns a breadth-first iterator over all descendants of the given entity.
-    pub fn iter_descendants(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
-        self.iter_descendants_with_parent(entity)
-            .map(|(_, entity)| entity)
     }
 
     /// Returns an iterator over the siblings of the given entity.
@@ -135,8 +129,8 @@ impl<'w, 's> StyledChildren<'w, 's> {
         (marked, leaves, roots)
     }
 
-    /// Visits the full subtree of each root at most once, calling `mark` for every visited
-    /// entity.
+    /// Visits the full subtree of each root at most once,
+    /// calling `mark` for every visited entity.
     pub(crate) fn mark_descendants(
         &self,
         roots: impl IntoIterator<Item = Entity>,
@@ -164,11 +158,13 @@ impl<'w, 's> StyledChildren<'w, 's> {
 /// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
 ///
 /// Traverses the hierarchy Breadth-first.
+#[cfg(test)]
 pub(crate) struct StyledDescendantWithParentIter<'w, 's> {
     styled_children: &'w StyledChildren<'w, 's>,
-    vecdeque: VecDeque<(Entity, Entity)>,
+    vecdeque: std::collections::VecDeque<(Entity, Entity)>,
 }
 
+#[cfg(test)]
 impl<'w, 's> StyledDescendantWithParentIter<'w, 's> {
     /// Returns a new [`StyledDescendantWithParentIter`].
     pub fn new(styled_children: &'w StyledChildren<'w, 's>, entity: Entity) -> Self {
@@ -182,6 +178,7 @@ impl<'w, 's> StyledDescendantWithParentIter<'w, 's> {
     }
 }
 
+#[cfg(test)]
 impl<'w, 's> Iterator for StyledDescendantWithParentIter<'w, 's> {
     type Item = (Entity, Entity);
 
