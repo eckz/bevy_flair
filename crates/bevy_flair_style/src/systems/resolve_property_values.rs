@@ -127,7 +127,7 @@ pub(crate) fn resolve_property_values(
     let styled_entities_query = queries.p0();
 
     // Pass 1: find entities that need their property values resolved.
-    let dirty_entities: Vec<Entity> = styled_entities_query
+    let dirty_entities: EntityHashSet = styled_entities_query
         .iter()
         .filter_map(|entity_data| {
             entity_data
@@ -149,15 +149,17 @@ pub(crate) fn resolve_property_values(
     // Pass 3: non-recursive DFS from the roots,
     // update each entity's `NearestVarAncestor` and update property values
 
-    // If tree size is large enough, precompute subtree size
-    let sizes: Option<EntityHashMap<usize>> = (marked.len() > 4 * MIN_BATCH_SIZE).then(|| {
-        parallel
-            .styled_children
-            .compute_marked_subtree_sizes(&marked, &roots)
-    });
+    // If tree size is large enough, precompute subtree size for parallelization
+    let sizes: Option<EntityHashMap<usize>> =
+        (dirty_entities.len() > 4 * MIN_BATCH_SIZE).then(|| {
+            parallel
+                .styled_children
+                .compute_marked_subtree_sizes(&marked, &dirty_entities, &roots)
+        });
 
     #[cfg(feature = "trace")]
     tracing::info!(
+        dirty_len = dirty_entities.len(),
         marked_len = marked.len(),
         sizes_calculated = sizes.is_some(),
         "resolve_property_values size calculation",
@@ -196,7 +198,7 @@ pub(crate) fn resolve_property_values(
                     inherited_nearest_var_ancestor: None,
                 })
                 .collect(),
-            0,
+            dirty_entities.len(),
             ctx,
             None,
         );
@@ -266,6 +268,7 @@ fn process_chunk<'env, 'scope>(
             && entity_data.marker.needs_resolve_property_values()
         {
             entity_data.marker.finish_resolve_property_values();
+            remaining_size -= 1;
 
             let name_or_entity = &entity_data.name_or_entity;
             let entity_var_resolver = ctx
@@ -359,7 +362,6 @@ fn process_chunk<'env, 'scope>(
             }
         }
 
-        remaining_size -= 1;
         if !ctx.leaves.contains(&entity) {
             let prefix_start = stack.len();
 

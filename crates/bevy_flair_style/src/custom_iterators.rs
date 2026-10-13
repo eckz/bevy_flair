@@ -129,11 +129,13 @@ impl<'w, 's> StyledChildren<'w, 's> {
         (marked, leaves, roots)
     }
 
-    /// Computes, for every entity in `marked`,
-    /// the size of its subtree restricted to `marked` descendants (including itself).
+    /// Computes, for every entity in `marked`, how many `dirty` entities lie in its
+    /// subtree restricted to `marked` descendants (including itself).
+    /// See `[Self::mark_ancestor_spine]`
     pub(crate) fn compute_marked_subtree_sizes(
         &self,
         marked: &EntityHashSet,
+        dirty: &EntityHashSet,
         roots: &[Entity],
     ) -> EntityHashMap<usize> {
         enum Op {
@@ -157,7 +159,9 @@ impl<'w, 's> StyledChildren<'w, 's> {
                     }
                 }
                 Op::Leave(entity, parent_size) => {
-                    current_size += 1;
+                    if dirty.contains(&entity) {
+                        current_size += 1;
+                    }
                     sizes.insert(entity, current_size);
                     current_size += parent_size;
                 }

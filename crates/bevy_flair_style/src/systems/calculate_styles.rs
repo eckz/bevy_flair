@@ -151,7 +151,7 @@ pub(crate) fn calculate_styles_and_set_vars(
     let styled_entities_query = param_set.p0();
 
     // Pass 1: find entities that need recalculation.
-    let dirty_entities: Vec<Entity> = styled_entities_query
+    let dirty_entities: EntityHashSet = styled_entities_query
         .iter()
         .filter_map(|entity_data| {
             entity_data
@@ -174,15 +174,17 @@ pub(crate) fn calculate_styles_and_set_vars(
     // Non-recursive to avoid stack overflow on deep UI.
 
     // Large enough subtrees are split off into their own `ComputeTaskPool` tasks.
-    // We need to calculate subtree sizes
-    let sizes: Option<EntityHashMap<usize>> = (marked.len() > 4 * MIN_BATCH_SIZE).then(|| {
-        parallel
-            .styled_children
-            .compute_marked_subtree_sizes(&marked, &roots)
-    });
+    // We need to calculate subtree sizes if there are enough dirty_entities for parallelization
+    let sizes: Option<EntityHashMap<usize>> =
+        (dirty_entities.len() > 4 * MIN_BATCH_SIZE).then(|| {
+            parallel
+                .styled_children
+                .compute_marked_subtree_sizes(&marked, &dirty_entities, &roots)
+        });
 
     #[cfg(feature = "trace")]
     tracing::info!(
+        dirty_len = dirty_entities.len(),
         marked_len = marked.len(),
         sizes_calculated = sizes.is_some(),
         "calculate_styles_and_set_vars size calculation",
@@ -219,7 +221,7 @@ pub(crate) fn calculate_styles_and_set_vars(
         process_chunk(
             roots.into_iter().map(TraversalOp::Enter).collect(),
             selectors::bloom::BloomFilter::new(),
-            0,
+            dirty_entities.len(),
             ctx,
             None,
         );
@@ -282,6 +284,7 @@ fn process_chunk<'env, 'scope>(
                         unsafe { ctx.styled_entities_query.get_unchecked(entity) }
                     && entity_data.marker.needs_calculate_style()
                 {
+                    remaining_size -= 1;
                     recalculate_one(
                         &ctx.parallel.asset_server,
                         &ctx.parallel.style_sheets,
@@ -304,7 +307,6 @@ fn process_chunk<'env, 'scope>(
                     stack.push(TraversalOp::Leave(hashes));
                 }
 
-                remaining_size -= 1;
                 if !ctx.leaves.contains(&entity) {
                     let prefix_start = stack.len();
 
