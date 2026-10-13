@@ -12,6 +12,7 @@ use bevy_asset::{Asset, AssetId, Handle};
 use bevy_reflect::TypePath;
 use bevy_text::FontSource;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use selectors::bloom::BloomFilter;
 use selectors::context::SelectorCaches;
 use smol_str::SmolStr;
 use std::sync::Arc;
@@ -165,11 +166,13 @@ impl StyleSheet {
         &self,
         element: &E,
         media_provider: &M,
+        ancestor_bloom_filter: Option<&BloomFilter>,
     ) -> Vec<AssetId<StyleBlock>> {
         let candidate_indices = self.selector_buckets.candidate_indices(element);
 
         let mut selector_caches = SelectorCaches::default();
         let mut matching_context = CssSelector::new_matching_context(&mut selector_caches);
+        matching_context.bloom_filter = ancestor_bloom_filter;
 
         candidate_indices
             .into_iter()
@@ -431,24 +434,30 @@ mod tests {
         );
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &media_provider),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &media_provider, None),
             vec![block_any_id]
         );
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text.class_1), &media_provider),
+            style_sheet.get_matching_block_ids_for_element(
+                element!(Text.class_1),
+                &media_provider,
+                None
+            ),
             vec![block_any_id, block_class_id]
         );
         assert_eq!(
             style_sheet.get_matching_block_ids_for_element(
                 element!(text.class_1 #test_name),
-                &media_provider
+                &media_provider,
+                None
             ),
             vec![block_any_id, block_class_id, block_with_name_id]
         );
         assert_eq!(
             style_sheet.get_matching_block_ids_for_element(
                 element!(text.class_1 :hover #test_name),
-                &media_provider
+                &media_provider,
+                None
             ),
             vec![
                 block_any_id,
@@ -660,7 +669,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media, None),
             vec![block_dark]
         );
 
@@ -670,7 +679,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media, None),
             vec![block_light]
         );
 
@@ -681,7 +690,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media, None),
             vec![block_light, block_min_width_500]
         );
 
@@ -692,7 +701,7 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media),
+            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media, None),
             vec![block_light, block_min_width_500, block_width_exact_600]
         );
 
@@ -703,7 +712,11 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_800x600),
+            style_sheet.get_matching_block_ids_for_element(
+                element!(Text),
+                &resolution_800x600,
+                None
+            ),
             vec![block_aspect_ratio_ge_1]
         );
 
@@ -714,7 +727,11 @@ mod tests {
         };
 
         assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_600x800),
+            style_sheet.get_matching_block_ids_for_element(
+                element!(Text),
+                &resolution_600x800,
+                None
+            ),
             vec![block_aspect_ratio_le_1]
         );
     }

@@ -291,12 +291,12 @@ pub struct StyleVars(std::collections::HashMap<Arc<str>, VarTokens>);
 
 impl StyleVars {
     pub(crate) fn replace_vars(
-        &mut self,
+        this: &mut Mut<Self>,
         new_vars: impl IntoIterator<Item = (Arc<str>, VarTokens)>,
     ) -> bool {
         let new_vars = new_vars.into_iter().collect();
-        if new_vars != self.0 {
-            self.0 = new_vars;
+        if new_vars != this.0 {
+            this.0 = new_vars;
             true
         } else {
             false
