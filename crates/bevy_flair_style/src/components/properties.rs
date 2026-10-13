@@ -1,5 +1,5 @@
 use crate::animations::{
-    Animation, AnimationConfiguration, AnimationPlayState, AnimationState, ReflectAnimatable,
+    Animation, AnimationConfiguration, AnimationState, ReflectAnimatable,
     ResolvedAnimationKeyframes, Transition, TransitionOptions, TransitionState,
 };
 use crate::components::StyleMarkers;
@@ -275,7 +275,7 @@ impl StyleProperties {
                         ));
 
                     trace!("Replaced transition: {new_transition:?}");
-                    *occupied.get_mut() = new_transition;
+                    occupied.insert(new_transition);
                 }
                 Entry::Vacant(vacant) => {
                     let new_transition = Transition::new(
@@ -560,18 +560,11 @@ impl StyleProperties {
 
     /// Returns true if there is any active animation or transition
     pub fn has_active_animations_or_transitions(&self) -> bool {
-        self.active_transitions().next().is_some() || self.active_animations().next().is_some()
+        !self.transitions.is_empty() || self.active_animations().next().is_some()
     }
 
-    pub(crate) fn has_tickable_animations_or_transitions(&self) -> bool {
-        self.transitions.values().any(|t| t.can_be_ticked())
-            || self
-                .animations
-                .values()
-                .flat_map(|animations| animations.iter())
-                .any(|(_, a)| {
-                    a.can_be_ticked() && a.get_play_state() == AnimationPlayState::Running
-                })
+    pub(crate) fn has_animations_or_transitions(&self) -> bool {
+        !self.transitions.is_empty() || !self.animations.is_empty()
     }
 
     pub(crate) fn tick_animations(&mut self, delta: Duration) {
@@ -678,12 +671,6 @@ impl StyleProperties {
         self.transitions
             .values()
             .filter(|t| t.state == TransitionState::Running)
-    }
-
-    /// Returns an iterator over all active transitions.
-    /// These are transitions that are actively emitting values.
-    pub fn active_transitions(&self) -> impl Iterator<Item = &Transition> {
-        self.transitions.values().filter(|t| t.is_active())
     }
 
     /// Returns an iterator over all active animations.
@@ -1749,12 +1736,10 @@ mod tests {
             mock_resolve_animation,
         );
 
-        assert!(!properties.has_active_animations_or_transitions());
         assert_eq!(properties.active_animations().count(), 0);
 
         properties.tick_animations(Duration::ZERO);
 
-        assert!(properties.has_active_animations_or_transitions());
         assert_eq!(properties.active_animations().count(), 1);
 
         // There should be a started animation event emitted

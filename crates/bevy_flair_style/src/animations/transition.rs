@@ -161,20 +161,32 @@ impl Transition {
         //      time of the style change event, times the reversing shortening
         //      factor of the old transition
         //    2.  1 minus the reversing shortening factor of the old transition."
-        let transition_progress = (replaced_transition.elapsed().as_secs_f32()
-            / (replaced_transition.duration.as_secs_f32()))
-        .clamp(0.0, 1.0);
+        let transition_progress = if replaced_transition.duration.is_zero() {
+            // A zero-duration transition is instantly complete; avoid 0.0 / 0.0 = NaN.
+            1.0
+        } else {
+            (replaced_transition.elapsed().as_secs_f32()
+                / replaced_transition.duration.as_secs_f32())
+            .clamp(0.0, 1.0)
+        };
 
         let easing_function_output = replaced_transition
             .easing_curve
             .sample_clamped(transition_progress);
 
         let old_reversing_shortening_factor = replaced_transition.reversing_shortening_factor;
-        self.reversing_shortening_factor = ((easing_function_output
+        let reversing_shortening_factor = ((easing_function_output
             * old_reversing_shortening_factor)
             + (1.0 - old_reversing_shortening_factor))
             .abs()
             .clamp(0.0, 1.0);
+
+        // Never let NaN reach Duration::from_secs_f32.
+        self.reversing_shortening_factor = if reversing_shortening_factor.is_finite() {
+            reversing_shortening_factor
+        } else {
+            1.0
+        };
 
         // "* end time is the start time plus the product of the matching transition
         //    duration and the new transition’s reversing shortening factor,"
@@ -411,5 +423,38 @@ mod tests {
         assert_eq!(transition.state, TransitionState::Finished);
         assert_eq!(transition.elapsed(), ONE_NANOSECOND + ONE_NANOSECOND);
         assert_eq!(transition.sample_value(), ReflectValue::Float(10.0));
+    }
+
+    #[test]
+    fn reversing_zero_duration_transition() {
+        let reflect_animatable_f32 =
+            <ReflectAnimatable as CreateTypeData<f32>>::create_type_data(());
+
+        // A zero-duration transition that hasn't been ticked yet (still Pending).
+        let replaced = Transition::new(
+            ComponentPropertyId::PLACEHOLDER,
+            Some(ReflectValue::Float(0.0)),
+            ReflectValue::Float(10.0),
+            &TransitionOptions {
+                initial_delay: Duration::ZERO,
+                duration: Duration::ZERO,
+                timing_function: EasingFunction::Linear,
+            },
+            &reflect_animatable_f32,
+        );
+        assert_eq!(replaced.state, TransitionState::Pending);
+
+        let reversed = Transition::from_possibly_reversed_transition(
+            Some(ReflectValue::Float(10.0)),
+            ReflectValue::Float(0.0),
+            &DEFAULT_TRANSITION_OPTIONS,
+            &reflect_animatable_f32,
+            &replaced,
+        );
+
+        assert_eq!(reversed.duration, ONE_SECOND);
+        assert_eq!(reversed.from, ReflectValue::Float(10.0));
+        assert_eq!(reversed.to, ReflectValue::Float(0.0));
+        assert_eq!(reversed.state, TransitionState::Pending);
     }
 }

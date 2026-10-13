@@ -12,6 +12,9 @@ fn main() {
         .add_plugins((DefaultPlugins, FlairPlugin))
         .insert_resource(bevy::winit::WinitSettings::desktop_app())
         .add_systems(Startup, setup)
+        .add_systems(Update, || {
+            info!("Update!");
+        })
         .add_observer(observer_on_click)
         .run();
 }
@@ -46,7 +49,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Node::default(),
         Styled::new(asset_server.load("animations.css")),
         children![
-            (Button, children![Text::new("Reset all animations")]),
+            (
+                Node::default(),
+                Button,
+                children![Text::new("Reset all animations")]
+            ),
             animated("rotate-on-hover", "Rotate on hover"),
             animated("rotate-twice", "Rotate twice"),
             animated("pause-on-hover", "Pause on hover"),

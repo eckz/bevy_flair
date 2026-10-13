@@ -61,7 +61,7 @@ button:first-child {
     border-radius: 10px;
     background-color: rebeccapurple;
     animation-duration: 1.7s;
-    rotate: 0;
+    rotate: 0deg;
 
     &:hover {
         animation-name: rotate;
@@ -69,7 +69,7 @@ button:first-child {
 }
 
 .rotate-twice {
-    rotate: 0;
+    rotate: 0deg;
 
     animation-name: rotate;
     animation-duration: var(--default-duration);

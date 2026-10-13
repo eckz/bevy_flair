@@ -558,7 +558,7 @@ pub(crate) fn set_animation_computed_values(
     #[cfg(feature = "detailed_trace")] debug_helper: PropertyIdDebugHelperParam,
 ) {
     for (_name_or_entity, mut properties, mut marker) in &mut properties_query {
-        if properties.has_active_animations_or_transitions() {
+        if properties.has_animations_or_transitions() {
             marker.set_needs_apply_pending_properties();
             properties.set_animation_computed_values(&static_property_maps);
 
@@ -636,9 +636,9 @@ pub(crate) fn tick_animations<T: Default + Send + Sync + 'static>(
     let delta = time.delta();
 
     for mut properties in &mut properties_query {
-        if properties.has_tickable_animations_or_transitions() {
-            properties.tick_animations(delta);
+        if properties.has_animations_or_transitions() {
             properties.clear_finished_and_canceled_animations();
+            properties.tick_animations(delta);
         }
     }
 }
@@ -660,7 +660,7 @@ pub(crate) fn emit_redraw_event(
 ) {
     if properties_query
         .iter()
-        .any(|properties| properties.has_tickable_animations_or_transitions())
+        .any(|properties| properties.has_active_animations_or_transitions())
     {
         request_redraw_writer.write(RequestRedraw);
     }
