@@ -1,4 +1,4 @@
-use bevy_ecs::entity::Entity;
+use bevy_ecs::entity::{Entity, EntityHashMap, EntityHashSet};
 use bevy_ecs::hierarchy::{ChildOf, Children};
 use bevy_ecs::prelude::Without;
 use bevy_ecs::query::Has;
@@ -7,7 +7,6 @@ use bevy_ui::Node;
 use bevy_ui::experimental::{UiChildren, UiRootNodes};
 use bevy_ui::widget::Text;
 use itertools::Either;
-use std::collections::VecDeque;
 
 /// Utility class for iterating over styled root entities.
 ///
@@ -79,17 +78,12 @@ impl<'w, 's> StyledChildren<'w, 's> {
     }
 
     /// Returns a breadth-first iterator over descendants with their direct parent.
+    #[cfg(test)]
     pub(crate) fn iter_descendants_with_parent(
         &'s self,
         entity: Entity,
     ) -> StyledDescendantWithParentIter<'w, 's> {
         StyledDescendantWithParentIter::new(self, entity)
-    }
-
-    /// Returns a breadth-first iterator over all descendants of the given entity.
-    pub fn iter_descendants(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
-        self.iter_descendants_with_parent(entity)
-            .map(|(_, entity)| entity)
     }
 
     /// Returns an iterator over the siblings of the given entity.
@@ -103,16 +97,116 @@ impl<'w, 's> StyledChildren<'w, 's> {
     pub fn iter_ancestors(&self, entity: Entity) -> StyledAncestorIter<'_, '_> {
         StyledAncestorIter::new(self, entity)
     }
+
+    /// Marks each dirty entity's ancestor spine up to the root, stopping a walk early once
+    /// it hits an already-marked entity. Returns `(marked, leaves, roots)`.
+    pub(crate) fn mark_ancestor_spine(
+        &self,
+        dirty_entities: impl IntoIterator<Item = Entity>,
+    ) -> (EntityHashSet, EntityHashSet, Vec<Entity>) {
+        let mut marked = EntityHashSet::default();
+        let mut leaves = EntityHashSet::default();
+        let mut roots = Vec::new();
+        for entity in dirty_entities {
+            if !marked.contains(&entity) {
+                leaves.insert(entity);
+            }
+            let mut current = entity;
+            loop {
+                if !marked.insert(current) {
+                    leaves.remove(&current);
+                    break;
+                }
+                match self.get_parent(current) {
+                    Some(parent) => current = parent,
+                    None => {
+                        roots.push(current);
+                        break;
+                    }
+                }
+            }
+        }
+        (marked, leaves, roots)
+    }
+
+    /// Computes, for every entity in `marked`, how many `dirty` entities lie in its
+    /// subtree restricted to `marked` descendants (including itself).
+    /// See `[Self::mark_ancestor_spine]`
+    pub(crate) fn compute_marked_subtree_sizes(
+        &self,
+        marked: &EntityHashSet,
+        dirty: &EntityHashSet,
+        roots: &[Entity],
+    ) -> EntityHashMap<usize> {
+        enum Op {
+            Enter(Entity),
+            Leave(Entity, usize),
+        }
+
+        let mut sizes = EntityHashMap::default();
+        let mut stack: Vec<Op> = roots.iter().copied().map(Op::Enter).collect();
+        let mut current_size = 0;
+
+        while let Some(op) = stack.pop() {
+            match op {
+                Op::Enter(entity) => {
+                    stack.push(Op::Leave(entity, current_size));
+                    current_size = 0;
+                    for child in self.iter_children(entity) {
+                        if marked.contains(&child) {
+                            stack.push(Op::Enter(child));
+                        }
+                    }
+                }
+                Op::Leave(entity, parent_size) => {
+                    if dirty.contains(&entity) {
+                        current_size += 1;
+                    }
+                    sizes.insert(entity, current_size);
+                    current_size += parent_size;
+                }
+            }
+        }
+
+        sizes
+    }
+
+    /// Visits the full subtree of each root at most once,
+    /// calling `mark` for every visited entity.
+    pub(crate) fn mark_descendants(
+        &self,
+        roots: impl IntoIterator<Item = Entity>,
+        mut mark: impl FnMut(Entity),
+    ) {
+        let mut visited = EntityHashSet::default();
+        let mut queue = Vec::new();
+        for entity in roots {
+            if !visited.insert(entity) {
+                continue;
+            }
+            queue.push(entity);
+            while let Some(entity) = queue.pop() {
+                mark(entity);
+                for child in self.iter_children(entity) {
+                    if visited.insert(child) {
+                        queue.push(child);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
 ///
 /// Traverses the hierarchy Breadth-first.
+#[cfg(test)]
 pub(crate) struct StyledDescendantWithParentIter<'w, 's> {
     styled_children: &'w StyledChildren<'w, 's>,
-    vecdeque: VecDeque<(Entity, Entity)>,
+    vecdeque: std::collections::VecDeque<(Entity, Entity)>,
 }
 
+#[cfg(test)]
 impl<'w, 's> StyledDescendantWithParentIter<'w, 's> {
     /// Returns a new [`StyledDescendantWithParentIter`].
     pub fn new(styled_children: &'w StyledChildren<'w, 's>, entity: Entity) -> Self {
@@ -126,6 +220,7 @@ impl<'w, 's> StyledDescendantWithParentIter<'w, 's> {
     }
 }
 
+#[cfg(test)]
 impl<'w, 's> Iterator for StyledDescendantWithParentIter<'w, 's> {
     type Item = (Entity, Entity);
 

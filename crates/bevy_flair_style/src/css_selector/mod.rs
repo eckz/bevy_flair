@@ -11,14 +11,15 @@ pub use error::{SelectorError, SelectorErrorKind};
 use crate::NodePseudoStateSelector;
 use crate::media_selector::{MediaFeaturesProvider, MediaSelectors};
 use cssparser::{CowRcStr, ParseError, SourceLocation, match_ignore_ascii_case};
-pub(crate) use element::{ElementRef, ElementRefSystemParam};
+pub(crate) use element::{ElementRef, ElementRefSystemParam, style_data_unique_hashes};
 use rustc_hash::FxBuildHasher;
 use selectors::context::{
     MatchingContext, MatchingForInvalidation, MatchingMode, NeedsSelectorFlags, QuirksMode,
     SelectorCaches,
 };
 use selectors::parser::{
-    NonTSPseudoClass, ParseRelative, PseudoElement, Selector, SelectorParseErrorKind,
+    AncestorHashes, NonTSPseudoClass, ParseRelative, PseudoElement, Selector,
+    SelectorParseErrorKind,
 };
 use selectors::{Element, SelectorImpl, SelectorList};
 use smol_str::SmolStr;
@@ -269,11 +270,18 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
 pub struct CssSelector {
     pub(crate) layer: String,
     pub(crate) media_selectors: MediaSelectors,
-    // TODO: Compute ancestors hashes?
     pub(crate) selector: Selector<CssSelectorImpl>,
+
+    /// Precomputed from `selector` for bloom-filter fast-rejection;
+    /// must be recomputed whenever `selector` changes.
+    pub(crate) ancestor_hashes: AncestorHashes,
 }
 
 impl CssSelector {
+    fn compute_ancestor_hashes(selector: &Selector<CssSelectorImpl>) -> AncestorHashes {
+        AncestorHashes::new(selector, QuirksMode::NoQuirks)
+    }
+
     /// Parse a comma-separated list of Selectors.
     /// <https://drafts.csswg.org/selectors/#grouping>
     /// Return the list of [`CssSelector`] or Err if there is an invalid selector.
@@ -310,6 +318,7 @@ impl CssSelector {
                 .iter()
                 .cloned()
                 .map(|selector| Self {
+                    ancestor_hashes: Self::compute_ancestor_hashes(&selector),
                     selector,
                     layer: String::new(),
                     media_selectors: MediaSelectors::empty(),
@@ -329,6 +338,7 @@ impl CssSelector {
 
         Selector::parse(&css_selector_parser, &mut parser)
             .map(|selector| Self {
+                ancestor_hashes: Self::compute_ancestor_hashes(&selector),
                 selector,
                 layer: String::new(),
                 media_selectors: MediaSelectors::empty(),
@@ -366,6 +376,7 @@ impl CssSelector {
             layer: self.layer,
             media_selectors: media_selectors.into(),
             selector: self.selector,
+            ancestor_hashes: self.ancestor_hashes,
         }
     }
 
@@ -387,6 +398,7 @@ impl CssSelector {
                 layer,
                 media_selectors: self.media_selectors,
                 selector: self.selector,
+                ancestor_hashes: self.ancestor_hashes,
             }
         } else {
             self
@@ -399,6 +411,7 @@ impl CssSelector {
             layer,
             media_selectors: self.media_selectors,
             selector: self.selector,
+            ancestor_hashes: self.ancestor_hashes,
         }
     }
 
@@ -446,6 +459,9 @@ impl CssSelector {
 
         let parent_selectors_list =
             SelectorList::from_iter(parent_selectors.iter().map(|s| s.selector.clone()));
+        let new_selector = self
+            .selector
+            .replace_parent_selector(&parent_selectors_list);
         CssSelector {
             layer: if parent_layer.is_empty() {
                 self.layer
@@ -455,9 +471,8 @@ impl CssSelector {
                 format!("{parent_layer}.{}", self.layer)
             },
             media_selectors: parent_media_selectors.merge_with(self.media_selectors),
-            selector: self
-                .selector
-                .replace_parent_selector(&parent_selectors_list),
+            ancestor_hashes: Self::compute_ancestor_hashes(&new_selector),
+            selector: new_selector,
         }
     }
 
@@ -465,28 +480,86 @@ impl CssSelector {
         self.media_selectors.matches(provider)
     }
 
+    /// Test-only one-shot matcher
+    #[cfg(test)]
     pub(crate) fn matches_selector<E: Element<Impl = CssSelectorImpl>>(&self, element: &E) -> bool {
         let mut selector_caches = SelectorCaches::default();
-        let mut matching_context = MatchingContext::new(
+        let mut matching_context = Self::new_matching_context(&mut selector_caches);
+        self.matches_selector_in_context(element, &mut matching_context)
+    }
+
+    /// Builds a [`MatchingContext`] meant to be reused across many [`Self::matches_selector_in_context`] calls.
+    pub(crate) fn new_matching_context(
+        selector_caches: &mut SelectorCaches,
+    ) -> MatchingContext<'_, CssSelectorImpl> {
+        MatchingContext::new(
             MatchingMode::Normal,
             None,
-            &mut selector_caches,
+            selector_caches,
             QuirksMode::NoQuirks,
             NeedsSelectorFlags::Yes,
             MatchingForInvalidation::No,
-        );
+        )
+    }
+
+    pub(crate) fn matches_selector_in_context<E: Element<Impl = CssSelectorImpl>>(
+        &self,
+        element: &E,
+        matching_context: &mut MatchingContext<CssSelectorImpl>,
+    ) -> bool {
         selectors::matching::matches_selector(
             &self.selector,
             0,
-            None,
+            Some(&self.ancestor_hashes),
             element,
-            &mut matching_context,
+            matching_context,
         )
     }
 
     pub(crate) fn specificity(&self) -> u32 {
         self.selector.specificity()
     }
+
+    /// Key derived from this selector's rightmost class/id/tag, used to bucket selectors by
+    /// what they can possibly match.
+    pub(crate) fn bucket_key(&self) -> SelectorBucketKey {
+        use selectors::parser::Component;
+
+        let mut class_key = None;
+        let mut local_name_key = None;
+
+        let mut iter = self.selector.iter();
+        for component in iter.by_ref() {
+            match component {
+                Component::ID(id) => return SelectorBucketKey::Id(id.0.clone()),
+                Component::Class(cls) if class_key.is_none() => {
+                    class_key = Some(cls.0.clone());
+                }
+                Component::LocalName(local_name) if local_name_key.is_none() => {
+                    local_name_key = Some(local_name.name.0.clone());
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(class_name) = class_key {
+            SelectorBucketKey::Class(class_name)
+        } else if let Some(tag_name) = local_name_key {
+            SelectorBucketKey::LocalName(tag_name)
+        } else {
+            SelectorBucketKey::Universal
+        }
+    }
+}
+
+/// See [`CssSelector::bucket_key`].
+#[derive(Debug, Clone)]
+pub(crate) enum SelectorBucketKey {
+    /// No class/id/tag anchor (e.g. `*`, `:hover`); always tested.
+    Universal,
+    Id(SmolStr),
+    Class(SmolStr),
+    LocalName(SmolStr),
 }
 
 impl crate::ToCss for CssSelector {

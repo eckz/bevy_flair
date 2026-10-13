@@ -2,7 +2,10 @@ use crate::animations::{
     AnimationKeyframes, AnimationProperties, AnimationProperty, AnimationPropertyId,
     TransitionPropertyId,
 };
-use crate::{DynamicParseVarTokens, StyleBlock, VarName, VarTokens, style_sheet::StyleSheet};
+use crate::{
+    DynamicParseVarTokens, StyleBlock, VarName, VarTokens,
+    style_sheet::{SelectorBuckets, StyleSheet},
+};
 
 use crate::asset_loader::StyleAssetLoader;
 use crate::css_selector::CssSelector;
@@ -762,12 +765,15 @@ impl StyleSheetBuilder {
             .chain(self.embedded_block_handles)
             .collect();
 
+        let selector_buckets = SelectorBuckets::build(&css_selectors_to_blocks);
+
         Ok(StyleSheet {
             font_faces,
             resolved_font_faces,
             block_handles,
             animation_keyframes,
             css_selectors_to_blocks,
+            selector_buckets,
         })
     }
 }

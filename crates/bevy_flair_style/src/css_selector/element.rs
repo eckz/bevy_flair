@@ -1,5 +1,6 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
+use precomputed_hash::PrecomputedHash;
 
 use crate::components::{PseudoElement, RecalculateOnChangeFlags, StyleData, StyleFlags};
 use crate::css_selector::{
@@ -62,11 +63,24 @@ macro_rules! impl_element_commons {
         ) -> bool {
             unimplemented!("is_part")
         }
-
-        fn add_element_unique_hashes(&self, _filter: &mut selectors::bloom::BloomFilter) -> bool {
-            unimplemented!("add_element_unique_hashes")
-        }
     };
+}
+
+/// Hashes of this element's own id/classes/tag,
+/// comparable against a selector's component hashes in a [`BloomFilter`].
+pub(crate) fn style_data_unique_hashes(data: &StyleData) -> impl Iterator<Item = u32> + '_ {
+    data.get_id()
+        .map(|id| CssString::from(id).precomputed_hash())
+        .into_iter()
+        .chain(
+            data.active_classes()
+                .iter()
+                .map(|class| CssString::from(class.as_ref()).precomputed_hash()),
+        )
+        .chain(
+            data.type_name
+                .map(|type_name| CssString::from(type_name).precomputed_hash()),
+        )
 }
 
 #[derive(SystemParam)]
@@ -97,18 +111,15 @@ impl Borrow<StyleData> for ElementRef<'_> {
 }
 
 impl<'a> ElementRef<'a> {
-    pub fn new(entity: Entity, params: &'a ElementRefSystemParam<'a, 'a>) -> Self {
-        let (data, selector_flags) = params
-            .style_data_query
-            .get(entity)
-            .expect("StyleData does not exist for entity");
+    pub(crate) fn get(entity: Entity, params: &'a ElementRefSystemParam<'a, 'a>) -> Option<Self> {
+        let (data, selector_flags) = params.style_data_query.get(entity).ok()?;
 
-        Self {
+        Some(Self {
             entity,
             data,
             flags: selector_flags,
             params,
-        }
+        })
     }
 
     fn related_new(
@@ -295,6 +306,13 @@ impl Element for ElementRef<'_> {
             CssPseudoElement::Before => is_pseudo_element == Some(PseudoElement::Before),
             CssPseudoElement::After => is_pseudo_element == Some(PseudoElement::After),
         }
+    }
+
+    fn add_element_unique_hashes(&self, filter: &mut selectors::bloom::BloomFilter) -> bool {
+        for hash in style_data_unique_hashes(self.data) {
+            filter.insert_hash(hash);
+        }
+        true
     }
 }
 

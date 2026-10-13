@@ -220,7 +220,7 @@ mod tests {
 
         app.add_systems(
             Update,
-            (parse_inline_style, bevy_asset::handle_internal_asset_events).chain(),
+            (parse_inline_style, bevy_asset::handle_internal_asset_events).chain_weak(),
         );
 
         app

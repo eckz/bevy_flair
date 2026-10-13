@@ -10,7 +10,7 @@ use selectors::{Element, OpaqueElement};
 use std::borrow::Borrow;
 use std::ops::Deref;
 
-use crate::css_selector::element::impl_element_commons;
+use crate::css_selector::element::{impl_element_commons, style_data_unique_hashes};
 
 #[derive(Clone, Debug)]
 pub(crate) struct TestElementRef<'a> {
@@ -127,6 +127,13 @@ impl Element for TestElementRef<'_> {
     ) -> bool {
         unimplemented!("match_pseudo_element")
     }
+
+    fn add_element_unique_hashes(&self, filter: &mut selectors::bloom::BloomFilter) -> bool {
+        for hash in style_data_unique_hashes(self.data) {
+            filter.insert_hash(hash);
+        }
+        true
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -230,5 +237,12 @@ impl Element for TestNodeRef<'_> {
             CssPseudoElement::Before => is_pseudo_element == Some(PseudoElement::Before),
             CssPseudoElement::After => is_pseudo_element == Some(PseudoElement::After),
         }
+    }
+
+    fn add_element_unique_hashes(&self, filter: &mut selectors::bloom::BloomFilter) -> bool {
+        for hash in style_data_unique_hashes(self.0.value()) {
+            filter.insert_hash(hash);
+        }
+        true
     }
 }
