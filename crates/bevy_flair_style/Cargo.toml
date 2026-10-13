@@ -55,7 +55,8 @@ precomputed-hash = { version = "0.1" }
 
 [features]
 ghost_nodes = ["bevy_ui/ghost_nodes"]
-detailed_trace = []
+trace = []
+detailed_trace = ["trace"]
 
 [dev-dependencies]
 ego-tree = "0.11"

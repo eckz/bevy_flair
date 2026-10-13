@@ -223,6 +223,15 @@ fn process_chunk<'env, 'scope>(
     ctx: Ctx<'env, '_, '_, '_, '_>,
     scope: Option<&'scope Scope<'scope, 'env, ()>>,
 ) {
+    #[cfg(feature = "trace")]
+    let _guard = tracing::info_span!(
+        "resolve_property_values::process_chunk",
+        stack_len = stack.len(),
+        remaining_size,
+        parallel = scope.is_some(),
+    )
+    .entered();
+
     while let Some(TraversalOp {
         entity,
         inherited_nearest_var_ancestor,

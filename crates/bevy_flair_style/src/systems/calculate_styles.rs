@@ -247,6 +247,15 @@ fn process_chunk<'env, 'scope>(
     ctx: Ctx<'env, '_, '_, '_, '_>,
     scope: Option<&'scope Scope<'scope, 'env, ()>>,
 ) {
+    #[cfg(feature = "trace")]
+    let _guard = tracing::info_span!(
+        "calculate_styles_and_set_vars::process_chunk",
+        stack_len = stack.len(),
+        remaining_size,
+        parallel = scope.is_some(),
+    )
+    .entered();
+
     while let Some(op) = stack.pop() {
         match op {
             TraversalOp::Leave(hashes) => {

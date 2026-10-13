@@ -56,7 +56,8 @@ bevy_flair_css_parser = { workspace = true }
 [features]
 default = []
 ghost_nodes = ["bevy_flair_style/ghost_nodes"]
-detailed_trace = ["bevy_flair_style/detailed_trace"]
+trace = ["bevy_flair_style/trace"]
+detailed_trace = ["bevy_flair_style/detailed_trace", "trace"]
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = [ "plotters", "cargo_bench_support", "html_reports" ] }
