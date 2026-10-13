@@ -3,25 +3,17 @@
 
 use bevy::{picking::hover::Hovered, prelude::*};
 use bevy_flair::{
-    parser::{
-        CalcValue, CssError, FromCalcValue, ParserExt, ReflectParseCss, parse_calc, parse_val,
-    },
+    parser::{CalcValue, CssError, ParserExt, ReflectParseCss, parse_calc, parse_val},
     prelude::*,
 };
 
-struct MyVal(Val);
-
-impl FromCalcValue for MyVal {
-    type Error = String;
-
-    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
-        match calc_value {
-            CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("ex") => {
-                // `ex` is roughly 0.5 `em`
-                Ok(MyVal(Val::Em(*value * 0.5)))
-            }
-            _ => Err(format!("Not valid as MyVal: {calc_value}")),
+fn custom_from_calc_value(calc_value: &CalcValue) -> Result<Val, String> {
+    match calc_value {
+        CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("ex") => {
+            // `ex` is roughly 0.5 `em`
+            Ok(Val::Em(*value * 0.5))
         }
+        _ => Err(format!("Not valid as Val: {calc_value}")),
     }
 }
 
@@ -33,10 +25,13 @@ pub(crate) fn custom_parse_val(
     if let Ok(val) = parser.try_parse_with(parse_val) {
         return Ok(ReflectValue::Val(val));
     }
-    // Otherwise try to use `parse_calc` with our custom Val struct.
+    // Otherwise try to use `parse_calc` with our `custom_from_calc_value`.
     // This allows `calc()` to work with `ex` value.
-    // Only after all calculations are done, `from_calc_value` is called.
-    Ok(ReflectValue::Val(parse_calc::<MyVal>(parser)?.0))
+    // Only after all calculations are simplified, `custom_from_calc_value` is called.
+    Ok(ReflectValue::Val(parse_calc(
+        parser,
+        custom_from_calc_value,
+    )?))
 }
 
 fn custom_val_parsing_plugin(app: &mut App) {

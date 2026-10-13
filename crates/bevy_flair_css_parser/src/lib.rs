@@ -18,16 +18,21 @@ use std::fmt::{Debug, Display, Formatter};
 use std::range::Range;
 use tracing::debug;
 
+pub use angle::{Angle, parse_angle};
 pub use calc::{
-    CalcSumExpr, CalcValue, FromCalcValue, MathFunction, parse_calc, parse_calc_property,
+    CalcOptions, CalcSumExpr, CalcValue, MathFunction, parse_calc, parse_calc_with_options,
 };
-pub use parser::parse_duration;
+pub use color::parse_color;
+pub use duration::parse_duration;
 pub use utils::parse_property_value_with;
 
 mod error;
 mod parser;
 
+mod angle;
 mod calc;
+mod color;
+mod duration;
 mod error_codes;
 mod imports_parser;
 mod inline_styles;

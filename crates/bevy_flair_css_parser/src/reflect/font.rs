@@ -1,8 +1,7 @@
-use crate::calc::{CalcValue, FromCalcValue};
-use crate::reflect::parse_angle;
+use crate::calc::CalcValue;
 use crate::{
-    CssError, ParserExt, ReflectParseCss, error_codes, parse_calc_property,
-    parse_property_value_with,
+    CalcOptions, CssError, ParserExt, ReflectParseCss, error_codes, parse_angle, parse_calc,
+    parse_calc_with_options, parse_property_value_with,
 };
 use bevy_flair_style::placeholder::FontSourcePlaceholder;
 use bevy_reflect::CreateTypeData;
@@ -13,9 +12,8 @@ use bevy_text::{
 };
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 
-impl FromCalcValue for FontSize {
-    type Error = String;
-    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+pub fn parse_font_size(parser: &mut Parser) -> Result<FontSize, CssError> {
+    fn font_size_from_calc_value(calc_value: &CalcValue) -> Result<FontSize, String> {
         match calc_value {
             CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => {
                 Ok(FontSize::Px(*value))
@@ -47,12 +45,17 @@ impl FromCalcValue for FontSize {
             )),
         }
     }
+
+    parse_calc(parser, font_size_from_calc_value)
 }
 
-impl FromCalcValue for FontWeight {
-    type Error = String;
+pub fn parse_font_weight(parser: &mut Parser) -> Result<FontWeight, CssError> {
+    static FONT_WEIGHT_CONSTANTS: &[(&str, f32)] = &[
+        ("normal", FontWeight::NORMAL.0 as f32),
+        ("bold", FontWeight::BOLD.0 as f32),
+    ];
 
-    fn from_calc_value(calc_value: &CalcValue) -> Result<Self, Self::Error> {
+    fn font_weight_from_calc_value(calc_value: &CalcValue) -> Result<FontWeight, String> {
         match calc_value {
             CalcValue::Number(value) if *value >= 0.0 && *value <= 1000.0 => {
                 Ok(FontWeight(value.floor() as u16))
@@ -64,12 +67,11 @@ impl FromCalcValue for FontWeight {
         }
     }
 
-    fn custom_constants() -> &'static [(&'static str, f32)] {
-        &[
-            ("normal", FontWeight::NORMAL.0 as f32),
-            ("bold", FontWeight::BOLD.0 as f32),
-        ]
-    }
+    parse_calc_with_options(
+        parser,
+        font_weight_from_calc_value,
+        CalcOptions::new().with_custom_constants(FONT_WEIGHT_CONSTANTS),
+    )
 }
 
 fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
@@ -300,13 +302,15 @@ impl CreateTypeData<FontSource> for ReflectParseCss {
 
 impl CreateTypeData<FontSize> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(parse_calc_property::<FontSize>)
+        Self(|parser| Ok(parse_property_value_with(parser, parse_font_size)?.into_reflect_value()))
     }
 }
 
 impl CreateTypeData<FontWeight> for ReflectParseCss {
     fn create_type_data(_: ()) -> Self {
-        Self(parse_calc_property::<FontWeight>)
+        Self(
+            |parser| Ok(parse_property_value_with(parser, parse_font_weight)?.into_reflect_value()),
+        )
     }
 }
 

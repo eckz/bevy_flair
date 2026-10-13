@@ -1,4 +1,4 @@
-use crate::{CssError, ParserExt, error_codes::vars as error_codes};
+use crate::{CalcValue, CssError, ParserExt, error_codes::vars as error_codes, parse_calc};
 use bevy_asset::AssetPath;
 use bevy_flair_core::PropertyValue;
 use cssparser::{Parser, match_ignore_ascii_case, parse_important};
@@ -111,6 +111,13 @@ pub(crate) fn try_parse_important_level(parser: &mut Parser) -> ImportantLevel {
     } else {
         ImportantLevel::Default
     }
+}
+
+pub fn parse_number(parser: &mut Parser) -> Result<f32, CssError> {
+    parse_calc(parser, |calc_value| match calc_value {
+        CalcValue::Number(value) => Ok(*value),
+        invalid => Err(format!("Expected a number, found '{invalid}'")),
+    })
 }
 
 pub(crate) trait CombinedParse {

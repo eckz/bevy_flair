@@ -12,18 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calc `min/max/clamp`, `round` and `pow/sqrt/log/exp` functions are now supported
 - Duration supports `calc()` like `calc(1s * 2)`
 - Full support for `em` on `Val` types. `EmSize` is automatically updated
+- Calc inside color components (e.g. `rgb(calc(50% * 2) 100% 100%)`)
+- Relative CSS colors (e.g. `rgb(from green r g calc(b + 1))`)
 
 ### Fixed
 - Improve support for grid lines in grid-columns and grid-rows (#57)
 - `calc()` is made more consistent with the CSS standard.
+- In some cases, when a transition was canceled, it didn't emit it's last value. This is fixed now.
 
 ### Changed
 - Added support for Bevy 0.20.
 - Deprecated ui::widgets::Button not supported anymore
 - Added mapping between bevy::ui_widgets and type names. bevy::ui_widgets::Button → "button", bevy::ui_widgets::Checkbox → "checkbox", etc.
 - `calc()` internals are greatly improved to support more use cases.
-  Previously to support custom types, it was required to implement `CalcAdd`, `CalcSum`. 
-  Now only the trait `FromCalcValue` needs to be implemented 
+  Previously to support custom types in calc, it was required to implement `CalcAdd`, `CalcSum`, now only a function that converts from a `CalcValue` needs to be passed to  
 - All imports and any kind of asset load are relative to the css file. `@import "../file.css"` should work fine now. Before, imports were always absolute which caused some confusion when using folders. See #59
 
 ## [0.8.1] - 21-Aug-2026

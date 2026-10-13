@@ -1,5 +1,6 @@
 use super::ast::*;
-use crate::{CssError, FromCalcValue, ParserExt};
+use crate::calc::CalcOptions;
+use crate::{CssError, ParserExt};
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -63,42 +64,37 @@ fn parse_calc_keyword(parser: &mut Parser) -> Result<f32, CssError> {
 }
 
 fn parse_custom_constants(parser: &mut Parser, ctx: &CalcContext) -> Result<f32, CssError> {
-    let ident = parser.expect_ident()?;
-    for (c, value) in ctx.constants {
-        if ident.eq_ignore_ascii_case(c) {
-            return Ok(*value);
+    if let Some(options) = ctx.options.as_ref() {
+        let ident = parser.expect_ident()?;
+        for (c, value) in options.custom_constants {
+            if ident.eq_ignore_ascii_case(c) {
+                return Ok(*value);
+            }
         }
     }
     Err(CssError::from(parser.new_error_for_next_token::<()>()))
 }
 
-pub(crate) struct CalcContext {
+pub(crate) struct CalcContext<'a> {
     pub is_top_level: bool,
     pub parse_numeric_at_top_level: bool,
-    pub constants: &'static [(&'static str, f32)],
-    pub convert_dimension: fn(f32, &str) -> Option<(f32, SmolStr)>,
+    pub options: Option<CalcOptions<'a>>,
 }
 
-fn no_convert_dim(_: f32, _: &str) -> Option<(f32, SmolStr)> {
-    None
-}
-
-impl Default for CalcContext {
+impl Default for CalcContext<'_> {
     fn default() -> Self {
         Self {
             is_top_level: true,
             parse_numeric_at_top_level: false,
-            constants: &[],
-            convert_dimension: no_convert_dim,
+            options: None,
         }
     }
 }
 
-impl CalcContext {
-    pub fn new<T: FromCalcValue>() -> Self {
+impl<'a> CalcContext<'a> {
+    pub fn with_options(options: CalcOptions<'a>) -> Self {
         Self {
-            constants: T::custom_constants(),
-            convert_dimension: T::convert_dimension,
+            options: Some(options),
             ..Default::default()
         }
     }
@@ -162,12 +158,16 @@ pub(crate) fn parse_calc_value(
         Token::Ident(constant) => Err(CssError::new_located(
             &next,
             crate::error_codes::calc::CONSTANT_NOT_SUPPORTED,
-            format!("Contant {constant} is not recognized inside calc()"),
+            format!("Constant {constant} is not recognized inside calc()"),
         )),
         Token::Number { value, .. } => Ok(CalcValue::Number(*value)),
         Token::Percentage { unit_value, .. } => Ok(CalcValue::Percentage(*unit_value)),
         Token::Dimension { value, unit, .. } => {
-            if let Some((new_value, new_dim)) = (ctx.convert_dimension)(*value, unit) {
+            let converted = ctx
+                .options
+                .and_then(|options| (options.convert_dimension)(*value, unit));
+
+            if let Some((new_value, new_dim)) = converted {
                 Ok(CalcValue::Dimension {
                     value: new_value,
                     dim: new_dim,

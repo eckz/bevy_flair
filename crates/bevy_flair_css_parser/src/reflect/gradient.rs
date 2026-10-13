@@ -1,7 +1,6 @@
 use crate::reflect::parse_color;
-use crate::reflect::ui::parse_angle;
 use crate::utils::{CombinedParse, parse_property_value_with};
-use crate::{CssError, ParserExt, ReflectParseCss, error_codes, parse_val};
+use crate::{CssError, ParserExt, ReflectParseCss, error_codes, parse_angle, parse_val};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Rot2;
 use bevy_reflect::CreateTypeData;
@@ -295,7 +294,7 @@ fn parse_color_space(parser: &mut Parser) -> Result<Option<InterpolationColorSpa
 // parses angle, but also tries to parse 'to right top', 'to left bottom', etc.
 fn parse_linear_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssError> {
     if let Ok(angle) = parser.try_parse_with(parse_angle) {
-        return Ok(Some(angle));
+        return Ok(Some(angle.into_rot2()));
     }
 
     if parser
@@ -339,7 +338,7 @@ fn parse_conic_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssEr
         return Ok(None);
     }
 
-    Ok(Some(parse_angle(parser)?))
+    Ok(Some(parse_angle(parser)?.into_rot2()))
 }
 
 fn fail_if_empty<T>(values: &[T]) -> Result<(), CssError> {

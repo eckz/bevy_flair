@@ -1,12 +1,12 @@
 use crate::reflect::{
-    parse_angle, parse_asset_path, parse_color, parse_enum_as_property_value, parse_enum_value,
-    parse_gradient, parse_grid_track_vec, parse_px, parse_repeated_grid_track_vec, parse_val,
+    parse_asset_path, parse_color, parse_enum_as_property_value, parse_enum_value, parse_gradient,
+    parse_grid_track_vec, parse_px, parse_repeated_grid_track_vec, parse_val,
 };
 use crate::utils::{
     CombinedParse, parse_property_global_keyword, parse_property_value_with, try_parse_none,
     try_parse_none_with_value,
 };
-use crate::{CssError, ParserExt, error_codes};
+use crate::{CssError, ParserExt, error_codes, parse_angle};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 use bevy_flair_core::helper_components::{TextDecoration, TextDecorationLine};
@@ -967,7 +967,7 @@ fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssE
     match_ignore_ascii_case! { &function,
         "rotate" | "rotatez" => {
             parser.parse_nested_block_with(|parser| {
-                Ok(Some(parse_angle(parser)?))
+                Ok(Some(parse_angle(parser)?.into_rot2()))
             })
         },
         "scale" | "scalex" | "scaley" | "translate" | "translatey" | "translatex" => {

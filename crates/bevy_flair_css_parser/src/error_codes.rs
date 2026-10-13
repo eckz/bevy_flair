@@ -28,6 +28,7 @@ define_errors!(basic => {
 define_errors!(color => {
     CURRENT_COLOR_NOT_SUPPORTED(20, "'current_color' as a color is not supported"),
     UNSUPPORTED_COLOR_SPACE(21, "Unsupported color space"),
+    UNSUPPORTED_COLOR_FUNCTION(22, "Unsupported color function"),
 });
 
 define_errors!(enums => {
