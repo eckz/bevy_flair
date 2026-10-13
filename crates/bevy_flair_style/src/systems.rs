@@ -6,6 +6,7 @@ use crate::components::*;
 use crate::{GlobalChangeDetection, NodePseudoState, StyleBlock, StyleSheet};
 use bevy_ecs::entity::hash_set::EntityHashSet;
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
@@ -136,33 +137,51 @@ pub(crate) fn calculate_effective_style_sheet(
         &mut StyleFlags,
         &mut StyleMarkers,
     )>,
-    styled_query: Query<&Styled>,
     styled_children: StyledChildren,
 ) {
-    let mut set_effective_style_sheet = |entity| {
+    let dirty_entities: EntityHashSet = changed_style_sheets_query
+        .iter()
+        .chain(changed_child_of_query.iter())
+        .collect();
+
+    if dirty_entities.is_empty() {
+        return;
+    }
+
+    let (marked, _, roots) = styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
+
+    // Shared instance for the common `None` case
+    let none: Rc<EffectiveStyleSheet> = Rc::new(EffectiveStyleSheet::None);
+
+    let mut resolve = |entity: Entity,
+                       inherited: Rc<EffectiveStyleSheet>,
+                       force: bool|
+     -> (Rc<EffectiveStyleSheet>, bool) {
         let Ok((name_or_entity, style_sheet, mut effective_style_sheet, mut flags, mut marker)) =
             style_data_query.get_mut(entity)
         else {
-            return false;
+            return (inherited, force);
         };
 
+        if !force && !dirty_entities.contains(&entity) {
+            if *effective_style_sheet == *inherited {
+                return (inherited, false);
+            }
+            return (Rc::new(effective_style_sheet.clone()), false);
+        }
+
         let new_effective_style_sheet = match style_sheet {
-            Styled::Inherited => styled_children
-                .iter_ancestors(name_or_entity.entity)
-                .find_map(|e| {
-                    let style_sheet = styled_query.get(e).ok()?;
-                    match style_sheet {
-                        Styled::Inherited => None,
-                        Styled::StyleSheet(style_sheet) => {
-                            Some(EffectiveStyleSheet::Handle(style_sheet.clone()))
-                        }
-                        Styled::Block => Some(EffectiveStyleSheet::None),
-                    }
-                })
-                .unwrap_or(EffectiveStyleSheet::None),
-            Styled::StyleSheet(style_sheet) => EffectiveStyleSheet::Handle(style_sheet.clone()),
-            Styled::Block => EffectiveStyleSheet::None,
+            Styled::Inherited => inherited,
+            Styled::StyleSheet(style_sheet) => {
+                Rc::new(EffectiveStyleSheet::Handle(style_sheet.clone()))
+            }
+            Styled::Block => none.clone(),
         };
+
+        if *effective_style_sheet == *new_effective_style_sheet {
+            // Nothing changes
+            return (new_effective_style_sheet, false);
+        }
 
         if let Styled::StyleSheet(style_sheet_handle) = style_sheet {
             debug!(
@@ -172,28 +191,47 @@ pub(crate) fn calculate_effective_style_sheet(
         }
         trace!("Effective stylesheet for {name_or_entity} is {new_effective_style_sheet:?}");
 
-        let effective_change = effective_style_sheet.set_if_neq(new_effective_style_sheet);
-        if effective_change {
-            marker.reset();
-            flags.reset();
-        }
-        effective_change
+        *effective_style_sheet = (*new_effective_style_sheet).clone();
+        marker.reset();
+        flags.reset();
+        (new_effective_style_sheet, true)
     };
 
-    let mut effective_style_sheet_changed = EntityHashSet::default();
-    for entity in changed_style_sheets_query
-        .iter()
-        .chain(changed_child_of_query.iter())
-    {
-        if set_effective_style_sheet(entity) {
-            effective_style_sheet_changed.insert(entity);
-        }
+    // DFS from the roots, carrying each entity's resolved effective stylesheet down to its
+    // children. Only dirty entities (and anything below a changed value) are recomputed;
+    struct TraversalOp {
+        entity: Entity,
+        inherited: Rc<EffectiveStyleSheet>,
+        force: bool,
     }
 
-    // For all modified entities, recursively recalculate descendants
-    styled_children.mark_descendants(effective_style_sheet_changed, |entity| {
-        set_effective_style_sheet(entity);
-    });
+    let mut stack: Vec<TraversalOp> = roots
+        .into_iter()
+        .map(|entity| TraversalOp {
+            entity,
+            inherited: none.clone(),
+            force: false,
+        })
+        .collect();
+
+    while let Some(TraversalOp {
+        entity,
+        inherited,
+        force,
+    }) = stack.pop()
+    {
+        let (current, changed) = resolve(entity, inherited, force);
+
+        for child in styled_children.iter_children(entity) {
+            if changed || marked.contains(&child) {
+                stack.push(TraversalOp {
+                    entity: child,
+                    inherited: current.clone(),
+                    force: changed,
+                });
+            }
+        }
+    }
 }
 
 // TODO: I guess this should be done automatically by bevy or winit, but it's not happening
