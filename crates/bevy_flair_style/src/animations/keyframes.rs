@@ -892,7 +892,7 @@ mod tests {
             builder.add_keyframe(0.0).with_properties([(LEFT, 0.0)]);
 
             builder.add_keyframe(0.25);
-            builder.add_keyframe(0.75);
+            builder.add_keyframe(0.70);
         });
 
         let current_values = property_map!(
@@ -904,7 +904,7 @@ mod tests {
             vec![
                 keyframe!(0, 0.0),
                 keyframe!(25, 25.0),
-                keyframe!(75, 75.0),
+                keyframe!(70, 70.0),
                 keyframe!(100, 100.0),
             ]
         );
