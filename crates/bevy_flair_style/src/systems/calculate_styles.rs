@@ -181,6 +181,13 @@ pub(crate) fn calculate_styles_and_set_vars(
             .compute_marked_subtree_sizes(&marked, &roots)
     });
 
+    #[cfg(feature = "trace")]
+    tracing::info!(
+        marked_len = marked.len(),
+        sizes_calculated = sizes.is_some(),
+        "calculate_styles_and_set_vars size calculation",
+    );
+
     let ctx = Ctx {
         parallel: &parallel,
         marked: &marked,
@@ -248,13 +255,14 @@ fn process_chunk<'env, 'scope>(
     scope: Option<&'scope Scope<'scope, 'env, ()>>,
 ) {
     #[cfg(feature = "trace")]
-    let _guard = tracing::info_span!(
-        "calculate_styles_and_set_vars::process_chunk",
+    let _guard = tracing::info_span!("calculate_styles_and_set_vars::process_chunk").entered();
+    #[cfg(feature = "trace")]
+    tracing::info!(
         stack_len = stack.len(),
         remaining_size,
         parallel = scope.is_some(),
-    )
-    .entered();
+        "calculate_styles_and_set_vars::process_chunk",
+    );
 
     while let Some(op) = stack.pop() {
         match op {
@@ -296,6 +304,7 @@ fn process_chunk<'env, 'scope>(
                     stack.push(TraversalOp::Leave(hashes));
                 }
 
+                remaining_size -= 1;
                 if !ctx.leaves.contains(&entity) {
                     let prefix_start = stack.len();
 
@@ -305,7 +314,9 @@ fn process_chunk<'env, 'scope>(
                         .iter_children(entity)
                         .filter(|child| ctx.marked.contains(child));
 
-                    if let Some(scope) = scope {
+                    if remaining_size > 2 * MIN_BATCH_SIZE
+                        && let Some(scope) = scope
+                    {
                         let mut prefix_size = 0;
                         for child in valid_children {
                             stack.push(TraversalOp::Enter(child));

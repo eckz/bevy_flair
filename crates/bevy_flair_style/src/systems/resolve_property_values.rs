@@ -156,6 +156,13 @@ pub(crate) fn resolve_property_values(
             .compute_marked_subtree_sizes(&marked, &roots)
     });
 
+    #[cfg(feature = "trace")]
+    tracing::info!(
+        marked_len = marked.len(),
+        sizes_calculated = sizes.is_some(),
+        "resolve_property_values size calculation",
+    );
+
     let ctx = Ctx {
         parallel: &parallel,
         marked: &marked,
@@ -224,13 +231,14 @@ fn process_chunk<'env, 'scope>(
     scope: Option<&'scope Scope<'scope, 'env, ()>>,
 ) {
     #[cfg(feature = "trace")]
-    let _guard = tracing::info_span!(
-        "resolve_property_values::process_chunk",
+    let _guard = tracing::info_span!("resolve_property_values::process_chunk").entered();
+    #[cfg(feature = "trace")]
+    tracing::info!(
         stack_len = stack.len(),
         remaining_size,
         parallel = scope.is_some(),
-    )
-    .entered();
+        "resolve_property_values::process_chunk",
+    );
 
     while let Some(TraversalOp {
         entity,
@@ -351,6 +359,7 @@ fn process_chunk<'env, 'scope>(
             }
         }
 
+        remaining_size -= 1;
         if !ctx.leaves.contains(&entity) {
             let prefix_start = stack.len();
 
@@ -360,7 +369,9 @@ fn process_chunk<'env, 'scope>(
                 .iter_children(entity)
                 .filter(|child| ctx.marked.contains(child));
 
-            if let Some(scope) = scope {
+            if remaining_size >= 2 * MIN_BATCH_SIZE
+                && let Some(scope) = scope
+            {
                 let mut prefix_size = 0;
                 for child in valid_children {
                     stack.push(TraversalOp {

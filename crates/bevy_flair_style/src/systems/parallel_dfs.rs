@@ -1,7 +1,7 @@
 //! Shared bookkeeping for splitting a marked-spine DFS into parallel subtree tasks.
 use bevy_ecs::entity::{Entity, EntityHashMap};
 
-pub(crate) const MIN_BATCH_SIZE: usize = 256;
+pub(crate) const MIN_BATCH_SIZE: usize = 128;
 
 pub(crate) fn child_size(sizes: Option<&EntityHashMap<usize>>, child: Entity) -> usize {
     sizes

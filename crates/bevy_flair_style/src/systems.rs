@@ -656,7 +656,7 @@ pub(crate) fn compute_property_values(
 
     properties_query
         .par_iter_mut()
-        .batching_strategy(BatchingStrategy::default().min_batch_size(256))
+        .batching_strategy(BatchingStrategy::default().min_batch_size(32))
         .for_each(|(entity, mut properties, mut marker)| {
             if !marker.needs_compute_property_values() {
                 return;
