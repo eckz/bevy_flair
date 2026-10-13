@@ -132,6 +132,8 @@ pub(crate) fn resolve_property_values(
 
     // Pass 3: non-recursive DFS from the roots,
     // update each entity's `NearestVarAncestor` and update property values
+    // TODO: Add parallelization using maybe Query reborrow unchecked and precondition checking
+    // to split large enough subtree calculation in separate tasks
     struct TraversalOp {
         entity: Entity,
         inherited_nearest_var_ancestor: Option<Entity>,

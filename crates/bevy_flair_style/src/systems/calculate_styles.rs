@@ -162,12 +162,13 @@ pub(crate) fn calculate_styles_and_set_vars(
     }
 
     // Pass 2: mark each dirty entity's ancestor spine up to the root.
-    let (marked, leaves, roots) = styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
-
-    // TODO: Parallelize disjoint entity tree execution
+    let (marked, leaves, roots) =
+        styled_children.mark_ancestor_spine(dirty_entities.iter().copied());
 
     // Pass 3: DFS from the roots, maintaining a shared ancestor `BloomFilter` via push/pop.
     // Non-recursive to avoid stack overflow on deep UI.
+    // TODO: Add parallelization using maybe Query reborrow unchecked and precondition checking
+    // to split large enough subtree calculation in separate tasks
     let mut filter = selectors::bloom::BloomFilter::new();
     let mut stack: Vec<TraversalOp> = roots.into_iter().map(TraversalOp::Enter).collect();
 
