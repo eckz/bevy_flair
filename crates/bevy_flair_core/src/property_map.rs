@@ -118,9 +118,9 @@ impl<'a, T> Index<&'a ComponentPropertyId> for PropertyMap<T> {
     }
 }
 
-impl<T> Index<std::range::legacy::Range<ComponentPropertyId>> for PropertyMap<T> {
+impl<T> Index<std::ops::Range<ComponentPropertyId>> for PropertyMap<T> {
     type Output = [T];
-    fn index(&self, index: std::range::legacy::Range<ComponentPropertyId>) -> &Self::Output {
+    fn index(&self, index: std::ops::Range<ComponentPropertyId>) -> &Self::Output {
         &self.0[(index.start.0 as usize)..(index.end.0 as usize)]
     }
 }
