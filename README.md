@@ -8,11 +8,17 @@ It enables you to style UI components, taking advantage of the power of CSS.
 
 ## Showcase
 
-Example styled entirely with CSS:
+### Widgets
 
-https://github.com/user-attachments/assets/792b9cfa-42fb-4e50-a85f-8d21aafeb1e5
+https://github.com/user-attachments/assets/b7aed222-812e-48bd-b760-f19082b97d38
 
-([View source CSS](https://github.com/eckz/bevy_flair/blob/main/assets/game_menu.css))
+[View widgets example source](https://github.com/eckz/bevy_flair/blob/main/examples/widgets.rs)
+
+### Game menu
+
+https://github.com/user-attachments/assets/b7a571e9-1f8d-4fd5-92b9-d3e5caa00d5b
+
+[View game_menu example source](https://github.com/eckz/bevy_flair/blob/main/examples/game_menu.rs)
 
 ## Getting started
 
