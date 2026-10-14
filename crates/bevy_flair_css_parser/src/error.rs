@@ -481,7 +481,7 @@ impl<'a> ErrorReportGenerator<'a> {
     /// Add advice to this report.
     pub fn add_advice(
         &mut self,
-        location: core::range::legacy::Range<usize>,
+        location: std::ops::Range<usize>,
         message: &'static str,
         annotated_message: impl Into<String>,
     ) {
