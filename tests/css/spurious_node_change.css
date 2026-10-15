@@ -1,0 +1,12 @@
+@keyframes pulse {
+  from {
+    background-color: red;
+  }
+  to {
+    background-color: blue;
+  }
+}
+
+.animated {
+  animation: 1s linear pulse infinite;
+}
