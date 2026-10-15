@@ -1,4 +1,4 @@
-use crate::parser::{
+use crate::style_sheet_parser::{
     CssDeclaration, CssParserContext, CssRulesetBodyParser, CssStyleSheetItem,
     ParseAnimationProperties, collect_parser,
 };
@@ -62,7 +62,7 @@ fn parse_keyframe(parser: &mut Parser) -> Result<f32, CssError> {
     })
 }
 
-/// `@keyframes` body parser
+/// `@keyframes` body style_sheet_parser
 struct CssKeyframesBodyParser<'a, 'i> {
     inner: CssParserContext<'a, 'i>,
 }
@@ -78,21 +78,21 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
     type QualifiedRule = ParserAnimationKeyFrame;
     type Error = CssError;
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::Prelude, ParseError<'i, Self::Error>> {
+        input: &mut Parser<'i>,
+    ) -> Result<Self::Prelude, ParseError<Self::Error>> {
         input.parse_comma_separated(|parser| {
             parse_keyframe(parser).map_err(|err| err.into_parse_error())
         })
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         times: Self::Prelude,
         _: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
+        input: &mut Parser<'i>,
+    ) -> Result<Self::QualifiedRule, ParseError<Self::Error>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
             parse_vars: false,
             parse_transition: false,
@@ -128,7 +128,7 @@ impl<'i> RuleBodyItemParser<'i, ParserAnimationKeyFrame, CssError>
 pub(super) fn parse_keyframes_body<'i, 'a>(
     name: CowRcStr<'i>,
     context: CssParserContext<'a, 'i>,
-    input: &mut Parser<'i, '_>,
+    input: &mut Parser<'i>,
 ) -> CssStyleSheetItem {
     let mut keyframe_body_parser = CssKeyframesBodyParser {
         inner: context.clone(),
@@ -157,8 +157,8 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::CssDeclaration;
-    use crate::parser::keyframes::ParserAnimationKeyFrame;
+    use crate::style_sheet_parser::CssDeclaration;
+    use crate::style_sheet_parser::keyframes::ParserAnimationKeyFrame;
     use crate::test_utils::{ExpectExt, NoVarsSupportedResolver};
     use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, EasingFunction};
     use indoc::indoc;

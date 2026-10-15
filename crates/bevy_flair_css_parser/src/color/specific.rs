@@ -154,33 +154,33 @@ impl<'i> cssparser_color::ColorParser<'i> for ColorParser {
     type Output = ParsedColor;
     type Error = CssError;
 
-    fn parse_angle_or_number<'t>(
+    fn parse_angle_or_number(
         &self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<AngleOrNumber, ParseError<'i, Self::Error>> {
+        input: &mut Parser,
+    ) -> Result<AngleOrNumber, ParseError<Self::Error>> {
         super::parse_angle_or_number(input, &[]).map_err(CssError::into_parse_error)
     }
 
-    fn parse_percentage<'t>(
+    fn parse_percentage(
         &self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<f32, ParseError<'i, Self::Error>> {
+        input: &mut Parser,
+    ) -> Result<f32, ParseError<Self::Error>> {
         super::parse_percentage(input, &[]).map_err(CssError::into_parse_error)
     }
 
     /// Parse a `<number>` value.
-    fn parse_number<'t>(
+    fn parse_number(
         &self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<f32, ParseError<'i, Self::Error>> {
+        input: &mut Parser,
+    ) -> Result<f32, ParseError<Self::Error>> {
         super::parse_number(input, &[]).map_err(CssError::into_parse_error)
     }
 
     /// Parse a `<number>` value or a `<percentage>` value.
-    fn parse_number_or_percentage<'t>(
+    fn parse_number_or_percentage(
         &self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<NumberOrPercentage, ParseError<'i, Self::Error>> {
+        input: &mut Parser,
+    ) -> Result<NumberOrPercentage, ParseError<Self::Error>> {
         super::parse_number_or_percentage(input, &[]).map_err(CssError::into_parse_error)
     }
 }

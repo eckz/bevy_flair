@@ -113,8 +113,7 @@ fn parse_calc_with_context<T, E: Display, F: FnOnce(&CalcValue) -> Result<T, E>>
 /// # use cssparser::Parser;
 /// # use bevy_flair_css_parser::{parse_calc_with_options, CalcValue, CalcOptions};
 ///
-/// let mut input = cssparser::ParserInput::new("calc(2 + my_constant)");
-/// let mut parser = Parser::new(&mut input);
+/// let mut parser = Parser::new("calc(2 + my_constant)");
 ///
 /// let options =  CalcOptions::new().with_custom_constants(&[("my_constant", 10.0)]);
 ///
@@ -149,8 +148,7 @@ pub fn parse_calc_with_options<T, E: Display, F: FnOnce(&CalcValue) -> Result<T,
 /// # use cssparser::Parser;
 /// # use bevy_flair_css_parser::{parse_calc, CalcValue};
 ///
-/// let mut input = cssparser::ParserInput::new("calc(2px + 3px)");
-/// let mut parser = Parser::new(&mut input);
+/// let mut parser = Parser::new("calc(2px + 3px)");
 /// let value = parse_calc(&mut parser, |calc_value| {
 ///     match calc_value {
 ///         CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => Ok(*value),

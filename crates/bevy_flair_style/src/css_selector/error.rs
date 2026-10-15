@@ -1,4 +1,4 @@
-use cssparser::{BasicParseErrorKind, ParseErrorKind, SourceLocation, ToCss};
+use cssparser::{BasicParseErrorKind, ParseErrorKind};
 use selectors::parser::SelectorParseErrorKind;
 use std::error::Error;
 use std::fmt::Display;
@@ -7,62 +7,61 @@ use std::fmt::Display;
 ///
 /// [`CssSelector::parse`]: crate::css_selector::CssSelector::parse_single
 #[derive(Debug, PartialEq, Clone)]
-pub struct SelectorError<'a> {
+pub struct SelectorError {
     /// Details of this error
-    pub(crate) kind: SelectorErrorKind<'a>,
-    /// Location where this error occurred
-    pub location: SourceLocation,
+    pub(crate) kind: SelectorErrorKind,
+    // TODO: WAT?
+    // /// Location where this error occurred
+    // pub location: SourceLocation,
 }
 
 /// Error type that is returned when calling `Selector::parse`
 #[derive(Debug, PartialEq, Clone)]
-pub enum SelectorErrorKind<'a> {
+pub enum SelectorErrorKind {
     /// Basic parse error
-    Basic(BasicParseErrorKind<'a>),
+    Basic(BasicParseErrorKind),
     /// Selector parse error
-    Selector(SelectorParseErrorKind<'a>),
+    Selector(SelectorParseErrorKind),
 }
 
-impl<'a> From<cssparser::ParseError<'a, SelectorParseErrorKind<'a>>> for SelectorError<'a> {
-    fn from(original: cssparser::ParseError<'a, SelectorParseErrorKind<'a>>) -> Self {
-        let location = original.location;
+impl From<cssparser::ParseError<SelectorParseErrorKind>> for SelectorError {
+    fn from(original: cssparser::ParseError<SelectorParseErrorKind>) -> Self {
         let kind = match original.kind {
             ParseErrorKind::Basic(err) => SelectorErrorKind::Basic(err),
             ParseErrorKind::Custom(err) => SelectorErrorKind::Selector(err),
         };
-        Self { kind, location }
+        Self { kind}
     }
 }
 
-impl<'a> From<BasicParseErrorKind<'a>> for SelectorErrorKind<'a> {
-    fn from(err: BasicParseErrorKind<'a>) -> Self {
+impl<'a> From<BasicParseErrorKind> for SelectorErrorKind {
+    fn from(err: BasicParseErrorKind) -> Self {
         Self::Basic(err)
     }
 }
 
-impl<'a> From<SelectorParseErrorKind<'a>> for SelectorErrorKind<'a> {
-    fn from(err: SelectorParseErrorKind<'a>) -> Self {
+impl<'a> From<SelectorParseErrorKind> for SelectorErrorKind {
+    fn from(err: SelectorParseErrorKind) -> Self {
         Self::Selector(err)
     }
 }
 
-impl Display for SelectorErrorKind<'_> {
+impl Display for SelectorErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SelectorErrorKind::Basic(err) => Display::fmt(err, f),
             SelectorErrorKind::Selector(SelectorParseErrorKind::EmptySelector) => {
                 write!(f, "Empty selector found")
             }
-            SelectorErrorKind::Selector(SelectorParseErrorKind::ClassNeedsIdent(token)) => {
-                let token_str = token.to_css_string();
-                write!(f, "Expected an ident for a class, got '{token_str}'")
+            SelectorErrorKind::Selector(SelectorParseErrorKind::ClassNeedsIdent) => {
+                write!(f, "Expected an ident for a class")
             }
             SelectorErrorKind::Selector(
-                SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
+                SelectorParseErrorKind::UnsupportedPseudoClassOrElement,
             ) => {
                 write!(
                     f,
-                    "Unsupported pseudo-class: '{name}'. Pseudo-elements are unsupported. Only valid pseudo-clases are: 'hover' | 'active' | 'focus' | 'focus-visible'"
+                    "Unsupported pseudo-class. Pseudo-elements are unsupported. Only valid pseudo-classes are: 'hover' | 'active' | 'focus' | 'focus-visible'"
                 )
             }
             SelectorErrorKind::Selector(other) => {
@@ -72,4 +71,4 @@ impl Display for SelectorErrorKind<'_> {
     }
 }
 
-impl Error for SelectorErrorKind<'_> {}
+impl Error for SelectorErrorKind {}

@@ -1,11 +1,11 @@
 use cssparser::{
-    AtRuleParser, BasicParseErrorKind, CowRcStr, ParseError, Parser, ParserInput, ParserState,
+    AtRuleParser, BasicParseErrorKind, CowRcStr, ParseError, Parser, ParserState,
     QualifiedRuleParser, StyleSheetParser, match_ignore_ascii_case,
 };
 
 use crate::{CssError, ParserExt};
 
-/// Top level CSS parser.
+/// Top level CSS style_sheet_parser.
 struct CssImportsParser;
 
 impl<'i> AtRuleParser<'i> for CssImportsParser {
@@ -13,11 +13,11 @@ impl<'i> AtRuleParser<'i> for CssImportsParser {
     type AtRule = CowRcStr<'i>;
     type Error = CssError;
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::Prelude, ParseError<'i, Self::Error>> {
+        input: &mut Parser<'i>,
+    ) -> Result<Self::Prelude, ParseError<Self::Error>> {
         match_ignore_ascii_case! { &name,
             "import" =>  {
                 let url = input.expect_url_or_string()?;
@@ -55,8 +55,7 @@ pub fn extract_imports<'a, F>(contents: &'a str, mut processor: F)
 where
     F: FnMut(CowRcStr<'a>),
 {
-    let mut input = ParserInput::new(contents);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Parser::new(contents);
 
     let mut css_imports_parser = CssImportsParser;
     let stylesheet_parser = StyleSheetParser::new(&mut parser, &mut css_imports_parser);

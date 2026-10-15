@@ -30,7 +30,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::internal_loader::{ImportMapping, Imports};
-use crate::parser::media_selectors::parse_media_selectors;
+use crate::style_sheet_parser::media_selectors::parse_media_selectors;
 pub(crate) use font_face::*;
 pub(crate) use keyframes::*;
 
@@ -60,7 +60,7 @@ impl From<CssError> for CssDeclaration {
 }
 
 impl CssDeclaration {
-    fn into_parse_result(self) -> Result<CssDeclaration, ParseError<'static, CssError>> {
+    fn into_parse_result(self) -> Result<CssDeclaration, ParseError<CssError>> {
         match self {
             CssDeclaration::Error(err) => Err(err.into_parse_error()),
             other => Ok(other),
@@ -92,9 +92,9 @@ impl From<CssError> for CssStyleSheetItem {
     }
 }
 
-fn consume_as_var_tokens<'i>(
-    parser: &mut Parser<'i, '_>,
-) -> Result<(VarTokens, ImportantLevel), ParseError<'i, CssError>> {
+fn consume_as_var_tokens(
+    parser: &mut Parser,
+) -> Result<(VarTokens, ImportantLevel), ParseError<CssError>> {
     parser.parse_entirely(|parser| {
         let var_tokens = parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
         let important_level = try_parse_important_level(parser);
@@ -264,7 +264,7 @@ impl CssPropertyParser<'_> {
 
 fn collect_parser<'a, I, E>(parser: I) -> Vec<E>
 where
-    I: Iterator<Item = Result<E, (ParseError<'a, CssError>, &'a str)>>,
+    I: Iterator<Item = Result<E, (ParseError<CssError>, &'a str)>>,
     E: From<CssError>,
 {
     parser
@@ -287,7 +287,7 @@ enum ParseAnimationProperties {
     OnlyTimingFunction,
 }
 
-/// Ruleset declaration parser.
+/// Ruleset declaration style_sheet_parser.
 /// Parses single property declaration like
 /// ```css
 ///    width: 3px;
@@ -309,35 +309,37 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
     type AtRule = CssDeclaration;
     type Error = CssError;
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<AtRuleType<'i>, ParseError<'i, CssError>> {
+        parser: &mut Parser<'i>,
+    ) -> Result<AtRuleType<'i>, ParseError<CssError>> {
         if !self.parse_nested {
-            return Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)));
+            todo!("error at rule invalid")
+            //return Err(ParseError::custom(BasicParseErrorKind::AtRuleInvalid));
         }
         match_ignore_ascii_case! { &name,
             "media" =>  {
-                let media_selectors = parse_media_selectors(input).map_err(|err| err.into_parse_error())?;
+                let media_selectors = parse_media_selectors(parser).map_err(|err| err.into_parse_error())?;
                 Ok(AtRuleType::MediaSelector(media_selectors))
             },
             "layer" =>  {
-                let layer_name = input.expect_ident_cloned()?;
+                let layer_name = parser.expect_ident_cloned()?;
                 Ok(AtRuleType::Layer(vec![layer_name]))
             },
             _ => {
-                Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
+                todo!("error at rule invalid")
+                // Err(ParseError::custom(BasicParseErrorKind::AtRuleInvalid))
             }
         }
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         prelude: Self::Prelude,
         _start: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::AtRule, ParseError<'i, Self::Error>> {
+        input: &mut Parser<'i>,
+    ) -> Result<Self::AtRule, ParseError<Self::Error>> {
         Ok(match prelude {
             AtRuleType::MediaSelector(media_selectors) => {
                 let mut ruleset_body_parser = CssRulesetBodyParser {
@@ -396,22 +398,22 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
     type QualifiedRule = CssDeclaration;
     type Error = CssError;
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::Prelude, ParseError<'i, Self::Error>> {
+        input: &mut Parser<'i>,
+    ) -> Result<Self::Prelude, ParseError<Self::Error>> {
         Ok(
             CssSelector::parse_comma_separated_for_nested(input)
                 .map_err(CssError::from_parse_error),
         )
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         selectors: Self::Prelude,
         _start: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
+        input: &mut Parser<'i>,
+    ) -> Result<Self::QualifiedRule, ParseError<Self::Error>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
             parse_vars: true,
             parse_transition: true,
@@ -442,12 +444,12 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
     type Declaration = CssDeclaration;
     type Error = CssError;
 
-    fn parse_value<'t>(
+    fn parse_value(
         &mut self,
         property_name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
+        input: &mut Parser<'i>,
         _declaration_start: &ParserState,
-    ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
+    ) -> Result<Self::Declaration, ParseError<Self::Error>> {
         if self.parse_vars && property_name.starts_with("--") {
             let var_name = property_name.strip_prefix("--").unwrap();
 
@@ -495,7 +497,7 @@ impl<'i> RuleBodyItemParser<'i, CssDeclaration, CssError> for CssRulesetBodyPars
     }
 }
 
-/// Top level CSS parser.
+/// Top level CSS style sheet parser.
 struct CssStyleSheetParser<'a, 'i> {
     // Indicates if it should parse top level at-rules, like @font-face, @keyframes, @import, etc
     is_top_level: bool,
@@ -512,7 +514,7 @@ enum AtRuleType<'i> {
 }
 
 fn parse_inner_at_rule<'a, 'i>(
-    parser: &mut Parser<'i, '_>,
+    parser: &mut Parser<'i>,
     new_context: CssParserContext<'a, 'i>,
 ) -> CssStyleSheetItem {
     let mut css_style_sheet_parser = CssStyleSheetParser {
@@ -542,11 +544,11 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
     type AtRule = CssStyleSheetItem;
     type Error = CssError;
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<AtRuleType<'i>, ParseError<'i, CssError>> {
+        input: &mut Parser<'i>,
+    ) -> Result<AtRuleType<'i>, ParseError<CssError>> {
         let is_top_level = self.is_top_level;
         Ok(match_ignore_ascii_case! { &name,
             "font-face" if is_top_level => AtRuleType::FontFace,
@@ -636,12 +638,12 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         }
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         at_rule_type: AtRuleType<'i>,
         _: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<CssStyleSheetItem, ParseError<'i, CssError>> {
+        input: &mut Parser<'i>,
+    ) -> Result<CssStyleSheetItem, ParseError<CssError>> {
         Ok(match at_rule_type {
             AtRuleType::FontFace => parse_font_face_body(input),
             AtRuleType::KeyFrames(name) => parse_keyframes_body(name, self.inner.clone(), input),
@@ -686,30 +688,30 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
     type QualifiedRule = CssStyleSheetItem;
     type Error = CssError;
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<CssParseResult<Vec<CssSelector>>, ParseError<'i, CssError>> {
-        Ok(CssSelector::parse_comma_separated(input)
-            .map(|selectors| {
-                selectors
-                    .into_iter()
-                    .map(|selector| {
-                        selector
-                            .with_media_selectors(self.inner.media_selectors.clone())
-                            .with_layer(self.inner.current_layer.clone())
-                    })
-                    .collect()
+        parser: &mut Parser<'i>,
+    ) -> Result<CssParseResult<Vec<CssSelector>>, ParseError<CssError>> {
+        let selectors = parser.catching(CssSelector::parse_comma_separated).map_err(CssError::into_parse_error)?;
+        
+        
+        Ok(CssParseResult::Ok(selectors
+            .into_iter()
+            .map(|selector| {
+                selector
+                    .with_media_selectors(self.inner.media_selectors.clone())
+                    .with_layer(self.inner.current_layer.clone())
             })
-            .map_err(CssError::from_parse_error))
+            .collect()))
+            
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         selectors: CssParseResult<Vec<CssSelector>>,
         _start: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<CssStyleSheetItem, ParseError<'i, CssError>> {
+        input: &mut Parser<'i>,
+    ) -> Result<CssStyleSheetItem, ParseError<CssError>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
             parse_vars: true,
             parse_transition: true,
@@ -732,8 +734,7 @@ pub fn parse_inline_properties(
     contents: &str,
     property_parser: CssPropertyParser,
 ) -> Vec<CssDeclaration> {
-    let mut input = ParserInput::new(contents);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Parser::new(contents);
 
     let empty_imports = FxHashMap::default();
 
@@ -768,8 +769,7 @@ pub fn parse_css<F>(
 ) where
     F: FnMut(CssStyleSheetItem),
 {
-    let mut input = ParserInput::new(contents);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Parser::new(contents);
 
     let mut css_style_sheet_parser = CssStyleSheetParser {
         is_top_level: true,
@@ -1044,7 +1044,7 @@ mod tests {
 
     macro_rules! expect_property_name {
         ($property:expr, $property_name:literal) => {{
-            use $crate::parser::CssDeclaration;
+            use $crate::style_sheet_parser::CssDeclaration;
             match $property {
                 CssDeclaration::SingleProperty(id, value, important_level) => {
                     assert_eq!(
@@ -1067,8 +1067,8 @@ mod tests {
 
     macro_rules! property_id {
         ($property_name:literal) => {
-            $crate::parser::tests::CSS_PROPERTY_REGISTRY
-                .resolve_property($property_name, &$crate::parser::tests::PROPERTY_REGISTRY)
+            $crate::style_sheet_parser::tests::CSS_PROPERTY_REGISTRY
+                .resolve_property($property_name, &$crate::style_sheet_parser::tests::PROPERTY_REGISTRY)
                 .expect("Invalid property_name provided")
         };
     }

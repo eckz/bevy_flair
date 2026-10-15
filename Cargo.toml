@@ -40,9 +40,9 @@ bevy_flair_core_macros = { path = "crates/bevy_flair_core_macros", version = "0.
 bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.9.0" }
 bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.9.0" }
 
-cssparser = { version = "0.37" }
-cssparser-color = { version = "0.5" }
-selectors = { version = "0.38" }
+cssparser = { version = "0.38" }
+cssparser-color = { version = "0.6" }
+selectors = { version = "0.41" }
 
 [dependencies]
 bevy_app = { workspace = true }

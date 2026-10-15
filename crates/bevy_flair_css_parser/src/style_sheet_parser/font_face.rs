@@ -1,4 +1,4 @@
-use crate::parser::{CssStyleSheetItem, collect_parser};
+use crate::style_sheet_parser::{CssStyleSheetItem, collect_parser};
 use crate::{CssError, ParserExt, error_codes};
 use bevy_flair_style::StyleFontSource;
 use cssparser::{
@@ -37,7 +37,7 @@ impl From<CssError> for FontFaceProperty {
 impl FontFaceProperty {
     pub(crate) fn into_parse_result(
         self,
-    ) -> Result<FontFaceProperty, ParseError<'static, CssError>> {
+    ) -> Result<FontFaceProperty, ParseError<CssError>> {
         match self {
             FontFaceProperty::Error(err) => Err(err.into_parse_error()),
             other => Ok(other),
@@ -108,7 +108,7 @@ fn parse_font_face_property(property_name: CowRcStr, parser: &mut Parser) -> Fon
     result.unwrap_or_else(FontFaceProperty::Error)
 }
 
-/// Font-face declaration parser
+/// Font-face declaration style_sheet_parser
 struct CssFontFaceBodyParser;
 
 impl<'i> AtRuleParser<'i> for CssFontFaceBodyParser {
@@ -127,12 +127,12 @@ impl<'i> DeclarationParser<'i> for CssFontFaceBodyParser {
     type Declaration = FontFaceProperty;
     type Error = CssError;
 
-    fn parse_value<'t>(
+    fn parse_value(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
+        input: &mut Parser<'i>,
         _declaration_start: &ParserState,
-    ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
+    ) -> Result<Self::Declaration, ParseError<Self::Error>> {
         parse_font_face_property(name, input).into_parse_result()
     }
 }
@@ -187,7 +187,7 @@ pub(super) fn parse_font_face_body(input: &mut Parser) -> CssStyleSheetItem {
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::{FontFace, FontFaceSource};
+    use crate::style_sheet_parser::{FontFace, FontFaceSource};
     use indoc::indoc;
 
     #[test]

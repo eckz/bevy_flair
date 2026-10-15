@@ -32,7 +32,7 @@ fn convert_duration_dimension(value: f32, dim: &str) -> Option<(f32, SmolStr)> {
     None
 }
 
-/// Parses a [`Duration`] from a CSS parser.
+/// Parses a [`Duration`] from a CSS style_sheet_parser.
 ///
 /// This function recognizes two types of values:
 ///
@@ -43,13 +43,12 @@ fn convert_duration_dimension(value: f32, dim: &str) -> Option<(f32, SmolStr)> {
 ///
 /// ```
 /// # use std::time::Duration;
-/// # use cssparser::{Parser, ParserInput};
+/// # use cssparser::Parser;
 /// # use bevy_flair_css_parser::parse_duration;
 ///
-/// let mut input = ParserInput::new("3.0s");
-/// let mut parser = Parser::new(&mut input);
-/// let duration = parse_duration(&mut parser).unwrap();
-/// assert_eq!(duration, Duration::from_secs_f32(3.0));
+/// let mut style_sheet_parser = Parser::new("3s");
+/// let duration = parse_duration(&mut style_sheet_parser).unwrap();
+/// assert_eq!(duration, Duration::from_secs(3));
 /// ```
 pub fn parse_duration(parser: &mut Parser) -> Result<Duration, CssError> {
     parse_calc_with_options(

@@ -137,11 +137,10 @@ pub(crate) fn convert_angle_dimension(value: f32, dim: &str) -> Option<(f32, Smo
 ///
 /// # Example
 /// ```
-/// # use cssparser::{Parser, ParserInput};
+/// # use cssparser::Parser;
 /// # use bevy_flair_css_parser::{parse_angle, Angle};
 ///
-/// let mut input = ParserInput::new("calc(90deg * 2)");
-/// let mut parser = Parser::new(&mut input);
+/// let mut parser = Parser::new("calc(90deg * 2)");
 /// let angle = parse_angle(&mut parser).unwrap();
 /// assert_eq!(angle, Angle::degrees(180.0))
 /// ```
