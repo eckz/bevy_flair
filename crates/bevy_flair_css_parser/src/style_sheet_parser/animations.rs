@@ -8,9 +8,9 @@ use bevy_flair_style::animations::{
     AnimationPropertyId, AnimationSpecificValue, AnimationValues, IterationCount,
     ParseAnimationValuesFromVarTokens, TransitionPropertyId,
 };
-use cssparser::{ParseError, Parser, ParserInput, Token, match_ignore_ascii_case};
+use cssparser::{ParseError, Parser, Token, match_ignore_ascii_case};
 
-use crate::parser::VAR_FUNCTION;
+use crate::style_sheet_parser::VAR_FUNCTION;
 use crate::utils::{try_parse_important_level, try_parse_none};
 use crate::vars::parse_var_tokens;
 use easing::parse_easing_function;
@@ -157,13 +157,19 @@ pub(crate) mod easing {
     ) -> Result<EasingFunction, CssError> {
         // TODO: Both x values must be in the range [0, 1] or the definition is invalid.
 
-        let x1 = parser.expect_number()?;
-        parser.expect_comma()?;
-        let y1 = parser.expect_number()?;
-        parser.expect_comma()?;
-        let x2 = parser.expect_number()?;
-        parser.expect_comma()?;
-        let y2 = parser.expect_number()?;
+        let (x1, y1, x2, y2) = parser.catching(|parser| {
+            let x1 = parser.expect_number()?;
+            parser.expect_comma()?;
+            let y1 = parser.expect_number()?;
+            parser.expect_comma()?;
+            let x2 = parser.expect_number()?;
+            parser.expect_comma()?;
+            let y2 = parser.expect_number()?;
+
+            Ok((x1, y1, x2, y2))
+        })?;
+
+
 
         Ok(EasingFunction::CubicBezier {
             p1: Vec2::new(x1, y1),
@@ -485,9 +491,9 @@ fn parse_transition_shorthand(
 }
 
 fn parse_animation_values<'i, T: Send + 'static>(
-    parser: &mut Parser<'i, '_>,
-    parse_one: fn(&mut Parser) -> Result<T, CssError>,
-) -> Result<SmallVec<[T; 1]>, ParseError<'i, CssError>> {
+    parser: &mut Parser<'i>,
+    parse_one: fn(&mut Parser<'i>) -> Result<T, CssError>,
+) -> Result<SmallVec<[T; 1]>, ParseError<CssError>> {
     parser.parse_entirely(|parser| {
         let result = parser
             .parse_comma_separated_with(parse_one)
@@ -502,8 +508,7 @@ fn as_parse_var_tokens<T: Send + 'static>(
 ) -> ParseAnimationValuesFromVarTokens<T> {
     Arc::new(move |tokens| {
         let tokens_as_css = tokens.to_css_string();
-        let mut input = ParserInput::new(&tokens_as_css);
-        let mut parser = Parser::new(&mut input);
+        let mut parser = Parser::new(&tokens_as_css);
 
         let result = parse_animation_values(&mut parser, parse_one);
 

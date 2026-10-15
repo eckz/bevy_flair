@@ -1,6 +1,6 @@
 use ariadne::*;
 
-use crate::Located;
+use crate::{Located, Spanned};
 use bevy_flair_style::css_selector::SelectorErrorKind;
 use cssparser::{
     BasicParseError, BasicParseErrorKind, ParseError, ParseErrorKind, SourceLocation, ToCss, Token,
@@ -130,44 +130,32 @@ impl CssErrorLocation {
     }
 }
 
-impl<'a> From<(SourceLocation, BasicParseErrorKind<'a>)> for CssErrorLocation {
-    fn from(value: (SourceLocation, BasicParseErrorKind<'a>)) -> Self {
-        let (source_location, kind) = value;
-        match kind {
-            BasicParseErrorKind::UnexpectedToken(token) => {
-                Self::from_token(source_location, &token)
-            }
-            BasicParseErrorKind::AtRuleInvalid(name) => Self::from_str(source_location, name),
-            _ => Self::from_source_location(source_location),
-        }
+impl From<std::range::Range<usize>> for CssErrorLocation {
+    fn from(range: std::range::Range<usize>) -> Self {
+        Self::Range(range)
     }
 }
 
-impl<'a> From<(SourceLocation, SelectorParseErrorKind<'a>)> for CssErrorLocation {
-    fn from(value: (SourceLocation, SelectorParseErrorKind<'a>)) -> Self {
-        let (source_location, kind) = value;
-        match kind {
-            SelectorParseErrorKind::NoQualifiedNameInAttributeSelector(token)
-            | SelectorParseErrorKind::UnexpectedTokenInAttributeSelector(token)
-            | SelectorParseErrorKind::PseudoElementExpectedColon(token)
-            | SelectorParseErrorKind::PseudoElementExpectedIdent(token)
-            | SelectorParseErrorKind::NoIdentForPseudo(token)
-            | SelectorParseErrorKind::ExpectedBarInAttr(token)
-            | SelectorParseErrorKind::BadValueInAttr(token)
-            | SelectorParseErrorKind::InvalidQualNameInAttr(token)
-            | SelectorParseErrorKind::ExplicitNamespaceUnexpectedToken(token)
-            | SelectorParseErrorKind::ClassNeedsIdent(token) => {
-                Self::from_token(source_location, &token)
-            }
-            SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name)
-            | SelectorParseErrorKind::ExpectedNamespace(name)
-            | SelectorParseErrorKind::UnexpectedIdent(name) => {
-                Self::from_str(source_location, name)
-            }
-            _ => Self::from_source_location(source_location),
-        }
+impl From<std::ops::Range<usize>> for CssErrorLocation {
+    fn from(range: std::ops::Range<usize>) -> Self {
+        Self::Range(range.into())
     }
 }
+
+// TODO
+// impl<'a> From<(SourceLocation, BasicParseErrorKind)> for CssErrorLocation {
+//     fn from(value: (SourceLocation, BasicParseErrorKind)) -> Self {
+//         let (source_location, _) = value;
+//         Self::from_source_location(source_location)
+//     }
+// }
+//
+// impl<'a> From<(SourceLocation, SelectorParseErrorKind)> for CssErrorLocation {
+//     fn from(value: (SourceLocation, SelectorParseErrorKind)) -> Self {
+//         let (source_location, _) = value;
+//         Self::from_source_location(source_location)
+//     }
+// }
 
 #[derive(Clone, Debug)]
 pub(crate) struct StyleErrorData {
@@ -185,12 +173,12 @@ impl StyleErrorData {
     }
 }
 
-impl<'a> From<BasicParseErrorKind<'a>> for StyleErrorData {
-    fn from(kind: BasicParseErrorKind<'a>) -> Self {
+impl From<BasicParseErrorKind> for StyleErrorData {
+    fn from(kind: BasicParseErrorKind) -> Self {
         use crate::error_codes::basic as basic_error_codes;
         let code = match &kind {
-            BasicParseErrorKind::UnexpectedToken(_) => basic_error_codes::UNEXPECTED_TOKEN,
-            BasicParseErrorKind::AtRuleInvalid(_) => basic_error_codes::INVALID_AT_RULE,
+            BasicParseErrorKind::UnexpectedToken => basic_error_codes::UNEXPECTED_TOKEN,
+            BasicParseErrorKind::AtRuleInvalid => basic_error_codes::INVALID_AT_RULE,
             _ => basic_error_codes::BASIC_PARSE_ERROR,
         };
 
@@ -201,8 +189,14 @@ impl<'a> From<BasicParseErrorKind<'a>> for StyleErrorData {
     }
 }
 
-impl<'a> From<SelectorParseErrorKind<'a>> for StyleErrorData {
-    fn from(kind: SelectorParseErrorKind<'a>) -> Self {
+impl From<BasicParseError> for StyleErrorData {
+    fn from(error: BasicParseError) -> Self {
+        error.kind.into()
+    }
+}
+
+impl From<SelectorParseErrorKind> for StyleErrorData {
+    fn from(kind: SelectorParseErrorKind) -> Self {
         let code = crate::error_codes::basic::INVALID_SELECTOR;
 
         let selector_error: SelectorErrorKind = kind.into();
@@ -272,10 +266,10 @@ pub struct CssError {
 
 impl CssError {
     #[track_caller]
-    fn new(data: StyleErrorData, location: CssErrorLocation) -> Self {
+    pub(crate) fn new(data: impl Into<StyleErrorData>, location: impl Into<CssErrorLocation>) -> Self {
         Self {
-            data,
-            location,
+            data: data.into(),
+            location: location.into(),
             #[cfg(test)]
             backtrace: std::sync::Arc::new(std::backtrace::Backtrace::capture()),
         }
@@ -295,7 +289,7 @@ impl CssError {
     ) -> Self {
         Self::new(
             StyleErrorData::new(code, annotated_message),
-            CssErrorLocation::Range(located.location),
+            CssErrorLocation::Range(located.span),
         )
     }
 
@@ -312,17 +306,17 @@ impl CssError {
 
     // Mainly used to convert from Selector errors.
     #[track_caller]
-    pub(crate) fn from_parse_error<E>(error: ParseError<E>) -> Self
+    pub(crate) fn from_parse_error<E>(error: Spanned<ParseError<E>>) -> Self
     where
-        E: Clone + Into<StyleErrorData>,
-        (SourceLocation, E): Into<CssErrorLocation>,
+        E: Into<StyleErrorData>,
     {
-        match error.kind {
+        let location = error.span;
+        match error.into_inner().kind {
             ParseErrorKind::Basic(basic) => {
-                Self::new(basic.clone().into(), (error.location, basic).into())
+                Self::new(basic, location)
             }
             ParseErrorKind::Custom(custom) => {
-                Self::new(custom.clone().into(), (error.location, custom).into())
+                Self::new(custom, location)
             }
         }
     }
@@ -336,19 +330,10 @@ impl CssError {
         }
     }
 
-    fn source_location(&self) -> SourceLocation {
-        match &self.location {
-            CssErrorLocation::SourceLocation {
-                source_location, ..
-            } => *source_location,
-            _ => SourceLocation { line: 0, column: 1 },
-        }
-    }
-
     /// Converts this error into a [`ParseError`] setting itself as a custom type.
     /// It can covert back to a [`CssError`] using `CssError::from(parse_error)`.
-    pub fn into_parse_error(self) -> ParseError<'static, CssError> {
-        self.source_location().new_custom_error(self)
+    pub fn into_parse_error(self) -> ParseError<CssError> {
+        ParseError::custom(self)
     }
 
     /// Converts this error into a message without any context.
@@ -376,40 +361,53 @@ impl CssError {
     }
 }
 
-impl<'a> From<BasicParseError<'a>> for CssError {
-    fn from(error: BasicParseError<'a>) -> Self {
-        Self::new(
-            error.kind.clone().into(),
-            (error.location, error.kind).into(),
-        )
+impl From<Located<BasicParseError>> for CssError {
+    fn from(value: Located<BasicParseError>) -> Self {
+        Self::new(value.kind.clone(), value.span)
     }
 }
 
-impl<'a> From<ParseError<'a, CssError>> for CssError {
-    fn from(error: ParseError<'a, CssError>) -> Self {
+impl From<Located<CssError>> for CssError {
+    fn from(value: Located<CssError>) -> Self {
+        value.into_inner()
+    }
+}
+
+impl From<Located<ParseError<CssError>>> for CssError {
+    fn from(error: Located<ParseError<CssError>>) -> Self {
+        let location = error.span;
+        match error.into_inner().kind {
+            ParseErrorKind::Basic(basic) => Self::new(basic, location),
+            ParseErrorKind::Custom(err) => err,
+        }
+    }
+}
+
+impl<'a> From<ParseError<CssError>> for CssError {
+    fn from(error: ParseError<CssError>) -> Self {
         match error.kind {
-            ParseErrorKind::Basic(basic_kind) => Self::new(
-                basic_kind.clone().into(),
-                (error.location, basic_kind).into(),
+            ParseErrorKind::Basic(basic_kind) => unreachable!(
+                "Found an error of type {basic_kind:?} when it should have been custom type"
             ),
             ParseErrorKind::Custom(custom) => custom,
         }
     }
 }
 
-impl<'a> From<ParseError<'a, ()>> for CssError {
-    fn from(error: ParseError<'a, ()>) -> Self {
-        match error.kind {
-            ParseErrorKind::Basic(basic_kind) => Self::new(
-                basic_kind.clone().into(),
-                (error.location, basic_kind).into(),
-            ),
-            ParseErrorKind::Custom(_) => {
-                panic!("Custom unit error found")
-            }
-        }
-    }
-}
+// TODO:???
+// impl<'a> From<ParseError<()>> for CssError {
+//     fn from(error: ParseError<()>) -> Self {
+//         match error.kind {
+//             ParseErrorKind::Basic(basic_kind) => Self::new(
+//                 basic_kind.clone().into(),
+//                 (error.location, basic_kind).into(),
+//             ),
+//             ParseErrorKind::Custom(_) => {
+//                 panic!("Custom unit error found")
+//             }
+//         }
+//     }
+// }
 
 /// A helper struct to generate error reports out of [`CssError`].
 /// It uses the [`ariadne`] crate to generate the error report.
@@ -529,8 +527,7 @@ mod tests {
     }
 
     fn error_at_token(contents: &str, num_token: u32) -> CssError {
-        let mut input = ParserInput::new(contents);
-        let mut parser = Parser::new(&mut input);
+        let mut parser = Parser::new(contents);
 
         for _ in 0..num_token {
             parser.next().unwrap();

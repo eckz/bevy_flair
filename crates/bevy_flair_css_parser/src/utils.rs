@@ -47,12 +47,11 @@ pub(crate) fn parse_property_global_keyword<T>(
 /// [`parse_calc_property_value_with()`]: crate::legacy_parse_calc_property_with
 /// # Examples
 /// ```
-/// # use cssparser::{Parser, ParserInput};
+/// # use cssparser::Parser;
 /// # use bevy_flair_core::PropertyValue;
 /// # use bevy_flair_css_parser::{parse_property_value_with, parse_val};
 ///
-/// let mut input = ParserInput::new("inherit");
-/// let mut parser = Parser::new(&mut input);
+/// let mut parser = Parser::new("inherit");
 /// let property_value = parse_property_value_with(&mut parser, parse_val).unwrap();
 /// assert_eq!(property_value, PropertyValue::Inherit);
 /// ```
@@ -107,7 +106,7 @@ pub(crate) enum ImportantLevel {
 
 pub(crate) fn try_parse_important_level(parser: &mut Parser) -> ImportantLevel {
     if let Ok(located) = parser.try_parse(|parser| parser.located(parse_important)) {
-        ImportantLevel::Important(located.location)
+        ImportantLevel::Important(located.span)
     } else {
         ImportantLevel::Default
     }

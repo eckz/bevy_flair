@@ -60,7 +60,7 @@ impl ReflectParseCss {
         property_id: ComponentPropertyId,
     ) -> DynamicParseVarTokens {
         use crate::error::ErrorReportGenerator;
-        use cssparser::{Parser, ParserInput};
+        use cssparser::{Parser};
         use std::sync::Arc;
 
         let parse_fn = self.0;
@@ -68,8 +68,7 @@ impl ReflectParseCss {
         Arc::new(move |tokens| {
             let tokens_as_css = tokens.to_css_string();
 
-            let mut input = ParserInput::new(&tokens_as_css);
-            let mut parser = Parser::new(&mut input);
+            let mut parser = Parser::new(&tokens_as_css);
 
             let result = parser
                 .parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));

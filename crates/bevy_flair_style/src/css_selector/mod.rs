@@ -10,7 +10,7 @@ pub use error::{SelectorError, SelectorErrorKind};
 
 use crate::NodePseudoStateSelector;
 use crate::media_selector::{MediaFeaturesProvider, MediaSelectors};
-use cssparser::{CowRcStr, ParseError, SourceLocation, match_ignore_ascii_case};
+use cssparser::{CowRcStr, ParseError, match_ignore_ascii_case};
 pub(crate) use element::{ElementRef, ElementRefSystemParam};
 use rustc_hash::FxBuildHasher;
 use selectors::context::{
@@ -54,7 +54,6 @@ impl From<InternalPseudoStateSelector> for NodePseudoStateSelector {
 }
 
 impl NonTSPseudoClass for InternalPseudoStateSelector {
-    type Impl = CssSelectorImpl;
 
     fn is_active_or_hover(&self) -> bool {
         matches!(
@@ -163,7 +162,6 @@ impl cssparser::ToCss for CssPseudoElement {
 }
 
 impl PseudoElement for CssPseudoElement {
-    type Impl = CssSelectorImpl;
 }
 
 impl SelectorImpl for CssSelectorImpl {
@@ -187,7 +185,7 @@ pub(crate) struct CssSelectorParser {
 
 impl<'i> selectors::Parser<'i> for CssSelectorParser {
     type Impl = CssSelectorImpl;
-    type Error = SelectorParseErrorKind<'i>;
+    type Error = SelectorParseErrorKind;
 
     fn parse_nth_child_of(&self) -> bool {
         true
@@ -207,9 +205,8 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
 
     fn parse_non_ts_pseudo_class(
         &self,
-        location: SourceLocation,
         name: CowRcStr<'i>,
-    ) -> Result<InternalPseudoStateSelector, ParseError<'i, Self::Error>> {
+    ) -> Result<InternalPseudoStateSelector, ParseError<Self::Error>> {
         match_ignore_ascii_case! {name.as_ref(),
             "hover" => {
                 Ok(InternalPseudoStateSelector::Hovered)
@@ -230,20 +227,15 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
                 Ok(InternalPseudoStateSelector::Checked)
             },
             _ => {
-                Err(
-                    location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(
-                        name,
-                    )),
-                )
+                Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
             }
         }
     }
 
     fn parse_pseudo_element(
         &self,
-        location: SourceLocation,
         name: CowRcStr<'i>,
-    ) -> Result<CssPseudoElement, ParseError<'i, Self::Error>> {
+    ) -> Result<CssPseudoElement, ParseError<Self::Error>> {
         match_ignore_ascii_case! {name.as_ref(),
             "before" => {
                 Ok(CssPseudoElement::Before)
@@ -252,11 +244,7 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
                 Ok(CssPseudoElement::After)
             },
             _ => {
-                 Err(
-                    location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(
-                        name,
-                    )),
-                )
+                 Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
             }
         }
     }
@@ -277,9 +265,9 @@ impl CssSelector {
     /// Parse a comma-separated list of Selectors.
     /// <https://drafts.csswg.org/selectors/#grouping>
     /// Return the list of [`CssSelector`] or Err if there is an invalid selector.
-    pub fn parse_comma_separated<'a>(
-        parser: &mut cssparser::Parser<'a, '_>,
-    ) -> Result<Vec<Self>, ParseError<'a, SelectorParseErrorKind<'a>>> {
+    pub fn parse_comma_separated(
+        parser: &mut cssparser::Parser<'_>,
+    ) -> Result<Vec<Self>, ParseError<SelectorParseErrorKind>> {
         let css_selector_parser = CssSelectorParser {
             nested_selector: false,
         };
@@ -290,9 +278,9 @@ impl CssSelector {
     /// <https://drafts.csswg.org/selectors/#grouping>
     /// <https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_nesting/Using_CSS_nesting>
     /// Return the list of [`CssSelector`] or Err if there is an invalid selector.
-    pub fn parse_comma_separated_for_nested<'a>(
-        parser: &mut cssparser::Parser<'a, '_>,
-    ) -> Result<Vec<Self>, ParseError<'a, SelectorParseErrorKind<'a>>> {
+    pub fn parse_comma_separated_for_nested(
+        parser: &mut cssparser::Parser<'_>,
+    ) -> Result<Vec<Self>, ParseError<SelectorParseErrorKind>> {
         let css_selector_parser = CssSelectorParser {
             nested_selector: true,
         };
@@ -300,10 +288,10 @@ impl CssSelector {
     }
 
     fn parse_comma_separated_inner<'a>(
-        parser: &mut cssparser::Parser<'a, '_>,
+        parser: &mut cssparser::Parser<'a>,
         css_selector_parser: &CssSelectorParser,
         parse_relative: ParseRelative,
-    ) -> Result<Vec<Self>, ParseError<'a, SelectorParseErrorKind<'a>>> {
+    ) -> Result<Vec<Self>, ParseError<SelectorParseErrorKind>> {
         SelectorList::parse(css_selector_parser, parser, parse_relative).map(|selectors| {
             selectors
                 .slice()
@@ -319,9 +307,8 @@ impl CssSelector {
     }
 
     /// Parse a single selector from a string
-    pub fn parse_single(selector: &str) -> Result<Self, SelectorError<'_>> {
-        let mut parser_input = cssparser::ParserInput::new(selector);
-        let mut parser = cssparser::Parser::new(&mut parser_input);
+    pub fn parse_single(selector: &str) -> Result<Self, SelectorError> {
+        let mut parser = cssparser::Parser::new(selector);
 
         let css_selector_parser = CssSelectorParser {
             nested_selector: false,
@@ -337,9 +324,8 @@ impl CssSelector {
     }
 
     /// Parse a single selector from a string when the selector can be a nested selector.
-    pub fn parse_single_for_nested(selector: &str) -> Result<Self, SelectorError<'_>> {
-        let mut parser_input = cssparser::ParserInput::new(selector);
-        let mut parser = cssparser::Parser::new(&mut parser_input);
+    pub fn parse_single_for_nested(selector: &str) -> Result<Self, SelectorError> {
+        let mut parser = cssparser::Parser::new(selector);
 
         let css_selector_parser = CssSelectorParser {
             nested_selector: true,
@@ -502,7 +488,7 @@ impl Display for CssSelector {
 }
 
 impl<'i> TryFrom<&'i str> for CssSelector {
-    type Error = SelectorError<'i>;
+    type Error = SelectorError;
 
     fn try_from(s: &'i str) -> Result<Self, Self::Error> {
         CssSelector::parse_single(s)

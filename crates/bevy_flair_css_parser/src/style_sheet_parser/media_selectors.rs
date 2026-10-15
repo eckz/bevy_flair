@@ -153,7 +153,7 @@ pub(super) fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelector
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::CssDeclaration;
+    use crate::style_sheet_parser::CssDeclaration;
     use bevy_flair_style::{ColorScheme, MediaRangeSelector, MediaSelector, ToCss};
     use indoc::indoc;
 

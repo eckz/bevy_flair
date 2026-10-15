@@ -1,4 +1,4 @@
-use crate::parser::{
+use crate::style_sheet_parser::{
     CssDeclaration, CssRuleset, CssStyleSheetItem, ParserAnimationKeyFrame, parse_css,
 };
 use crate::utils::ImportantLevel;

@@ -67,11 +67,10 @@ pub(crate) fn parse_rect(parser: &mut Parser) -> Result<Rect, CssError> {
 ///
 /// ```
 /// # use bevy_ui::Val;
-/// # use cssparser::{Parser, ParserInput};
+/// # use cssparser::Parser;
 /// # use bevy_flair_css_parser::parse_val;
 ///
-/// let mut input = ParserInput::new("50%");
-/// let mut parser = Parser::new(&mut input);
+/// let mut parser = Parser::new("50%");
 /// let val = parse_val(&mut parser).unwrap();
 /// assert_eq!(val, Val::Percent(50.0));
 /// ```

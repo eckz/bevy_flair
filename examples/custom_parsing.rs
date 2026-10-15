@@ -1,4 +1,4 @@
-//! Shows how to replace Val parsing with a custom parser.
+//! Shows how to replace Val parsing with a custom style_sheet_parser.
 //! In this example we're overriding Val parsing to support `ex`.
 
 use bevy::{picking::hover::Hovered, prelude::*};

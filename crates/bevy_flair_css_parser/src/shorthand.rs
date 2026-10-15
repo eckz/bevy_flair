@@ -143,7 +143,7 @@ impl ShorthandProperty {
     ) -> DynamicParseVarTokens {
         use crate::error::ErrorReportGenerator;
         use bevy_flair_style::ToCss;
-        use cssparser::{Parser, ParserInput};
+        use cssparser::{Parser};
         use std::sync::Arc;
 
         let parse_fn = self.parse_fn;
@@ -152,8 +152,7 @@ impl ShorthandProperty {
         Arc::new(move |tokens| {
             let tokens_as_css = tokens.to_css_string();
 
-            let mut input = ParserInput::new(&tokens_as_css);
-            let mut parser = Parser::new(&mut input);
+            let mut parser = Parser::new(&tokens_as_css);
 
             let result = parser
                 .parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
@@ -607,8 +606,8 @@ fn parse_flex(parser: &mut Parser) -> ShorthandParseResult {
     }
 
     fn parse_flex_keyword<'i>(
-        parser: &mut Parser<'i, '_>,
-    ) -> Result<(f32, f32, Val), ParseError<'i, ()>> {
+        parser: &mut Parser<'i>,
+    ) -> Result<(f32, f32, Val), ParseError<()>> {
         let ident = parser.expect_ident()?;
         Ok(match_ignore_ascii_case! { ident.as_ref(),
             "none" => (0.0, 0.0, Val::Auto),

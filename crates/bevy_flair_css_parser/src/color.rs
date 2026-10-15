@@ -114,11 +114,10 @@ fn parse_percentage(parser: &mut Parser, constants: CalcConstants) -> Result<f32
 /// # Example
 /// ```
 /// # use bevy_color::Color;
-/// # use cssparser::{Parser, ParserInput};
+/// # use cssparser::Parser;
 /// # use bevy_flair_css_parser::parse_color;
 ///
-/// let mut input = ParserInput::new("rgb(100% 0 0 / 1.0)");
-/// let mut parser = Parser::new(&mut input);
+/// let mut parser = Parser::new("rgb(100% 0 0 / 1.0)");
 /// let color = parse_color(&mut parser).unwrap();
 /// assert_eq!(color, Color::srgb(1.0, 0.0, 0.0));
 /// ```

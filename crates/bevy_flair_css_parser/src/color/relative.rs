@@ -19,7 +19,7 @@ pub(crate) fn looks_like_relative_color(parser: &mut Parser) -> bool {
             parser.expect_function()?;
             parser.parse_nested_block_with(|parser| {
                 parser.expect_ident_matching("from")?;
-                // If we don't consume the whole parser, an error will be returned
+                // If we don't consume the whole style_sheet_parser, an error will be returned
                 while !parser.is_exhausted() {
                     let _ = parser.next()?;
                 }

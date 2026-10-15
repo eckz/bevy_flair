@@ -139,7 +139,7 @@ impl_animation_specific_value_from_as!(
     { as_timing_function, TimingFunction, EasingFunction },
 );
 
-/// Type alias for a parser function used inside `AnimationValues::Dynamic`.
+/// Type alias for a style_sheet_parser function used inside `AnimationValues::Dynamic`.
 pub type ParseAnimationValuesFromVarTokens<T> =
     Arc<dyn Fn(&[VarToken]) -> Result<SmallVec<[T; 1]>, Box<dyn core::error::Error>> + Send + Sync>;
 
@@ -184,7 +184,7 @@ impl<T: Clone> AnimationValues<T> {
     ///
     /// If the value is already `Specific`, the contained values are cloned and returned.
     /// If the value is `Dynamic`, the method will use the supplied `var_resolver` to
-    /// recursively resolve variables, then run the stored parser to obtain concrete values.
+    /// recursively resolve variables, then run the stored style_sheet_parser to obtain concrete values.
     pub fn resolve<V: VarResolver>(
         &self,
         var_resolver: &V,
