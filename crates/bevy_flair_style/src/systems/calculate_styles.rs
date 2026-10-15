@@ -226,15 +226,13 @@ pub(crate) fn calculate_styles_and_set_vars(
             marker.finish_calculate_style();
         }
 
-        let all_descendants = to_mark
-            .mark_descendants_resolve_property_values
-            .drain(..)
-            .flat_map(|entity| styled_children.iter_descendants(entity));
-
-        // We cannot use a normal iterator because `all_descendants` is not unique
-        let mut all_descendants_iter = marker_query.iter_many_mut(all_descendants);
-        while let Some(Ok(mut marker)) = all_descendants_iter.fetch_next() {
-            marker.set_needs_resolve_property_values();
-        }
+        styled_children.mark_descendants(
+            to_mark.mark_descendants_resolve_property_values.drain(..),
+            |entity| {
+                if let Ok(mut marker) = marker_query.get_mut(entity) {
+                    marker.set_needs_resolve_property_values();
+                }
+            },
+        );
     }
 }

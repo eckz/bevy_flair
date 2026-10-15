@@ -174,16 +174,11 @@ pub(crate) fn resolve_property_values(
 
     let mut markers_query = queries.p1();
 
-    for to_mark in to_mark_compute_values_parallel.iter_mut() {
-        for entity in to_mark
-            .drain(..)
-            .flat_map(|entity| styled_children.iter_descendants(entity))
-        {
-            if let Ok(mut mark) = markers_query.get_mut(entity) {
-                mark.set_needs_compute_property_values();
-            }
+    styled_children.mark_descendants(to_mark_compute_values_parallel.drain(), |entity| {
+        if let Ok(mut mark) = markers_query.get_mut(entity) {
+            mark.set_needs_compute_property_values();
         }
-    }
+    });
 }
 
 pub(crate) fn resolve_animations(
