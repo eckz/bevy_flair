@@ -138,6 +138,16 @@ impl ComponentPropertiesRegistration {
         property_registry: &PropertyRegistry,
         values: &mut PropertyMap<ComputedValue>,
     ) -> Result<(), ApplyError> {
+        // Nothing pending for this component: skip it entirely,
+        // before marking component as changed
+        if !self
+            .property_map_slice(values)
+            .iter()
+            .any(ComputedValue::is_value)
+        {
+            return Ok(());
+        }
+
         if !self.component_fns.is_mutable {
             let entity = world_entity_mut.id();
             let mut command_queue = CommandQueue::default();
@@ -197,6 +207,16 @@ impl ComponentPropertiesRegistration {
         values: &mut PropertyMap<ComputedValue>,
         mut queue: EntityCommandQueue<'_>,
     ) -> Result<(), ApplyError> {
+        // Nothing pending for this component: skip it entirely,
+        // before marking component as changed
+        if !self
+            .property_map_slice(values)
+            .iter()
+            .any(ComputedValue::is_value)
+        {
+            return Ok(());
+        }
+
         let mut entity_mut = entity_mut.into();
         let entity = entity_mut.id();
 
