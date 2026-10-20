@@ -1434,7 +1434,6 @@ mod tests {
         let style_sheet_id_2 = TEST_STYLE_SHEET_HANDLE_2.id();
 
         let entity_1 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE)).id();
-
         let entity_2 = world.spawn(Styled::new(TEST_STYLE_SHEET_HANDLE_2)).id();
 
         let entity_inherited = world.spawn((Styled::Inherited, ChildOf(entity_1))).id();

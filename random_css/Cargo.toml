@@ -1,0 +1,17 @@
+[package]
+name = "random_css"
+version = "0.9.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/eckz/bevy_flair"
+rust-version = "1.97.1"
+publish = false
+
+
+[dependencies]
+# Only deterministic RNGs seeded explicitly are used here, so the `sys_rng`/
+# `thread_rng` features are disabled. This avoids pulling `getrandom`, which
+# fails to compile for `wasm32-unknown-unknown` unless extra features are set.
+rand = { version = "0.10.0", default-features = false, features = ["std", "std_rng"] }
+rand_chacha = "0.10.0"
+
