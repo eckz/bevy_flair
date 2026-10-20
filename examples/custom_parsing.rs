@@ -3,7 +3,7 @@
 
 use bevy::{picking::hover::Hovered, prelude::*};
 use bevy_flair::{
-    parser::{CalcValue, CssError, ParserExt, ReflectParseCss, parse_calc, parse_val},
+    parser::{CalcValue, CssError, CssParser, ReflectParseCss, parse_calc, parse_val},
     prelude::*,
 };
 
@@ -18,11 +18,11 @@ fn custom_from_calc_value(calc_value: &CalcValue) -> Result<Val, String> {
 }
 
 pub(crate) fn custom_parse_val(
-    parser: &mut cssparser::Parser,
+    parser: &mut CssParser,
 ) -> std::result::Result<ReflectValue, CssError> {
     // If the original parse_val works, return the value.
     // It's important to use `try_parse_with` because it resets the state of the parse in case of a failure
-    if let Ok(val) = parser.try_parse_with(parse_val) {
+    if let Ok(val) = parser.try_parse(parse_val) {
         return Ok(ReflectValue::Val(val));
     }
     // Otherwise try to use `parse_calc` with our `custom_from_calc_value`.

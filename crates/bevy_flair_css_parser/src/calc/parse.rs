@@ -1,12 +1,12 @@
 use super::ast::*;
 use crate::calc::CalcOptions;
-use crate::{CssError, ParserExt};
-use cssparser::{Parser, Token, match_ignore_ascii_case};
+use crate::{CssError, CssParser};
+use cssparser::{Token, match_ignore_ascii_case};
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 
-fn parse_rounding_strategy(parser: &mut Parser) -> Result<RoundingStrategy, CssError> {
-    let ident = parser.expect_located_ident()?;
+fn parse_rounding_strategy(parser: &mut CssParser) -> Result<RoundingStrategy, CssError> {
+    let ident = parser.expect_ident()?;
 
     Ok(match_ignore_ascii_case! { ident.as_ref(),
         "nearest" => RoundingStrategy::Nearest,
@@ -14,17 +14,17 @@ fn parse_rounding_strategy(parser: &mut Parser) -> Result<RoundingStrategy, CssE
         "down" => RoundingStrategy::Down,
         "to-zero" => RoundingStrategy::ToZero,
         _ => return Err(
-            CssError::new_located(&ident, crate::error_codes::calc::INVALID_ROUNDING_STRATEGY, format!("{ident} is not supported as a rounding strategy"))
+            CssError::new(&ident, crate::error_codes::calc::INVALID_ROUNDING_STRATEGY, format!("{ident} is not supported as a rounding strategy"))
         ),
     })
 }
 
-fn parse_round_fn(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
+fn parse_round_fn(parser: &mut CssParser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
     parser.expect_function_matching("round")?;
 
-    parser.parse_nested_block_with(|parser| {
+    parser.parse_nested_block(|parser| {
         let strategy = parser
-            .try_parse_with(|parser| {
+            .try_parse(|parser| {
                 let result = parse_rounding_strategy(parser)?;
                 parser.expect_comma()?;
                 Ok(result)
@@ -50,7 +50,7 @@ fn parse_round_fn(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFunction
 }
 
 // https://drafts.csswg.org/css-values-4/#calc-constants
-fn parse_calc_keyword(parser: &mut Parser) -> Result<f32, CssError> {
+fn parse_calc_keyword(parser: &mut CssParser) -> Result<f32, CssError> {
     let ident = parser.expect_ident()?;
     Ok(match_ignore_ascii_case! { ident.as_ref(),
         "infinity" => f32::INFINITY,
@@ -59,11 +59,11 @@ fn parse_calc_keyword(parser: &mut Parser) -> Result<f32, CssError> {
         "e" => std::f32::consts::E,
         "pi" => std::f32::consts::PI,
         // This error does not matter much because it will be ignored
-        _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
+        _ => return Err(CssError::unexpected(&ident)),
     })
 }
 
-fn parse_custom_constants(parser: &mut Parser, ctx: &CalcContext) -> Result<f32, CssError> {
+fn parse_custom_constants(parser: &mut CssParser, ctx: &CalcContext) -> Result<f32, CssError> {
     if let Some(options) = ctx.options.as_ref() {
         let ident = parser.expect_ident()?;
         for (c, value) in options.custom_constants {
@@ -72,7 +72,7 @@ fn parse_custom_constants(parser: &mut Parser, ctx: &CalcContext) -> Result<f32,
             }
         }
     }
-    Err(CssError::from(parser.new_error_for_next_token::<()>()))
+    Err(CssError::unexpected(&parser.peek()?))
 }
 
 pub(crate) struct CalcContext<'a> {
@@ -108,17 +108,17 @@ impl<'a> CalcContext<'a> {
 }
 
 pub(crate) fn parse_calc_value(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     ctx: &CalcContext,
 ) -> Result<CalcValue, CssError> {
     let peek = parser.peek()?;
 
     let can_parse_numeric_function = !ctx.is_top_level || ctx.parse_numeric_at_top_level;
-    match peek {
+    match &*peek {
         Token::ParenthesisBlock if !ctx.is_top_level => {
             parser.expect_parenthesis_block()?;
             return parser
-                .parse_nested_block_with(|parser| parse_calc_sum(parser, ctx))
+                .parse_nested_block(|parser| parse_calc_sum(parser, ctx))
                 .map(|e| CalcValue::from_math(MathFunction::Parenthesis(e)));
         }
         Token::Function(name) if name.eq_ignore_ascii_case("calc") => {
@@ -137,25 +137,25 @@ pub(crate) fn parse_calc_value(
         }
         _ => {}
     }
-    if let Ok(constant) = parser.try_parse_with(|parsers| parse_custom_constants(parsers, ctx)) {
+    if let Ok(constant) = parser.try_parse(|parsers| parse_custom_constants(parsers, ctx)) {
         return Ok(CalcValue::Number(constant));
     };
 
     if !ctx.is_top_level
-        && let Ok(constant) = parser.try_parse_with(parse_calc_keyword)
+        && let Ok(constant) = parser.try_parse(parse_calc_keyword)
     {
         return Ok(CalcValue::Number(constant));
     };
 
-    let next = parser.located_next()?;
+    let next = parser.next()?;
 
     match &*next {
-        Token::Function(name) => Err(CssError::new_located(
+        Token::Function(name) => Err(CssError::new(
             &next,
             crate::error_codes::calc::CALC_FN_NOT_SUPPORTED,
             format!("Function {name}() is not supported"),
         )),
-        Token::Ident(constant) => Err(CssError::new_located(
+        Token::Ident(constant) => Err(CssError::new(
             &next,
             crate::error_codes::calc::CONSTANT_NOT_SUPPORTED,
             format!("Constant {constant} is not recognized inside calc()"),
@@ -179,7 +179,7 @@ pub(crate) fn parse_calc_value(
                 })
             }
         }
-        _ => Err(CssError::new_located(
+        _ => Err(CssError::new(
             &next,
             crate::error_codes::calc::UNEXPECTED_CALC_TOKEN,
             "Unexpected token while parsing calc()",
@@ -188,18 +188,18 @@ pub(crate) fn parse_calc_value(
 }
 
 // Parses <calc-product> = <calc-value> [ [ '*' | / ] <calc-value> ]*
-fn parse_calc_product(parser: &mut Parser, ctx: &CalcContext) -> Result<CalcProductExpr, CssError> {
+fn parse_calc_product(parser: &mut CssParser, ctx: &CalcContext) -> Result<CalcProductExpr, CssError> {
     let first_value = parse_calc_value(parser, ctx)?;
     let mut operands = SmallVec::new();
     operands.push(ProductOp::Mul(first_value));
 
-    while let Ok(operand) = parser.try_parse_with(|parser| {
-        let next = parser.located_next()?;
+    while let Ok(operand) = parser.try_parse(|parser| {
+        let next = parser.next()?;
         let operand = parse_calc_value(parser, ctx)?;
         match &*next {
             Token::Delim('*') => Ok(ProductOp::Mul(operand)),
             Token::Delim('/') => Ok(ProductOp::Div(operand)),
-            _ => Err(CssError::new_located(
+            _ => Err(CssError::new(
                 &next,
                 crate::error_codes::calc::CALC_ERROR,
                 "Expected operand",
@@ -212,18 +212,18 @@ fn parse_calc_product(parser: &mut Parser, ctx: &CalcContext) -> Result<CalcProd
     Ok(CalcProductExpr(operands))
 }
 
-fn parse_calc_sum(parser: &mut Parser, ctx: &CalcContext) -> Result<CalcSumExpr, CssError> {
+fn parse_calc_sum(parser: &mut CssParser, ctx: &CalcContext) -> Result<CalcSumExpr, CssError> {
     let first_value = parse_calc_product(parser, ctx)?;
     let mut operands = SmallVec::new();
     operands.push(SumOp::Add(first_value));
 
-    while let Ok(operand) = parser.try_parse_with(|parser| {
-        let next = parser.located_next()?;
+    while let Ok(operand) = parser.try_parse(|parser| {
+        let next = parser.next()?;
         let operand = parse_calc_product(parser, ctx)?;
         match &*next {
             Token::Delim('+') => Ok(SumOp::Add(operand)),
             Token::Delim('-') => Ok(SumOp::Sub(operand)),
-            _ => Err(CssError::new_located(
+            _ => Err(CssError::new(
                 &next,
                 crate::error_codes::calc::CALC_ERROR,
                 "Expected operand",
@@ -237,7 +237,7 @@ fn parse_calc_sum(parser: &mut Parser, ctx: &CalcContext) -> Result<CalcSumExpr,
 
 type OrderItems = SmallVec<[CalcSumExpr; 2]>;
 
-fn parse_ord_items(parser: &mut Parser, ctx: &CalcContext) -> Result<OrderItems, CssError> {
+fn parse_ord_items(parser: &mut CssParser, ctx: &CalcContext) -> Result<OrderItems, CssError> {
     let mut values = SmallVec::new();
 
     values.push(parse_calc_sum(parser, ctx)?);
@@ -247,7 +247,7 @@ fn parse_ord_items(parser: &mut Parser, ctx: &CalcContext) -> Result<OrderItems,
     Ok(values)
 }
 
-fn parse_clamp_fn_inner(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
+fn parse_clamp_fn_inner(parser: &mut CssParser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
     let min = parse_calc_sum(parser, ctx)?;
     parser.expect_comma()?;
     let value = parse_calc_sum(parser, ctx)?;
@@ -264,10 +264,10 @@ fn is_numeric_function(name: &str) -> bool {
         || name.eq_ignore_ascii_case("exp")
 }
 
-fn parse_numeric_fn(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
+fn parse_numeric_fn(parser: &mut CssParser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
     let fn_name = parser.expect_function()?.clone();
 
-    parser.parse_nested_block_with(|parser| {
+    parser.parse_nested_block(|parser| {
         match_ignore_ascii_case! { &*fn_name,
             "sqrt" => {
                 let a = parse_calc_sum(parser, ctx)?;
@@ -281,7 +281,7 @@ fn parse_numeric_fn(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFuncti
             },
             "log" => {
                 let a = parse_calc_sum(parser, ctx)?;
-                let b = parser.try_parse_with(|parser| {
+                let b = parser.try_parse(|parser| {
                     parser.expect_comma()?;
                     parse_calc_sum(parser, ctx)
                 }).unwrap_or(CalcValue::Number(std::f32::consts::E).into());
@@ -292,7 +292,7 @@ fn parse_numeric_fn(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFuncti
                 Ok(MathFunction::Exp(a))
             },
             // This error does not matter much because it will be ignored
-            _ => Err(CssError::from(parser.new_error_for_next_token::<()>())),
+            _ => Err(CssError::unexpected(&fn_name)),
         }
     })
 }
@@ -306,22 +306,22 @@ fn is_ord_function(name: &str) -> bool {
 // Parses <min()>   = min( <calc-sum># )
 //        <max()>   = max( <calc-sum># )
 //        <clamp()> = clamp( [ <calc-sum> | none ], <calc-sum>, [ <calc-sum> | none ] )
-fn parse_ord_fn(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
+fn parse_ord_fn(parser: &mut CssParser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
     let fn_name = parser.expect_function()?.clone();
 
-    parser.parse_nested_block_with(|parser| {
+    parser.parse_nested_block(|parser| {
         match_ignore_ascii_case! { &*fn_name,
             "min" => parse_ord_items(parser, ctx).map(|values| MathFunction::Min { values }),
             "max" => parse_ord_items(parser, ctx).map(|values| MathFunction::Max { values }),
             "clamp" => parse_clamp_fn_inner(parser, ctx),
-            _ => Err(CssError::from(parser.new_error_for_next_token::<()>())),
+            _ => Err(CssError::unexpected(&fn_name)),
         }
     })
 }
 
-fn parse_calc_fn(parser: &mut Parser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
+fn parse_calc_fn(parser: &mut CssParser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
     parser.expect_function_matching("calc")?;
-    parser.parse_nested_block_with(|parser| {
+    parser.parse_nested_block(|parser| {
         parse_calc_sum(parser, &ctx.as_non_top_level()).map(MathFunction::Calc)
     })
 }
@@ -331,8 +331,8 @@ mod tests {
     use super::{CalcContext, CalcValue, parse_calc_value};
     use crate::calc::simplify::Simplifiable;
     use crate::test_utils::{parse_err_property_content_with, parse_property_content_with};
-    use crate::{CssError, ParserExt};
-    use cssparser::Parser;
+    use crate::{CssError};
+    use crate::CssParser;
     use smol_str::SmolStr;
     use std::assert_matches;
 
@@ -347,17 +347,20 @@ mod tests {
         };
     }
 
-    fn parse_calc_value_for_tests(parser: &mut Parser) -> Result<CalcValue, CssError> {
+    fn parse_calc_value_for_tests(parser: &mut CssParser) -> Result<CalcValue, CssError> {
         let ctx = CalcContext::default();
-        let mut located_calc_value = parser.located(|parser| parse_calc_value(parser, &ctx))?;
-        located_calc_value.try_simplify().map_err(|calc_err| {
-            CssError::new_located(
-                &located_calc_value,
+        let mut result = parser.spanned(|parser| {
+            parse_calc_value(parser, &ctx) 
+        })?;
+
+        result.try_simplify().map_err(|calc_err| {
+            CssError::new(
+                &result,
                 crate::error_codes::calc::CALC_ERROR,
                 calc_err.to_string(),
             )
         })?;
-        Ok(located_calc_value.into_inner())
+        Ok(result.into_inner())
     }
 
     fn parse(contents: &str) -> CalcValue {
@@ -433,13 +436,13 @@ mod tests {
         assert_eq!(parse("calc(4px / 2px)"), parse("calc(4 / 2)"));
 
         // Errors
-        assert_contains!(parse_err("calc()"), "unexpected end of input");
+        assert_contains!(parse_err("calc()"), "Unexpected end of input");
         assert_contains!(
             parse_err("calc(30px * 30px)"),
             "Cannot multiply 'px' by 'px'"
         );
         assert_contains!(parse_err("(1px + 2px)"), "(1px + 2px)"); // margin: (1px + 2px) would be invalid
-        assert_contains!(parse_err("calc(1px +2)"), "unexpected token: Number");
+        assert_contains!(parse_err("calc(1px +2)"), "Unexpected token");
         assert_contains!(
             parse_err("calc(-(2px + 3px))"),
             "Unexpected token while parsing calc"
@@ -477,13 +480,13 @@ mod tests {
         assert_eq!(parse("clamp(80px, 50px, 70px)"), px(80.0)); // min wins over max
 
         // Errors
-        assert_contains!(parse_err("max()"), "unexpected end of input");
-        assert_contains!(parse_err("clamp(1px, 1px)"), "unexpected end of input");
+        assert_contains!(parse_err("max()"), "Unexpected end of input");
+        assert_contains!(parse_err("clamp(1px, 1px)"), "Unexpected end of input");
         assert_contains!(
             parse_err("clamp(,)"),
             "Unexpected token while parsing calc()"
         );
-        assert_contains!(parse_err("clamp()"), "unexpected end of input");
+        assert_contains!(parse_err("clamp()"), "Unexpected end of input");
     }
 
     #[test]

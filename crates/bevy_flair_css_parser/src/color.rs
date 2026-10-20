@@ -8,7 +8,7 @@ use crate::color::specific::parse_specific_color;
 use crate::{CalcOptions, CalcValue, CssError, parse_calc_with_options};
 use bevy_color::{Color, ColorToComponents, Laba, Lcha};
 use bevy_math::Vec4;
-use cssparser::Parser;
+use crate::CssParser;
 use cssparser_color::{AngleOrNumber, NumberOrPercentage};
 
 const BEVY_TO_CSS_LAB_CONVERSION: bevy_math::Vec4 = bevy_math::Vec4::new(100.0, 125.0, 125.0, 1.0);
@@ -35,7 +35,7 @@ fn convert_lch_to_css_components(c: Lcha) -> [f32; 4] {
 }
 
 fn parse_angle_or_number(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     constants: CalcConstants,
 ) -> Result<AngleOrNumber, CssError> {
     fn angle_or_number_from_calc_value(calc_value: &CalcValue) -> Result<AngleOrNumber, String> {
@@ -55,7 +55,7 @@ fn parse_angle_or_number(
 }
 
 fn parse_number_or_percentage(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     constants: CalcConstants,
 ) -> Result<NumberOrPercentage, CssError> {
     fn angle_or_number_from_calc_value(
@@ -77,7 +77,7 @@ fn parse_number_or_percentage(
     parse_calc_with_options(parser, angle_or_number_from_calc_value, options)
 }
 
-fn parse_number(parser: &mut Parser, constants: CalcConstants) -> Result<f32, CssError> {
+fn parse_number(parser: &mut CssParser, constants: CalcConstants) -> Result<f32, CssError> {
     let options = CalcOptions::new().with_custom_constants(constants);
 
     parse_calc_with_options(
@@ -90,7 +90,7 @@ fn parse_number(parser: &mut Parser, constants: CalcConstants) -> Result<f32, Cs
     )
 }
 
-fn parse_percentage(parser: &mut Parser, constants: CalcConstants) -> Result<f32, CssError> {
+fn parse_percentage(parser: &mut CssParser, constants: CalcConstants) -> Result<f32, CssError> {
     let options = CalcOptions::new().with_custom_constants(constants);
 
     parse_calc_with_options(
@@ -114,14 +114,14 @@ fn parse_percentage(parser: &mut Parser, constants: CalcConstants) -> Result<f32
 /// # Example
 /// ```
 /// # use bevy_color::Color;
-/// # use cssparser::Parser;
+/// # use bevy_flair_css_parser::CssParser;
 /// # use bevy_flair_css_parser::parse_color;
 ///
-/// let mut parser = Parser::new("rgb(100% 0 0 / 1.0)");
+/// let mut parser = CssParser::new("rgb(100% 0 0 / 1.0)");
 /// let color = parse_color(&mut parser).unwrap();
 /// assert_eq!(color, Color::srgb(1.0, 0.0, 0.0));
 /// ```
-pub fn parse_color(parser: &mut Parser) -> Result<Color, CssError> {
+pub fn parse_color(parser: &mut CssParser) -> Result<Color, CssError> {
     if looks_like_relative_color(parser) {
         return parse_relative_color(parser);
     }

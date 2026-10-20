@@ -1,4 +1,4 @@
-use crate::CssError;
+use crate::{CssError, CssParser};
 use crate::color::{convert_to_bevy_lab, convert_to_bevy_lch};
 use crate::error_codes::color as error_codes;
 use bevy_color::{Alpha, Color};
@@ -11,18 +11,9 @@ enum ParsedColor {
     Error(CssError),
 }
 
-impl ParsedColor {
-    fn into_result(self) -> Result<Color, CssError> {
-        match self {
-            ParsedColor::Color(color) => Ok(color),
-            ParsedColor::Error(error) => Err(error),
-        }
-    }
-}
-
 impl FromParsedColor for ParsedColor {
     fn from_current_color() -> Self {
-        Self::Error(CssError::new_unlocated(
+        Self::Error(CssError::unlocated(
             error_codes::CURRENT_COLOR_NOT_SUPPORTED,
             "Unsupported 'current_color' value",
         ))
@@ -137,7 +128,7 @@ impl FromParsedColor for ParsedColor {
                 let z = c3.unwrap_or(0.0);
                 ParsedColor::Color(Color::xyza(x, y, z, alpha.unwrap_or(1.0)))
             }
-            unsupported => ParsedColor::Error(CssError::new_unlocated(
+            unsupported => ParsedColor::Error(CssError::unlocated(
                 error_codes::UNSUPPORTED_COLOR_SPACE,
                 format!(
                     "Color space '{}' is not supported",
@@ -156,32 +147,36 @@ impl<'i> cssparser_color::ColorParser<'i> for ColorParser {
 
     fn parse_angle_or_number(
         &self,
-        input: &mut Parser,
-    ) -> Result<AngleOrNumber, ParseError<Self::Error>> {
-        super::parse_angle_or_number(input, &[]).map_err(CssError::into_parse_error)
+        parser: &mut Parser,
+    ) -> Result<AngleOrNumber, ParseError<CssError>> {
+        let mut parser = CssParser::from_parser(parser);
+        Ok(super::parse_angle_or_number(&mut parser, &[])?)
     }
 
     fn parse_percentage(
         &self,
-        input: &mut Parser,
-    ) -> Result<f32, ParseError<Self::Error>> {
-        super::parse_percentage(input, &[]).map_err(CssError::into_parse_error)
+        parser: &mut Parser,
+    ) -> Result<f32, ParseError<CssError>> {
+        let mut parser = CssParser::from_parser(parser);
+        Ok(super::parse_percentage(&mut parser, &[])?)
     }
 
     /// Parse a `<number>` value.
     fn parse_number(
         &self,
-        input: &mut Parser,
-    ) -> Result<f32, ParseError<Self::Error>> {
-        super::parse_number(input, &[]).map_err(CssError::into_parse_error)
+        parser: &mut Parser,
+    ) -> Result<f32, ParseError<CssError>> {
+        let mut parser = CssParser::from_parser(parser);
+        Ok(super::parse_number(&mut parser, &[])?)
     }
 
     /// Parse a `<number>` value or a `<percentage>` value.
     fn parse_number_or_percentage(
         &self,
-        input: &mut Parser,
-    ) -> Result<NumberOrPercentage, ParseError<Self::Error>> {
-        super::parse_number_or_percentage(input, &[]).map_err(CssError::into_parse_error)
+        parser: &mut Parser,
+    ) -> Result<NumberOrPercentage, ParseError<CssError>> {
+        let mut parser = CssParser::from_parser(parser);
+        Ok(super::parse_number_or_percentage(&mut parser, &[])?)
     }
 }
 
@@ -189,7 +184,19 @@ impl<'i> cssparser_color::ColorParser<'i> for ColorParser {
 ///   - By keywords (such as blue or pink)
 ///   - By hexadecimal notations (such as #ff0000).
 ///   - By <color-function>, no relative colors are supported
-pub fn parse_specific_color(parser: &mut Parser) -> Result<Color, CssError> {
-    let result = cssparser_color::parse_color_with(&ColorParser, parser)?;
-    result.into_result()
+pub fn parse_specific_color(parser: &mut CssParser) -> Result<Color, CssError> {
+    let result = parser.spanned(|parser| {
+        parser.inner_spanned_err(|parser| {
+            cssparser_color::parse_color_with(&ColorParser, parser)
+        })
+    })?;
+    let (result, span) = result.into_inner_and_span();
+    
+    match result {
+        ParsedColor::Color(color) => Ok(color),
+        ParsedColor::Error(mut error) => {
+            error.improve_location_with_span(span);
+            Err(error)
+        },
+    }
 }

@@ -8,15 +8,13 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
 use bevy_flair_style::StyleSystems;
 pub use cssparser::{self, BasicParseError, CowRcStr, Parser, Token};
-use derive_more::{Deref, DerefMut};
+
 pub use error::*;
 pub use inline_styles::*;
 pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
-use std::fmt::{Debug, Display, Formatter};
-use std::range::Range;
-use cssparser::{ParseError, ParseErrorKind};
+use cssparser::{ParseErrorKind};
 use tracing::debug;
 
 pub use angle::{Angle, parse_angle};
@@ -26,6 +24,7 @@ pub use calc::{
 pub use color::parse_color;
 pub use duration::parse_duration;
 pub use utils::parse_property_value_with;
+pub use css_parser::CssParser;
 
 mod error;
 mod style_sheet_parser;
@@ -47,174 +46,6 @@ mod css_parser;
 mod spanned;
 
 pub use spanned::{Spanned, SpannedStr};
-
-
-#[deprecated]
-type Located<T> = Spanned<T>;
-
-type LocatedStr<'a> = SpannedStr<'a>;
-
-/// Convenience methods over [`Parser`].
-/// Main use case is to get the [location] of the parsed item.
-///
-/// [location]: crate::Located
-pub trait ParserExt<'i> {
-    /// Peeks the next token without consuming it.
-    fn peek(&mut self) -> Result<Token<'i>, Located<BasicParseError>>;
-
-    fn catching<F, T, E>(&mut self, inner: F) -> Result<T, CssError>
-    where
-        F: FnOnce(&mut Parser<'i>) -> Result<T, ParseError<E>>, E: Into<StyleErrorData>;
-
-    /// Uses the inner style_sheet_parser function, and returns the results of such function
-    /// wrapped over a [`Located`].
-    ///
-    /// It doesn't skip whitespaces before the inner style_sheet_parser function.
-    fn located_with_whitespace<F, T, E>(&mut self, inner: F) -> Result<Located<T>, Located<E>>
-    where
-        F:  FnOnce(&mut Parser<'i>) -> Result<T, E>;
-
-    /// Uses the inner style_sheet_parser function, and returns the results of such function
-    /// wrapped over a [`Located`].
-    ///
-    /// It skips whitespaces before the inner style_sheet_parser function.
-    fn located<F, T, E>(&mut self, inner: F) -> Result<Located<T>, Located<E>>
-    where
-        F:  FnOnce(&mut Parser<'i>) -> Result<T, E>;
-
-    /// Returns the next token, if exists, wrapped over a [`Located`].
-    fn located_next(&mut self) -> Result<Located<Token<'i>>, Located<BasicParseError>>;
-
-    /// Expects the next token to be an identifier, and returns it wrapped over a [`Located`].
-    fn expect_located_ident(&mut self) -> Result<LocatedStr<'i>, Located<BasicParseError>>;
-
-    /// Expects the next token to be a function, and returns it wrapped over a [`Located`].
-    fn expect_located_function(&mut self) -> Result<LocatedStr<'i>, CssError>;
-
-    /// Convenience method to work with [`parse_nested_block`] and [`CssError`].
-    ///
-    /// [`parse_nested_block`]: Parser::parse_nested_block
-    fn parse_nested_block_with<T, F>(&mut self, f: F) -> Result<T, CssError>
-    where
-        F:  FnOnce(&mut Parser<'i>) -> Result<T, CssError>;
-
-    /// Convenience method to work with [`parse_comma_separated`] and [`CssError`].
-    ///
-    /// [`parse_comma_separated`]: Parser::parse_comma_separated
-    fn parse_comma_separated_with<T, F>(&mut self, f: F) -> Result<Vec<T>, CssError>
-    where
-        F:  FnMut(&mut Parser<'i>) -> Result<T, CssError>;
-
-    /// Convenience method to work with [`try_parse`] and [`CssError`].
-    ///
-    /// [`try_parse`]: Parser::try_parse
-    fn try_parse_with<T, F>(&mut self, f: F) -> Result<T, CssError>
-    where
-        F:  FnOnce(&mut Parser<'i>) -> Result<T, CssError>;
-}
-
-impl<'i> ParserExt<'i> for Parser<'i> {
-
-    fn peek(&mut self) -> Result<Token<'i>, Located<BasicParseError>> {
-        let start_state = self.state();
-        let result = self.located_next();
-        self.reset(&start_state);
-        result.map(Located::into_inner)
-    }
-
-    fn catching<F, T, E>(&mut self, inner: F) -> Result<T, CssError>
-    where
-        F: FnOnce(&mut Parser<'i>) -> Result<T, ParseError<E>>, E: Into<StyleErrorData> {
-
-        self.skip_whitespace();
-
-        let from = self.position().byte_index();
-        let result = inner(self);
-        let to = self.position().byte_index();
-
-        let location = from..to;
-
-        match result {
-            Ok(item) => {
-                Ok(item)
-            }
-            Err(err) => {
-                match err.kind {
-                    ParseErrorKind::Basic(basic) => {
-                        Err(CssError::new(basic, location))
-                    }
-                    ParseErrorKind::Custom(custom) => {
-                        Err(CssError::new(custom, location))
-                    }
-                }
-            }
-        }
-    }
-
-    fn located_with_whitespace<F, T, E>(&mut self, inner: F) -> Result<Located<T>, Located<E>>
-    where
-        F:  FnOnce(&mut Parser<'i>) -> Result<T, E>,
-    {
-        let from = self.position().byte_index();
-        let result = inner(self);
-        let to = self.position().byte_index();
-
-        match result {
-            Ok(item) => {
-                Ok(Located::new(item, from..to))
-            }
-            Err(err) => Err(Located::new(err, from..to)),
-        }
-    }
-
-    fn located<F, T, E>(&mut self, inner: F) -> Result<Located<T>, Located<E>>
-    where
-        F:  FnOnce(&mut Parser<'i>) -> Result<T, E>,
-    {
-        self.skip_whitespace();
-        self.located_with_whitespace(inner)
-    }
-
-    fn located_next(&mut self) -> Result<Located<Token<'i>>, Located<BasicParseError>> {
-        self.located(|parser| parser.next().cloned())
-    }
-
-    fn expect_located_ident(&mut self) -> Result<LocatedStr<'i>, Located<BasicParseError>> {
-        self.located(|parser| parser.expect_ident_cloned())
-    }
-
-    fn expect_located_function(&mut self) -> Result<LocatedStr<'i>, CssError> {
-        Ok(self.located(|parser| parser.expect_function().cloned())?)
-    }
-
-    fn parse_nested_block_with<T, F>(&mut self, f: F) -> Result<T, CssError>
-    where
-        F:  FnOnce(&mut Parser<'i>) -> Result<T, CssError>,
-    {
-        self.parse_nested_block(move |parser| f(parser).map_err(|err| err.into_parse_error()))
-            .map_err(CssError::from)
-    }
-
-    fn parse_comma_separated_with<T, F>(&mut self, mut parse_one: F) -> Result<Vec<T>, CssError>
-    where
-        F:  FnMut(&mut Parser<'i>) -> Result<T, CssError>,
-    {
-        let mut result = Vec::with_capacity(1);
-        result.push(parse_one(self)?);
-        while self.try_parse(Self::expect_comma).is_ok() {
-            result.push(parse_one(self)?);
-        }
-        Ok(result)
-    }
-
-    fn try_parse_with<T, F>(&mut self, f: F) -> Result<T, CssError>
-    where
-        F: FnOnce(&mut Parser<'i>) -> Result<T, CssError>,
-    {
-        self.try_parse(move |parser| f(parser).map_err(|err| err.into_parse_error()))
-            .map_err(CssError::from)
-    }
-}
 
 pub(crate) type CssParseResult<T> = Result<T, CssError>;
 
@@ -263,9 +94,9 @@ impl Plugin for FlairCssParserPlugin {
 #[cfg(test)]
 pub(crate) mod test_utils {
     use crate::utils::{ImportantLevel, try_parse_important_level};
-    use crate::{CssError, ErrorReportGenerator};
+    use crate::{CssError, CssParser, ErrorReportGenerator};
     use bevy_flair_style::{VarResolver, VarTokens};
-    use cssparser::{ParseError, Parser};
+    use cssparser::{ParseError};
     use std::assert_matches;
     use std::backtrace::BacktraceStatus;
     use std::sync::Arc;
@@ -313,7 +144,7 @@ pub(crate) mod test_utils {
     #[track_caller]
     pub fn parse_property_content_with<T>(
         contents: &str,
-        parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
+        parse_fn: impl FnOnce(&mut CssParser) -> Result<T, CssError>,
     ) -> T {
         // Adds a !important at the end to verify that parse functions don't try to consume the !important token.
         let contents = format!("{contents} !important");
@@ -325,7 +156,7 @@ pub(crate) mod test_utils {
                 important_level,
                 ImportantLevel::Important(_),
                 "Missing trailing !important from style_sheet_parser. Remaining contents: '{remaining_contents}'",
-                remaining_contents = &contents[parser.position().byte_index()..]
+                remaining_contents = parser.slice_from_current_position()
             );
             Ok(result)
         });
@@ -337,7 +168,7 @@ pub(crate) mod test_utils {
     #[track_caller]
     pub fn parse_err_property_content_with<T: core::fmt::Debug>(
         contents: &str,
-        parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
+        parse_fn: impl FnOnce(&mut CssParser) -> Result<T, CssError>,
     ) -> String {
         let result = parse_content_with(contents, parse_fn);
         expects_parse_err(contents, result)
@@ -353,11 +184,11 @@ pub(crate) mod test_utils {
     #[allow(clippy::print_stderr)]
     pub fn parse_content_with<T>(
         contents: &str,
-        parse_fn: impl FnOnce(&mut Parser) -> Result<T, CssError>,
-    ) -> Result<T, ParseError<CssError>> {
-        let mut parser = Parser::new(contents);
+        parse_fn: impl FnOnce(&mut CssParser) -> Result<T, CssError>,
+    ) -> Result<T, CssError> {
+        let mut parser = CssParser::new(contents);
 
-        parser.parse_entirely(|parser| parse_fn(parser).map_err(CssError::into_parse_error))
+        parser.parse_entirely(parse_fn)
     }
 
     #[inline(always)]
@@ -365,21 +196,19 @@ pub(crate) mod test_utils {
     #[allow(clippy::print_stderr)]
     pub fn expects_parse_ok<T>(
         contents: &str,
-        result: Result<T, ParseError<CssError>>,
+        result: Result<T, CssError>,
     ) -> T {
         match result {
             Ok(value) => value,
             Err(error) => {
-                let mut style_error = CssError::from(error);
-                if style_error.backtrace.status() == BacktraceStatus::Captured {
+                if error.backtrace.status() == BacktraceStatus::Captured {
                     eprintln!("CssError backtrace:");
-                    eprintln!("{}", style_error.backtrace);
+                    eprintln!("{}", error.backtrace);
                 }
-                style_error.improve_location_with_sub_str(contents);
 
                 let mut report_generator =
                     ErrorReportGenerator::new_with_config("test.css", contents, TEST_REPORT_CONFIG);
-                report_generator.add_error(style_error);
+                report_generator.add_error(error);
 
                 panic!("{}", report_generator.into_message());
             }
@@ -390,19 +219,16 @@ pub(crate) mod test_utils {
     #[track_caller]
     pub fn expects_parse_err<T: core::fmt::Debug>(
         contents: &str,
-        result: Result<T, ParseError<CssError>>,
+        result: Result<T, CssError>,
     ) -> String {
         match result {
             Ok(value) => {
                 panic!("Parsing of '{contents}' did not failed. It produced vale '{value:?}'");
             }
             Err(error) => {
-                let mut style_error = CssError::from(error);
-                style_error.improve_location_with_sub_str(contents);
-
                 let mut report_generator =
                     ErrorReportGenerator::new_with_config("test.css", contents, TEST_REPORT_CONFIG);
-                report_generator.add_error(style_error);
+                report_generator.add_error(error);
 
                 report_generator.into_message()
             }

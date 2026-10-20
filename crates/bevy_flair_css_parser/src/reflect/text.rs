@@ -1,7 +1,7 @@
 use crate::reflect::parse_color;
 use crate::reflect::ui::parse_px;
 use crate::utils::{parse_property_value_with, try_parse_none_with_value};
-use crate::{CssError, ParserExt, ReflectParseCss, error_codes};
+use crate::{error_codes, CssError, CssParser, ReflectParseCss};
 use bevy_color::Color;
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
@@ -15,13 +15,13 @@ const NONE_TEXT_SHADOW: TextShadow = TextShadow {
     color: Color::NONE,
 };
 
-fn parse_string(parser: &mut Parser) -> Result<String, CssError> {
+fn parse_string(parser: &mut CssParser) -> Result<String, CssError> {
     let str = parser.expect_string()?;
     Ok(str.to_string())
 }
 
-fn parse_line_height(parser: &mut Parser) -> Result<LineHeight, CssError> {
-    let next = parser.located_next()?;
+fn parse_line_height(parser: &mut CssParser) -> Result<LineHeight, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Ident(ident) if ident.as_ref() == "normal" => LineHeight::default(),
         Token::Number { value, .. } => LineHeight::RelativeToFont(*value),
@@ -31,7 +31,7 @@ fn parse_line_height(parser: &mut Parser) -> Result<LineHeight, CssError> {
                 "px" => LineHeight::Px(*value),
                 "em" => LineHeight::RelativeToFont(*value),
                 _ => {
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &next,
                         error_codes::ui::UNEXPECTED_LINE_HEIGHT_TOKEN,
                         format!("Dimension '{unit}' is not recognized for LineHeight. Valid dimensions are 'em' | 'px'")
@@ -40,7 +40,7 @@ fn parse_line_height(parser: &mut Parser) -> Result<LineHeight, CssError> {
             }
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::ui::UNEXPECTED_LINE_HEIGHT_TOKEN,
                 "This is not valid LineHeight token. 3px, 2em, 44.2% are valid examples",
@@ -49,8 +49,8 @@ fn parse_line_height(parser: &mut Parser) -> Result<LineHeight, CssError> {
     })
 }
 
-fn parse_letter_spacing(parser: &mut Parser) -> Result<LetterSpacing, CssError> {
-    let next = parser.located_next()?;
+fn parse_letter_spacing(parser: &mut CssParser) -> Result<LetterSpacing, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Ident(ident) if ident.as_ref() == "normal" => LetterSpacing::default(),
         Token::Dimension { value, unit, .. } => {
@@ -58,7 +58,7 @@ fn parse_letter_spacing(parser: &mut Parser) -> Result<LetterSpacing, CssError> 
                 "px" => LetterSpacing::Px(*value),
                 "rem" => LetterSpacing::Rem(*value),
                 _ => {
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &next,
                         error_codes::ui::UNEXPECTED_LETTER_SPACING_TOKEN,
                         format!("Dimension '{unit}' is not recognized for LetterSpacing. Valid dimensions are 'rem' | 'px'")
@@ -67,7 +67,7 @@ fn parse_letter_spacing(parser: &mut Parser) -> Result<LetterSpacing, CssError> 
             }
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::ui::UNEXPECTED_LETTER_SPACING_TOKEN,
                 "This is not valid LetterSpacing token. 'normal', 10px are valid examples",
@@ -76,12 +76,12 @@ fn parse_letter_spacing(parser: &mut Parser) -> Result<LetterSpacing, CssError> 
     })
 }
 
-fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+fn parse_text_shadow(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
     if let Some(none_value) = try_parse_none_with_value::<TextShadow>(parser, NONE_TEXT_SHADOW) {
         return Ok(ReflectValue::new(none_value));
     }
 
-    if let Ok(color) = parser.try_parse_with(parse_color) {
+    if let Ok(color) = parser.try_parse(parse_color) {
         let offset_x = parse_px(parser)?;
         let offset_y = parse_px(parser)?;
 
@@ -94,7 +94,7 @@ fn parse_text_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
         let offset_y = parse_px(parser)?;
 
         let color = parser
-            .try_parse_with(parse_color)
+            .try_parse(parse_color)
             .unwrap_or_else(|_| TextShadow::default().color);
 
         Ok(ReflectValue::new(TextShadow {

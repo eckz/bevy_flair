@@ -1,38 +1,39 @@
 use cssparser::{
-    AtRuleParser, BasicParseErrorKind, CowRcStr, ParseError, Parser, ParserState,
+    AtRuleParser, CowRcStr, ParseError, Parser, ParserState,
     QualifiedRuleParser, StyleSheetParser, match_ignore_ascii_case,
 };
 
-use crate::{CssError, ParserExt};
+use crate::{CssError, CssParser, SpannedStr};
 
 /// Top level CSS style_sheet_parser.
 struct CssImportsParser;
 
 impl<'i> AtRuleParser<'i> for CssImportsParser {
-    type Prelude = CowRcStr<'i>;
-    type AtRule = CowRcStr<'i>;
+    type Prelude = SpannedStr<'i>;
+    type AtRule = SpannedStr<'i>;
     type Error = CssError;
 
     fn parse_prelude(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i>,
+        parser: &mut Parser<'i>,
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
+        let mut parser = CssParser::from_parser(parser);
         match_ignore_ascii_case! { &name,
             "import" =>  {
-                let url = input.expect_url_or_string()?;
+                let url = parser.expect_url_or_string()?;
 
                 // The only valid extra tokens is `layer(ident)`
-                let _ = input.try_parse_with(|parser| {
+                let _ = parser.try_parse(|parser| {
                     parser.expect_function_matching("layer")?;
-                    parser.parse_nested_block_with(|parser| {
+                    parser.parse_nested_block(|parser| {
                         let _ = parser.expect_ident()?;
                         Ok(())
                     })
                 });
                 Ok(url)
             },
-            _ => Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
+            _ => Err(ParseError::custom(CssError::unlocated(crate::error_codes::basic::INVALID_AT_RULE, format!("Unsupported at-rule: @{name}"))))
         }
     }
 
@@ -47,13 +48,13 @@ impl<'i> AtRuleParser<'i> for CssImportsParser {
 
 impl<'i> QualifiedRuleParser<'i> for CssImportsParser {
     type Prelude = ();
-    type QualifiedRule = CowRcStr<'i>;
+    type QualifiedRule = SpannedStr<'i>;
     type Error = CssError;
 }
 
 pub fn extract_imports<'a, F>(contents: &'a str, mut processor: F)
 where
-    F: FnMut(CowRcStr<'a>),
+    F: FnMut(SpannedStr<'a>),
 {
     let mut parser = Parser::new(contents);
 
@@ -73,7 +74,7 @@ mod tests {
         let mut items = Vec::new();
 
         extract_imports(contents, |item| {
-            items.push(item);
+            items.push(item.into_inner());
         });
 
         items

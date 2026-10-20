@@ -1,6 +1,6 @@
 use crate::reflect::parse_color;
 use crate::utils::{CombinedParse, parse_property_value_with};
-use crate::{CssError, ParserExt, ReflectParseCss, error_codes, parse_angle, parse_val};
+use crate::{error_codes, parse_angle, parse_val, CssError, CssParser, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Rot2;
 use bevy_reflect::CreateTypeData;
@@ -8,7 +8,7 @@ use bevy_ui::{
     AngularColorStop, BackgroundGradient, BorderGradient, ColorStop, ConicGradient, Gradient,
     InterpolationColorSpace, LinearGradient, RadialGradient, RadialGradientShape, UiPosition, Val,
 };
-use cssparser::{Parser, Token, match_ignore_ascii_case};
+use cssparser::{Token, match_ignore_ascii_case};
 
 // RadialGradientShape is a little bit weird because it combines shape and shape size.
 // Ideally, it could be two different structs,
@@ -17,14 +17,14 @@ use cssparser::{Parser, Token, match_ignore_ascii_case};
 // For example, 'ellipse closest-side' and 'circle closest-side' should produce different behaviours,
 // but it doesn't in this implementation
 fn parse_radial_gradient_shape(
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<Option<RadialGradientShape>, CssError> {
-    fn parse_circle_or_ellipse_keyword(parser: &mut Parser) -> Result<(), CssError> {
-        let ident = parser.expect_located_ident()?;
+    fn parse_circle_or_ellipse_keyword(parser: &mut CssParser) -> Result<(), CssError> {
+        let ident = parser.expect_ident()?;
         match_ignore_ascii_case! { &ident,
             "circle" => Ok(()),
             "ellipse" => Ok(()),
-            _ =>  Err(CssError::new_located(
+            _ =>  Err(CssError::new(
                 &ident,
                 error_codes::ui::UNEXPECTED_RADIAL_SHAPE_TOKEN,
                 "Invalid keyword for radial shape/size. Valid keywords here are: 'circle' | 'ellipse'",
@@ -32,9 +32,9 @@ fn parse_radial_gradient_shape(
         }
     }
 
-    fn parse_circle_or_ellipse(parser: &mut Parser) -> Result<RadialGradientShape, CssError> {
+    fn parse_circle_or_ellipse(parser: &mut CssParser) -> Result<RadialGradientShape, CssError> {
         let first_val = parse_val(parser)?;
-        if let Ok(second_val) = parser.try_parse_with(parse_val) {
+        if let Ok(second_val) = parser.try_parse(parse_val) {
             // Assume it's an ellipse
             Ok(RadialGradientShape::Ellipse(first_val, second_val))
         } else {
@@ -43,14 +43,14 @@ fn parse_radial_gradient_shape(
         }
     }
 
-    fn parse_shape_keyword(parser: &mut Parser) -> Result<RadialGradientShape, CssError> {
-        let ident = parser.expect_located_ident()?;
+    fn parse_shape_keyword(parser: &mut CssParser) -> Result<RadialGradientShape, CssError> {
+        let ident = parser.expect_ident()?;
         Ok(match_ignore_ascii_case! { &ident,
             "closest-side" => RadialGradientShape::ClosestSide,
             "farthest-side" => RadialGradientShape::FarthestSide,
             "closest-corner" => RadialGradientShape::ClosestCorner,
             "farthest-corner" => RadialGradientShape::FarthestCorner,
-            _ =>  return Err(CssError::new_located(
+            _ =>  return Err(CssError::new(
                 &ident,
                 error_codes::ui::UNEXPECTED_RADIAL_SHAPE_TOKEN,
                 "Invalid keyword for radial shape/size. Valid keywords here are: 'closest-side' | 'farthest-side' | 'right' | 'closest-corner' | 'farthest-corner'",
@@ -59,19 +59,19 @@ fn parse_radial_gradient_shape(
     }
 
     if parser
-        .try_parse_with(parse_circle_or_ellipse_keyword)
+        .try_parse(parse_circle_or_ellipse_keyword)
         .is_ok()
     {
         // From here we expect to find a gradient shape in one way or another
 
-        if let Ok(shape) = parser.try_parse_with(parse_circle_or_ellipse) {
+        if let Ok(shape) = parser.try_parse(parse_circle_or_ellipse) {
             Ok(Some(shape))
         } else {
             Ok(Some(parse_shape_keyword(parser)?))
         }
-    } else if let Ok(shape) = parser.try_parse_with(parse_circle_or_ellipse) {
+    } else if let Ok(shape) = parser.try_parse(parse_circle_or_ellipse) {
         Ok(Some(shape))
-    } else if let Ok(shape) = parser.try_parse_with(parse_shape_keyword) {
+    } else if let Ok(shape) = parser.try_parse(parse_shape_keyword) {
         Ok(Some(shape))
     } else {
         Ok(None)
@@ -82,20 +82,20 @@ fn parse_radial_gradient_shape(
 //   1. [ left | center | right | top | bottom | <length-percentage> ]  |
 //   2. [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ]  |
 //   3. [ [ left | right ] <length-percentage> ] && [ [ top | bottom ] <length-percentage> ]
-fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError> {
+fn parse_ui_position(parser: &mut CssParser) -> Result<Option<UiPosition>, CssError> {
     // 1. [ left | center | right | top | bottom | <length-percentage> ]  |
-    fn parse_ui_position_case_1(parser: &mut Parser) -> Result<UiPosition, CssError> {
-        let result = if let Ok(first_val) = parser.try_parse_with(parse_val) {
+    fn parse_ui_position_case_1(parser: &mut CssParser) -> Result<UiPosition, CssError> {
+        let result = if let Ok(first_val) = parser.try_parse(parse_val) {
             UiPosition::LEFT.at_x(first_val)
         } else {
-            let ident = parser.expect_located_ident()?;
+            let ident = parser.expect_ident()?;
             match_ignore_ascii_case! { &ident,
                 "left" => UiPosition::LEFT,
                 "center" => UiPosition::CENTER,
                 "right" => UiPosition::RIGHT,
                 "top" => UiPosition::TOP,
                 "bottom" => UiPosition::BOTTOM,
-                _ =>  return Err(CssError::new_located(
+                _ =>  return Err(CssError::new(
                     &ident,
                     error_codes::ui::UNEXPECTED_UI_POSITION_TOKEN,
                     "Invalid keyword for ui position. Valid keywords here are: 'left' | 'center' | 'right' | 'top' | 'bottom'",
@@ -107,16 +107,16 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
     }
 
     // 2. [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ]  |
-    fn parse_ui_position_case_2(parser: &mut Parser) -> Result<UiPosition, CssError> {
-        let mut result = if let Ok(first_val) = parser.try_parse_with(parse_val) {
+    fn parse_ui_position_case_2(parser: &mut CssParser) -> Result<UiPosition, CssError> {
+        let mut result = if let Ok(first_val) = parser.try_parse(parse_val) {
             UiPosition::LEFT.at_x(first_val)
         } else {
-            let ident = parser.expect_located_ident()?;
+            let ident = parser.expect_ident()?;
             match_ignore_ascii_case! { &ident,
                 "left" => UiPosition::LEFT,
                 "center" => UiPosition::CENTER,
                 "right" => UiPosition::RIGHT,
-                _ =>  return Err(CssError::new_located(
+                _ =>  return Err(CssError::new(
                     &ident,
                     error_codes::ui::UNEXPECTED_UI_POSITION_TOKEN,
                     "Invalid keyword for ui position. Valid keywords here are: 'left' | 'center' | 'right'",
@@ -124,15 +124,15 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
             }
         };
 
-        let vertical_position = if let Ok(second_val) = parser.try_parse_with(parse_val) {
+        let vertical_position = if let Ok(second_val) = parser.try_parse(parse_val) {
             UiPosition::TOP.at_y(second_val)
         } else {
-            let ident = parser.expect_located_ident()?;
+            let ident = parser.expect_ident()?;
             match_ignore_ascii_case! { &ident,
                 "top" => UiPosition::TOP,
                 "center" => UiPosition::CENTER,
                 "bottom" => UiPosition::BOTTOM,
-                _ =>  return Err(CssError::new_located(
+                _ =>  return Err(CssError::new(
                     &ident,
                     error_codes::ui::UNEXPECTED_UI_POSITION_TOKEN,
                     "Invalid keyword for ui position. Valid keywords here are: 'top' | 'center' | 'bottom'",
@@ -147,12 +147,12 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
     }
 
     //  3. [ [ left | right ] <length-percentage> ] && [ [ top | bottom ] <length-percentage> ]
-    fn parse_ui_position_case_3(parser: &mut Parser) -> Result<UiPosition, CssError> {
-        let first_ident = parser.expect_located_ident()?;
+    fn parse_ui_position_case_3(parser: &mut CssParser) -> Result<UiPosition, CssError> {
+        let first_ident = parser.expect_ident()?;
         let result = match_ignore_ascii_case! { &first_ident,
             "left" => UiPosition::LEFT,
             "right" => UiPosition::RIGHT,
-            _ =>  return Err(CssError::new_located(
+            _ =>  return Err(CssError::new(
                 &first_ident,
                 error_codes::ui::UNEXPECTED_UI_POSITION_TOKEN,
                 "Invalid keyword for ui position. Valid keywords here are: 'left' | 'right'",
@@ -161,11 +161,11 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
 
         let mut result = result.at_x(parse_val(parser)?);
 
-        let second_ident = parser.expect_located_ident()?;
+        let second_ident = parser.expect_ident()?;
         match_ignore_ascii_case! { &second_ident,
             "top" => result.anchor.y = UiPosition::TOP.anchor.y,
             "bottom" => result.anchor.y = UiPosition::BOTTOM.anchor.y,
-            _ =>  return Err(CssError::new_located(
+            _ =>  return Err(CssError::new(
                 &second_ident,
                 error_codes::ui::UNEXPECTED_UI_POSITION_TOKEN,
                 "Invalid keyword for ui position. Valid keywords here are: 'top' | 'bottom'",
@@ -182,20 +182,20 @@ fn parse_ui_position(parser: &mut Parser) -> Result<Option<UiPosition>, CssError
         return Ok(None);
     }
 
-    if let Ok(result) = parser.try_parse_with(parse_ui_position_case_3) {
+    if let Ok(result) = parser.try_parse(parse_ui_position_case_3) {
         Ok(Some(result))
-    } else if let Ok(result) = parser.try_parse_with(parse_ui_position_case_2) {
+    } else if let Ok(result) = parser.try_parse(parse_ui_position_case_2) {
         Ok(Some(result))
     } else {
         Ok(Some(parse_ui_position_case_1(parser)?))
     }
 }
 
-fn parse_linear_color_stop(parser: &mut Parser) -> Result<Vec<ColorStop>, CssError> {
+fn parse_linear_color_stop(parser: &mut CssParser) -> Result<Vec<ColorStop>, CssError> {
     let color = parse_color(parser)?;
     let mut result = Vec::with_capacity(1);
 
-    while let Ok(pos) = parser.try_parse_with(parse_val) {
+    while let Ok(pos) = parser.try_parse(parse_val) {
         result.push(ColorStop::new(color, pos));
     }
 
@@ -206,11 +206,11 @@ fn parse_linear_color_stop(parser: &mut Parser) -> Result<Vec<ColorStop>, CssErr
     Ok(result)
 }
 
-fn parse_angular_color_stop(parser: &mut Parser) -> Result<Vec<AngularColorStop>, CssError> {
+fn parse_angular_color_stop(parser: &mut CssParser) -> Result<Vec<AngularColorStop>, CssError> {
     let color = parse_color(parser)?;
     let mut result = Vec::with_capacity(1);
 
-    while let Ok(angle) = parser.try_parse_with(parse_angle) {
+    while let Ok(angle) = parser.try_parse(parse_angle) {
         result.push(AngularColorStop::new(color, angle.as_radians()));
     }
 
@@ -227,7 +227,7 @@ enum Hue {
 }
 
 // Parses 'shorter hue', o 'longer hue'. Defaults to Shorter
-fn parse_hue(parser: &mut Parser) -> Result<Hue, CssError> {
+fn parse_hue(parser: &mut CssParser) -> Result<Hue, CssError> {
     if parser
         .try_parse(|parser| parser.expect_ident_matching("longer"))
         .is_ok()
@@ -247,7 +247,7 @@ fn parse_hue(parser: &mut Parser) -> Result<Hue, CssError> {
     }
 }
 
-fn parse_color_space(parser: &mut Parser) -> Result<Option<InterpolationColorSpace>, CssError> {
+fn parse_color_space(parser: &mut CssParser) -> Result<Option<InterpolationColorSpace>, CssError> {
     if parser
         .try_parse(|parser| parser.expect_ident_matching("in"))
         .is_err()
@@ -255,7 +255,7 @@ fn parse_color_space(parser: &mut Parser) -> Result<Option<InterpolationColorSpa
         return Ok(None);
     }
 
-    let ident = parser.expect_located_ident()?;
+    let ident = parser.expect_ident()?;
 
     Ok(Some(match_ignore_ascii_case! { &ident,
         "oklab" => InterpolationColorSpace::Oklaba,
@@ -282,7 +282,7 @@ fn parse_color_space(parser: &mut Parser) -> Result<Option<InterpolationColorSpa
             }
         },
         _ =>
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &ident,
                 error_codes::ui::INVALID_COLOR_SPACE,
                 "Invalid interpolate color space. Valid values are: 'oklab' | 'oklch' | 'srgb' | 'linear-rgb' | 'hsl' | 'hsv'",
@@ -292,8 +292,8 @@ fn parse_color_space(parser: &mut Parser) -> Result<Option<InterpolationColorSpa
 }
 
 // parses angle, but also tries to parse 'to right top', 'to left bottom', etc.
-fn parse_linear_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssError> {
-    if let Ok(angle) = parser.try_parse_with(parse_angle) {
+fn parse_linear_gradient_angle(parser: &mut CssParser) -> Result<Option<Rot2>, CssError> {
+    if let Ok(angle) = parser.try_parse(parse_angle) {
         return Ok(Some(angle.into_rot2()));
     }
 
@@ -304,15 +304,15 @@ fn parse_linear_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssE
         return Ok(None);
     }
 
-    fn parse_gradient_angle_keyword(parser: &mut Parser) -> Result<Rot2, CssError> {
-        let ident = parser.expect_located_ident()?;
+    fn parse_gradient_angle_keyword(parser: &mut CssParser) -> Result<Rot2, CssError> {
+        let ident = parser.expect_ident()?;
 
         Ok(match_ignore_ascii_case! { &ident,
             "right" => Rot2::radians(LinearGradient::TO_RIGHT),
             "left" => Rot2::radians(LinearGradient::TO_LEFT),
             "top" => Rot2::radians(LinearGradient::TO_TOP),
             "bottom" => Rot2::radians(LinearGradient::TO_BOTTOM),
-            _ => return Err(CssError::new_located(
+            _ => return Err(CssError::new(
                 &ident,
                 error_codes::ui::UNEXPECTED_ANGLE_TOKEN,
                 "Invalid angle keyword. Valid angle keywords are: 'right' | 'left' | 'top' | 'bottom'",
@@ -322,7 +322,7 @@ fn parse_linear_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssE
 
     let mut rotation = parse_gradient_angle_keyword(parser)?;
 
-    if let Ok(second_rotation) = parser.try_parse_with(parse_gradient_angle_keyword) {
+    if let Ok(second_rotation) = parser.try_parse(parse_gradient_angle_keyword) {
         rotation = rotation.nlerp(second_rotation, 0.5);
     }
 
@@ -330,7 +330,7 @@ fn parse_linear_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssE
 }
 
 // parses 'from <angle>'.
-fn parse_conic_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssError> {
+fn parse_conic_gradient_angle(parser: &mut CssParser) -> Result<Option<Rot2>, CssError> {
     if parser
         .try_parse(|parser| parser.expect_ident_matching("from"))
         .is_err()
@@ -343,7 +343,7 @@ fn parse_conic_gradient_angle(parser: &mut Parser) -> Result<Option<Rot2>, CssEr
 
 fn fail_if_empty<T>(values: &[T]) -> Result<(), CssError> {
     if values.is_empty() {
-        Err(CssError::new_unlocated(
+        Err(CssError::unlocated(
             error_codes::ui::MISSING_GRADIENT_COLORS,
             "No color stops found",
         ))
@@ -384,14 +384,14 @@ fn insert_zero_angular_color_stop_if_missing(stops: &mut Vec<AngularColorStop>) 
     )
 }
 
-fn parse_linear_gradient(parser: &mut Parser) -> Result<LinearGradient, CssError> {
+fn parse_linear_gradient(parser: &mut CssParser) -> Result<LinearGradient, CssError> {
     let mut color_space = InterpolationColorSpace::default();
     let mut angle = LinearGradient::TO_BOTTOM;
     let mut stops: Vec<ColorStop> = Vec::new();
 
     let mut first_parameter_tried = false;
 
-    let _ = parser.parse_comma_separated_with(|parser| {
+    let _ = parser.parse_comma_separated(|parser| {
         if !first_parameter_tried {
             first_parameter_tried = true;
             if let Some((maybe_parsed_angle, maybe_parsed_color_space)) =
@@ -408,9 +408,9 @@ fn parse_linear_gradient(parser: &mut Parser) -> Result<LinearGradient, CssError
         }
 
         if !stops.is_empty()
-            && let Ok(hint) = parser.try_parse(Parser::expect_percentage)
+            && let Ok(hint) = parser.try_parse(CssParser::expect_percentage)
         {
-            stops.last_mut().unwrap().hint = hint;
+            stops.last_mut().unwrap().hint = *hint;
             return Ok(());
         }
 
@@ -428,7 +428,7 @@ fn parse_linear_gradient(parser: &mut Parser) -> Result<LinearGradient, CssError
     })
 }
 
-fn parse_radial_gradient(parser: &mut Parser) -> Result<RadialGradient, CssError> {
+fn parse_radial_gradient(parser: &mut CssParser) -> Result<RadialGradient, CssError> {
     let mut color_space = InterpolationColorSpace::default();
     let mut position = UiPosition::CENTER;
     // Not the same as RadialGradientShape::default(), but the default defined in css.
@@ -437,7 +437,7 @@ fn parse_radial_gradient(parser: &mut Parser) -> Result<RadialGradient, CssError
 
     let mut first_parameter_tried = false;
 
-    let _ = parser.parse_comma_separated_with(|parser| {
+    let _ = parser.parse_comma_separated(|parser| {
         if !first_parameter_tried {
             first_parameter_tried = true;
 
@@ -462,9 +462,9 @@ fn parse_radial_gradient(parser: &mut Parser) -> Result<RadialGradient, CssError
         }
 
         if !stops.is_empty()
-            && let Ok(hint) = parser.try_parse(Parser::expect_percentage)
+            && let Ok(hint) = parser.try_parse(CssParser::expect_percentage)
         {
-            stops.last_mut().unwrap().hint = hint;
+            stops.last_mut().unwrap().hint = *hint;
             return Ok(());
         }
 
@@ -483,7 +483,7 @@ fn parse_radial_gradient(parser: &mut Parser) -> Result<RadialGradient, CssError
     })
 }
 
-fn parse_conic_gradient(parser: &mut Parser) -> Result<ConicGradient, CssError> {
+fn parse_conic_gradient(parser: &mut CssParser) -> Result<ConicGradient, CssError> {
     let mut color_space = InterpolationColorSpace::default();
     let mut position = UiPosition::CENTER;
     let mut angle = Rot2::IDENTITY;
@@ -491,7 +491,7 @@ fn parse_conic_gradient(parser: &mut Parser) -> Result<ConicGradient, CssError> 
 
     let mut first_parameter_tried = false;
 
-    let _ = parser.parse_comma_separated_with(|parser| {
+    let _ = parser.parse_comma_separated(|parser| {
         if !first_parameter_tried {
             first_parameter_tried = true;
             if let Some((maybe_parsed_angle, maybe_parsed_position, maybe_parsed_color_space)) = (
@@ -515,9 +515,9 @@ fn parse_conic_gradient(parser: &mut Parser) -> Result<ConicGradient, CssError> 
         }
 
         if !stops.is_empty()
-            && let Ok(hint) = parser.try_parse(|parser| parser.expect_percentage())
+            && let Ok(hint) = parser.try_parse(CssParser::expect_percentage)
         {
-            stops.last_mut().unwrap().hint = hint;
+            stops.last_mut().unwrap().hint = *hint;
             return Ok(());
         }
 
@@ -536,23 +536,23 @@ fn parse_conic_gradient(parser: &mut Parser) -> Result<ConicGradient, CssError> 
     })
 }
 
-pub(crate) fn parse_gradient(parser: &mut Parser) -> Result<Gradient, CssError> {
-    let next = parser.located_next()?;
+pub(crate) fn parse_gradient(parser: &mut CssParser) -> Result<Gradient, CssError> {
+    let next = parser.next()?;
 
     match &*next {
         Token::Function(function_name) => {
             match_ignore_ascii_case! {function_name,
                 "linear-gradient" => {
-                    Ok(Gradient::Linear(parser.parse_nested_block_with(parse_linear_gradient)?))
+                    Ok(Gradient::Linear(parser.parse_nested_block(parse_linear_gradient)?))
                 },
                 "radial-gradient" => {
-                    Ok(Gradient::Radial(parser.parse_nested_block_with(parse_radial_gradient)?))
+                    Ok(Gradient::Radial(parser.parse_nested_block(parse_radial_gradient)?))
                 },
                 "conic-gradient" => {
-                    Ok(Gradient::Conic(parser.parse_nested_block_with(parse_conic_gradient)?))
+                    Ok(Gradient::Conic(parser.parse_nested_block(parse_conic_gradient)?))
                 },
                  _ => {
-                    Err(CssError::new_located(
+                    Err(CssError::new(
                         &next,
                         error_codes::ui::INVALID_GRADIENT_FUNCTION,
                         format!("Invalid gradient function '{function_name}'. Expected one of the following: 'linear-gradient' | 'radial-gradient' | 'conic-gradient'"),
@@ -560,7 +560,7 @@ pub(crate) fn parse_gradient(parser: &mut Parser) -> Result<Gradient, CssError> 
                 }
             }
         }
-        _ => Err(CssError::new_located(
+        _ => Err(CssError::new(
             &next,
             error_codes::ui::INVALID_GRADIENT_FUNCTION,
             "Invalid gradient definition. Expected one of the following functions: 'linear-gradient' | 'radial-gradient' | 'conic-gradient'",
@@ -568,15 +568,15 @@ pub(crate) fn parse_gradient(parser: &mut Parser) -> Result<Gradient, CssError> 
     }
 }
 
-fn parse_background_gradient(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+fn parse_background_gradient(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
     Ok(ReflectValue::new(BackgroundGradient(
-        parser.parse_comma_separated_with(parse_gradient)?,
+        parser.parse_comma_separated_until_non_comma(parse_gradient)?,
     )))
 }
 
-fn parse_border_gradient(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+fn parse_border_gradient(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
     Ok(ReflectValue::new(BorderGradient(
-        parser.parse_comma_separated_with(parse_gradient)?,
+        parser.parse_comma_separated_until_non_comma(parse_gradient)?,
     )))
 }
 

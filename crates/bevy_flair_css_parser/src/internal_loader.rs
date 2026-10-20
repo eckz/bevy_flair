@@ -1,5 +1,5 @@
 use crate::style_sheet_parser::{
-    CssDeclaration, CssRuleset, CssStyleSheetItem, ParserAnimationKeyFrame, parse_css,
+    CssDeclaration, CssRuleset, CssStyleSheetItem, ParserAnimationKeyFrame, parse_style_sheet,
 };
 use crate::utils::ImportantLevel;
 use crate::{
@@ -304,7 +304,7 @@ impl InternalStylesheetLoader<'_> {
             }
         }
 
-        parse_css(
+        parse_style_sheet(
             self.type_registry,
             self.property_registry,
             self.css_property_registry,

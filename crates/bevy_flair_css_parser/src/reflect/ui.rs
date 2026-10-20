@@ -4,18 +4,19 @@ use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
 use crate::reflect::parse_color;
 use crate::utils::{parse_number, parse_property_value_with, try_parse_none};
-use crate::{Angle, MathFunction, ParserExt, ReflectParseCss, parse_angle, parse_calc};
+use crate::{Angle, MathFunction,  ReflectParseCss, parse_angle, parse_calc};
 use bevy_flair_core::{PropertyValue, ReflectValue};
 use bevy_math::{Rect, Rot2, Vec2};
 use bevy_reflect::CreateTypeData;
 use bevy_ui::{BoxShadow, CornerRadius, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
-use cssparser::Parser;
+use crate::CssParser;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 use thiserror::Error;
 
+
 /// Parses a number, but also accepts <number>px and interpret it as a number.
-pub fn parse_px(parser: &mut Parser) -> Result<f32, CssError> {
+pub fn parse_px(parser: &mut CssParser) -> Result<f32, CssError> {
     parse_calc(parser, |calc_value| match calc_value {
         CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => Ok(*value),
         CalcValue::Number(value) => Ok(*value),
@@ -25,17 +26,17 @@ pub fn parse_px(parser: &mut Parser) -> Result<f32, CssError> {
     })
 }
 
-pub(crate) fn parse_vec2(parser: &mut Parser) -> Result<Vec2, CssError> {
+pub(crate) fn parse_vec2(parser: &mut CssParser) -> Result<Vec2, CssError> {
     if let Some(none) = try_parse_none(parser) {
         return Ok(none);
     }
 
     let x = parse_px(parser)?;
-    let y = parser.try_parse_with(parse_px).unwrap_or(x);
+    let y = parser.try_parse(parse_px).unwrap_or(x);
     Ok(Vec2::new(x, y))
 }
 
-pub(crate) fn parse_rect(parser: &mut Parser) -> Result<Rect, CssError> {
+pub(crate) fn parse_rect(parser: &mut CssParser) -> Result<Rect, CssError> {
     if let Some(none) = try_parse_none(parser) {
         return Ok(none);
     }
@@ -67,14 +68,14 @@ pub(crate) fn parse_rect(parser: &mut Parser) -> Result<Rect, CssError> {
 ///
 /// ```
 /// # use bevy_ui::Val;
-/// # use cssparser::Parser;
+/// # use bevy_flair_css_parser::CssParser;
 /// # use bevy_flair_css_parser::parse_val;
 ///
-/// let mut parser = Parser::new("50%");
+/// let mut parser = CssParser::new("50%");
 /// let val = parse_val(&mut parser).unwrap();
 /// assert_eq!(val, Val::Percent(50.0));
 /// ```
-pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
+pub fn parse_val(parser: &mut CssParser) -> Result<Val, CssError> {
     #[derive(Debug, Error)]
     enum ValCalcError {
         #[error(
@@ -123,7 +124,7 @@ pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
         }
     }
 
-    if let Ok(auto) = parser.try_parse_with(|parser| {
+    if let Ok(auto) = parser.try_parse(|parser| {
         parser.expect_ident_matching("auto")?;
         Ok(Val::Auto)
     }) {
@@ -133,28 +134,28 @@ pub fn parse_val(parser: &mut Parser) -> Result<Val, CssError> {
     parse_calc(parser, val_from_calc_value)
 }
 
-pub(crate) fn parse_val2(parser: &mut Parser) -> Result<Val2, CssError> {
+pub(crate) fn parse_val2(parser: &mut CssParser) -> Result<Val2, CssError> {
     if let Some(none) = try_parse_none(parser) {
         return Ok(none);
     }
 
     let x = parse_val(parser)?;
-    let y = parser.try_parse_with(parse_val).unwrap_or(x);
+    let y = parser.try_parse(parse_val).unwrap_or(x);
     Ok(Val2::new(x, y))
 }
 
-pub(crate) fn parse_corner_radius(parser: &mut Parser) -> Result<CornerRadius, CssError> {
+pub(crate) fn parse_corner_radius(parser: &mut CssParser) -> Result<CornerRadius, CssError> {
     if let Some(none) = try_parse_none(parser) {
         return Ok(none);
     }
 
     let x = parse_val(parser)?;
-    let y = parser.try_parse_with(parse_val).unwrap_or(Val::Auto);
+    let y = parser.try_parse(parse_val).unwrap_or(Val::Auto);
     Ok(CornerRadius::new(x, y))
 }
 
-fn parse_overflow_clip_margin(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Ok(margin) = parser.try_parse_with(parse_px) {
+fn parse_overflow_clip_margin(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
+    if let Ok(margin) = parser.try_parse(parse_px) {
         return Ok(ReflectValue::new(OverflowClipMargin {
             margin,
             ..OverflowClipMargin::DEFAULT
@@ -165,8 +166,8 @@ fn parse_overflow_clip_margin(parser: &mut Parser) -> Result<ReflectValue, CssEr
     Ok(ReflectValue::new(OverflowClipMargin { visual_box, margin }))
 }
 
-fn parse_aspect_ratio(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    if let Ok(()) = parser.try_parse_with(|parser| {
+fn parse_aspect_ratio(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
+    if let Ok(()) = parser.try_parse(|parser| {
         parser.expect_ident_matching("auto")?;
         Ok(())
     }) {
@@ -175,7 +176,7 @@ fn parse_aspect_ratio(parser: &mut Parser) -> Result<ReflectValue, CssError> {
     }
     let dividend = parse_px(parser)?;
     let divisor = parser
-        .try_parse_with(|parser| {
+        .try_parse(|parser| {
             parser.expect_delim('/')?;
             parse_px(parser)
         })
@@ -185,13 +186,13 @@ fn parse_aspect_ratio(parser: &mut Parser) -> Result<ReflectValue, CssError> {
 }
 
 pub(crate) fn parse_four_values<T: Copy>(
-    parser: &mut Parser,
-    mut f: impl FnMut(&mut Parser) -> Result<T, CssError>,
+    parser: &mut CssParser,
+    mut f: impl FnMut(&mut CssParser) -> Result<T, CssError>,
 ) -> Result<[T; 4], CssError> {
     let mut values = SmallVec::<[T; 4]>::new();
 
     values.push(f(parser)?);
-    while let Ok(val) = parser.try_parse_with(&mut f) {
+    while let Ok(val) = parser.try_parse(&mut f) {
         values.push(val);
         if values.len() >= 4 {
             break;
@@ -207,11 +208,11 @@ pub(crate) fn parse_four_values<T: Copy>(
     })
 }
 
-fn parse_z_index(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    Ok(ReflectValue::new(ZIndex(parser.expect_integer()?)))
+fn parse_z_index(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
+    Ok(ReflectValue::new(ZIndex(*parser.expect_integer()?)))
 }
 
-fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, CssError> {
+fn parse_single_box_shadow_style(parser: &mut CssParser) -> Result<ShadowStyle, CssError> {
     let mut values = SmallVec::<[_; 4]>::new();
     let mut color = ShadowStyle::default().color;
 
@@ -222,14 +223,14 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
     values.push(parse_val(parser)?);
     values.push(parse_val(parser)?);
 
-    while let Ok(val) = parser.try_parse_with(parse_val) {
+    while let Ok(val) = parser.try_parse(parse_val) {
         values.push(val);
         if values.len() >= 4 {
             break;
         }
     }
 
-    if let Ok(new_color) = parser.try_parse_with(parse_color) {
+    if let Ok(new_color) = parser.try_parse(parse_color) {
         color = new_color;
     }
 
@@ -255,7 +256,7 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
             spread_radius,
         },
         _ => {
-            return Err(CssError::new_unlocated(
+            return Err(CssError::unlocated(
                 error_codes::INVALID_NUMBER_OF_SHADOW_VALS,
                 "Unexpected number of values. Between 2 and 4 values were expected",
             ));
@@ -265,14 +266,14 @@ fn parse_single_box_shadow_style(parser: &mut Parser) -> Result<ShadowStyle, Css
     Ok(shadow_style)
 }
 
-fn parse_box_shadow(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+fn parse_box_shadow(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
     if let Some(none) = try_parse_none::<BoxShadow>(parser) {
         return Ok(ReflectValue::new(none));
     }
     let mut styles = Vec::with_capacity(1);
     styles.push(parse_single_box_shadow_style(parser)?);
 
-    while let Ok(shadow_style) = parser.try_parse_with(|parser| {
+    while let Ok(shadow_style) = parser.try_parse(|parser| {
         parser.expect_comma()?;
         parse_single_box_shadow_style(parser)
     }) {
@@ -521,7 +522,7 @@ mod tests {
    |
  1 | 1.2
    | |^^\x20\x20
-   | `---- unexpected token: Number { has_sign: false, value: 1.2, int_value: None }
+   | `---- Unexpected token: '1.2'. Was expecting an <integer>
 ---'
 "
         );

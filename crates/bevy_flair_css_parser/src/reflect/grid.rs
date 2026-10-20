@@ -1,7 +1,7 @@
 use crate::error::CssError;
 use crate::error_codes::grid as error_codes;
 use crate::utils::{parse_many, parse_property_value_with, try_parse_none};
-use crate::{Located, ParserExt, ReflectParseCss};
+use crate::{Spanned, ReflectParseCss, CssParser};
 
 use bevy_flair_core::ReflectValue;
 use bevy_reflect::{CreateTypeData, TypePath};
@@ -9,7 +9,7 @@ use bevy_ui::{
     GridPlacement, GridTrack, GridTrackRepetition, MaxTrackSizingFunction, MinTrackSizingFunction,
     RepeatedGridTrack,
 };
-use cssparser::{Parser, Token, match_ignore_ascii_case};
+use cssparser::{Token, match_ignore_ascii_case};
 
 trait GridTrackType: TypePath + Sized {
     fn px(px: f32) -> Self;
@@ -122,7 +122,7 @@ impl GridTrackType for MaxTrackSizingFunction {
     }
 }
 
-fn parse_grid_track_type<T: GridTrackType>(token: Located<Token>) -> Result<T, CssError> {
+fn parse_grid_track_type<T: GridTrackType>(token: Spanned<Token>) -> Result<T, CssError> {
     Ok(match &*token {
         Token::Ident(ident) if ident.as_ref().eq_ignore_ascii_case("auto") => T::auto(),
         Token::Ident(ident) if ident.as_ref().eq_ignore_ascii_case("min-content") => {
@@ -141,7 +141,7 @@ fn parse_grid_track_type<T: GridTrackType>(token: Located<Token>) -> Result<T, C
                     match T::fr(*value) {
                         Some(value) => value,
                         None => {
-                            return Err(CssError::new_located(
+                            return Err(CssError::new(
                                 &token,
                                 error_codes::INVALID_TRACK_DIMENSION,
                                 format!("'{unit}' is not recognized as valid dimension. Valid dimensions are: 'px' | 'vmin' | 'vmax' | 'vh' | 'vw' "),
@@ -162,7 +162,7 @@ fn parse_grid_track_type<T: GridTrackType>(token: Located<Token>) -> Result<T, C
                     T::vw(*value)
                 },
                 _ => {
-                     return Err(CssError::new_located(
+                     return Err(CssError::new(
                         &token,
                         error_codes::INVALID_TRACK_DIMENSION,
                         format!("'{unit}' is not recognized as valid dimension. Valid dimensions are: 'px' | 'fr' | 'vmin' | 'vmax' | 'vh' | 'vw' "),
@@ -171,7 +171,7 @@ fn parse_grid_track_type<T: GridTrackType>(token: Located<Token>) -> Result<T, C
             }
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &token,
                 error_codes::INVALID_TRACK_TOKEN,
                 format!(
@@ -183,11 +183,11 @@ fn parse_grid_track_type<T: GridTrackType>(token: Located<Token>) -> Result<T, C
     })
 }
 
-fn parse_grid_track(token: Located<Token>, parser: &mut Parser) -> Result<GridTrack, CssError> {
+fn parse_grid_track(token: Spanned<Token>, parser: &mut CssParser) -> Result<GridTrack, CssError> {
     Ok(match &*token {
         Token::Function(name) if name.eq_ignore_ascii_case("fit-content") => parser
-            .parse_nested_block_with(|parser| {
-                let next = parser.located_next()?;
+            .parse_nested_block(|parser| {
+                let next = parser.next()?;
 
                 Ok(match &*next {
                     Token::Percentage { unit_value, .. } => {
@@ -198,7 +198,7 @@ fn parse_grid_track(token: Located<Token>, parser: &mut Parser) -> Result<GridTr
                         GridTrack::fit_content_px(*value)
                     }
                     _ => {
-                        return Err(CssError::new_located(
+                        return Err(CssError::new(
                             &next,
                             error_codes::INVALID_FIT_CONTENT_TOKEN,
                             "Expected a percentage, a number, or a number with pixels",
@@ -207,31 +207,31 @@ fn parse_grid_track(token: Located<Token>, parser: &mut Parser) -> Result<GridTr
                 })
             })?,
         Token::Function(name) if name.eq_ignore_ascii_case("minmax") => parser
-            .parse_nested_block_with(|parser| {
-                let min = parse_grid_track_type(parser.located_next()?)?;
+            .parse_nested_block(|parser| {
+                let min = parse_grid_track_type(parser.next()?)?;
 
                 parser.expect_comma()?;
-                let max = parse_grid_track_type(parser.located_next()?)?;
+                let max = parse_grid_track_type(parser.next()?)?;
                 Ok(GridTrack::minmax(min, max))
             })?,
         _ => return parse_grid_track_type(token),
     })
 }
 
-pub(crate) fn parse_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+pub(crate) fn parse_grid_track_vec(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
     if let Some(none_value) = try_parse_none::<Vec<GridTrack>>(parser) {
         return Ok(ReflectValue::new(none_value));
     }
 
     let result: Vec<GridTrack> = parse_many(parser, |parser| {
-        let next = parser.located_next()?;
+        let next = parser.next()?;
         parse_grid_track(next, parser)
     })?;
     Ok(ReflectValue::new(result))
 }
 
-fn parse_repeat_function_args(parser: &mut Parser) -> Result<RepeatedGridTrack, CssError> {
-    let repeat_token = parser.located_next()?;
+fn parse_repeat_function_args(parser: &mut CssParser) -> Result<RepeatedGridTrack, CssError> {
+    let repeat_token = parser.next()?;
     let repetition = match &*repeat_token {
         Token::Number {
             int_value: Some(value),
@@ -249,7 +249,7 @@ fn parse_repeat_function_args(parser: &mut Parser) -> Result<RepeatedGridTrack, 
                 GridTrackRepetition::AutoFit
             },
             _ => {
-                 return Err(CssError::new_located(
+                 return Err(CssError::new(
                     &repeat_token,
                     error_codes::INVALID_REPETITION_TOKEN,
                     format!("'{ident}' is not recognized as valid repetition. Valid values are: 'auto-fill' | 'auto-fit'"),
@@ -257,7 +257,7 @@ fn parse_repeat_function_args(parser: &mut Parser) -> Result<RepeatedGridTrack, 
             }}
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &repeat_token,
                 error_codes::INVALID_REPETITION_TOKEN,
                 "This expression is not recognized as a valid repeat value token",
@@ -268,24 +268,24 @@ fn parse_repeat_function_args(parser: &mut Parser) -> Result<RepeatedGridTrack, 
     parser.expect_comma()?;
 
     let grid_tracks: Vec<GridTrack> = parse_many(parser, |parser| {
-        let next = parser.located_next()?;
+        let next = parser.next()?;
         parse_grid_track(next, parser)
     })?;
 
     Ok(RepeatedGridTrack::repeat_many(repetition, grid_tracks))
 }
 
-pub(crate) fn parse_repeated_grid_track_vec(parser: &mut Parser) -> Result<ReflectValue, CssError> {
+pub(crate) fn parse_repeated_grid_track_vec(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
     if let Some(none_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
         return Ok(ReflectValue::new(none_value));
     }
 
-    let result: Vec<RepeatedGridTrack> = parse_many(parser, |parser: &mut Parser| {
-        let next = parser.located_next()?;
+    let result: Vec<RepeatedGridTrack> = parse_many(parser, |parser: &mut CssParser| {
+        let next = parser.next()?;
 
         match &*next {
             Token::Function(name) if name.as_ref().eq_ignore_ascii_case("repeat") => {
-                parser.parse_nested_block_with(parse_repeat_function_args)
+                parser.parse_nested_block(parse_repeat_function_args)
             }
             _ => parse_grid_track(next, parser).map(Into::into),
         }
@@ -295,8 +295,9 @@ pub(crate) fn parse_repeated_grid_track_vec(parser: &mut Parser) -> Result<Refle
 
 macro_rules! non_zero {
     ($value:expr) => {
-        if $value == 0 {
-            return Err(CssError::new_unlocated(
+        if *$value == 0 {
+            return Err(CssError::new(
+                &$value,
                 error_codes::GRID_PLACEMENT_ZERO_VALUE,
                 concat!(stringify!($value), " cannot be zero"),
             ));
@@ -306,10 +307,11 @@ macro_rules! non_zero {
 
 macro_rules! convert_integer {
     ($value:ident as $ty:path) => {
-        match <$ty as TryFrom<i32>>::try_from($value) {
+        match <$ty as TryFrom<i32>>::try_from(*$value) {
             Ok(value) => value,
             Err(_) => {
-                return Err(CssError::new_unlocated(
+                return Err(CssError::new(
+                    &$value,
                     error_codes::OUTSIDE_OF_RANGE_NUMBER,
                     format!(
                         concat!("Number '{}' is outside of the ", stringify!($ty), " range"),
@@ -322,17 +324,18 @@ macro_rules! convert_integer {
 }
 
 /// A single `<grid-line>` component of the `grid-row`/`grid-column` grammar
+#[derive(Copy, Clone)]
 enum GridLine {
     Auto,
     Line(i16),
     Span(u16),
 }
 
-fn parse_grid_line(parser: &mut Parser) -> Result<GridLine, CssError> {
+fn parse_grid_line(parser: &mut CssParser) -> Result<GridLine, CssError> {
     let peek = parser.peek()?;
 
-    Ok(match peek {
-        Token::Ident(ref ident) if ident.as_ref().eq_ignore_ascii_case("auto") => {
+    Ok(match &*peek {
+        Token::Ident(ident) if ident.as_ref().eq_ignore_ascii_case("auto") => {
             parser.expect_ident_matching("auto")?;
             GridLine::Auto
         }
@@ -353,10 +356,11 @@ fn parse_grid_line(parser: &mut Parser) -> Result<GridLine, CssError> {
 }
 
 fn grid_placement_from_lines(
-    first: GridLine,
-    second: Option<GridLine>,
+    first: Spanned<GridLine>,
+    second_spanned: Option<Spanned<GridLine>>,
 ) -> Result<GridPlacement, CssError> {
-    Ok(match (first, second) {
+    let second = second_spanned.map(|spanned| spanned.into_inner());
+    Ok(match (first.into_inner(), second) {
         (GridLine::Auto, None | Some(GridLine::Auto)) => GridPlacement::auto(),
         (GridLine::Line(start), None) => GridPlacement::start(start),
         (GridLine::Span(span), None) => GridPlacement::span(span),
@@ -374,7 +378,9 @@ fn grid_placement_from_lines(
         (GridLine::Span(span), Some(GridLine::Line(end))) => GridPlacement::end_span(end, span),
 
         (GridLine::Span(_), Some(GridLine::Span(_))) => {
-            return Err(CssError::new_unlocated(
+            let second_spanned = second_spanned.unwrap();
+            return Err(CssError::new(
+                &second_spanned,
                 error_codes::GRID_PLACEMENT_DOUBLE_SPAN,
                 "'span' cannot be used for both the start and the end of a grid placement",
             ));
@@ -382,13 +388,13 @@ fn grid_placement_from_lines(
     })
 }
 
-fn parse_grid_placement(parser: &mut Parser) -> Result<ReflectValue, CssError> {
-    let first = parse_grid_line(parser)?;
+fn parse_grid_placement(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
+    let first = parser.spanned(parse_grid_line)?;
 
     let second = parser
-        .try_parse_with(|parser| {
+        .try_parse(|parser| {
             parser.expect_delim('/')?;
-            parse_grid_line(parser)
+            parser.spanned(parse_grid_line)
         })
         .ok();
 
@@ -567,11 +573,11 @@ mod tests {
         assert_eq!(
             test_err_parse_reflect::<GridPlacement>("span 2 / span 3"),
             "[56] Warning: 'span' used for both start and end of a grid placement
-   ,-[ test.css:1:1 ]
+   ,-[ test.css:1:10 ]
    |
  1 | span 2 / span 3
-   | |^^^^^^^^^^^^^^  
-   | `---------------- 'span' cannot be used for both the start and the end of a grid placement
+   |          |^^^^^\x20\x20
+   |          `------- 'span' cannot be used for both the start and the end of a grid placement
 ---'
 "
         );

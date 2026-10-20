@@ -1,9 +1,10 @@
-use crate::{CssError, LocatedStr, ParserExt, error_codes};
+use crate::{error_codes, CssError, CssParser, SpannedStr};
 use bevy_flair_style::{ColorScheme, MediaRangeSelector, MediaSelector, MediaSelectors};
-use cssparser::{Parser, Token, match_ignore_ascii_case};
+use cssparser::{Token, match_ignore_ascii_case};
 
-fn parse_size(parser: &mut Parser) -> Result<u32, CssError> {
-    let next = parser.located_next()?;
+
+fn parse_size(parser: &mut CssParser) -> Result<u32, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Number {
             int_value: Some(int_value),
@@ -17,12 +18,12 @@ fn parse_size(parser: &mut Parser) -> Result<u32, CssError> {
             match_ignore_ascii_case! { unit.as_ref(),
                 "px" => *int_value as u32,
                 _ => {
-                    return Err(CssError::new_located(&next,  error_codes::media_queries::UNPEXPECTED_SIZE_TOKEN, format!("Dimension '{unit}' is not recognized. Only valid dimension is 'px'")));
+                    return Err(CssError::new(&next,  error_codes::media_queries::UNPEXPECTED_SIZE_TOKEN, format!("Dimension '{unit}' is not recognized. Only valid dimension is 'px'")));
                 }
             }
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::media_queries::UNPEXPECTED_SIZE_TOKEN,
                 "This is not valid size token. 300px is a valid size token",
@@ -31,15 +32,15 @@ fn parse_size(parser: &mut Parser) -> Result<u32, CssError> {
     })
 }
 
-fn parse_resolution(parser: &mut Parser) -> Result<f32, CssError> {
-    let next = parser.located_next()?;
+fn parse_resolution(parser: &mut CssParser) -> Result<f32, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Dimension { value, unit, .. } => {
             match_ignore_ascii_case! { unit.as_ref(),
                 "dppx" => *value,
                 "x" => *value,
                 _ => {
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &next,
                         error_codes::media_queries::UNPEXPECTED_RESOLUTION_TOKEN,
                         format!("Dimension '{unit}' is not recognized. Valid dimensions are  'dppx' | 'x'")
@@ -48,7 +49,7 @@ fn parse_resolution(parser: &mut Parser) -> Result<f32, CssError> {
             }
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::media_queries::UNPEXPECTED_RESOLUTION_TOKEN,
                 "This is not valid size token. 300px is a valid size token",
@@ -57,25 +58,25 @@ fn parse_resolution(parser: &mut Parser) -> Result<f32, CssError> {
     })
 }
 
-fn parse_ratio(parser: &mut Parser) -> Result<f32, CssError> {
+fn parse_ratio(parser: &mut CssParser) -> Result<f32, CssError> {
     let number = parser.expect_number()?;
     if let Ok(divisor) = parser.try_parse(|parser| {
         parser.expect_delim('/')?;
         parser.expect_number()
     }) {
-        Ok(number / divisor)
+        Ok(*number / *divisor)
     } else {
-        Ok(number)
+        Ok(*number)
     }
 }
 
-fn parse_color_scheme(parser: &mut Parser) -> Result<ColorScheme, CssError> {
-    let ident = parser.expect_located_ident()?;
+fn parse_color_scheme(parser: &mut CssParser) -> Result<ColorScheme, CssError> {
+    let ident = parser.expect_ident()?;
     Ok(match_ignore_ascii_case! { &*ident,
         "light" => ColorScheme::Light,
         "dark" => ColorScheme::Dark,
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &ident,
                 error_codes::media_queries::UNPEXPECTED_COLOR_SCHEMA_TOKEN,
                 format!("Identifier '{ident}' is not recognized. Only valid color schemes are 'light' or 'dark'")
@@ -86,9 +87,9 @@ fn parse_color_scheme(parser: &mut Parser) -> Result<ColorScheme, CssError> {
 
 // Parses a single media selectors like `min-width: 300px` or `prefers-color-scheme: dark`.
 fn parse_selector_range<T>(
-    media_property: &LocatedStr,
-    parser: &mut Parser,
-    value_inner_parser: impl Fn(&mut Parser) -> Result<T, CssError>,
+    media_property: &SpannedStr,
+    parser: &mut CssParser,
+    value_inner_parser: impl Fn(&mut CssParser) -> Result<T, CssError>,
 ) -> Result<MediaRangeSelector<T>, CssError> {
     Ok(match media_property {
         p if p[..3].eq_ignore_ascii_case("min") => {
@@ -102,8 +103,8 @@ fn parse_selector_range<T>(
 }
 
 // Parses a single media selectors like `min-width: 300px` or `prefers-color-scheme: dark`.
-fn parse_media_selector_atom(parser: &mut Parser) -> Result<MediaSelector, CssError> {
-    let media_property = parser.expect_located_ident()?;
+fn parse_media_selector_atom(parser: &mut CssParser) -> Result<MediaSelector, CssError> {
+    let media_property = parser.expect_ident()?;
     parser.expect_colon()?;
     Ok(match_ignore_ascii_case! { &*media_property,
         "prefers-color-scheme" => {
@@ -122,7 +123,7 @@ fn parse_media_selector_atom(parser: &mut Parser) -> Result<MediaSelector, CssEr
             MediaSelector::Resolution(parse_selector_range(&media_property, parser, parse_resolution)?)
         },
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &media_property,
                 error_codes::media_queries::UNRECOGNIZED_PROPERTY,
                 format!("Property {media_property} is not recognized. Valid properties are 'prefers-color-scheme' | '{{min-|max-}}width' | '{{min-|max-}}-height' | '{{min-|max-}}-resolution | '{{min-|max-}}-aspect-ratio'"),
@@ -132,9 +133,9 @@ fn parse_media_selector_atom(parser: &mut Parser) -> Result<MediaSelector, CssEr
 }
 
 // Parses media selectors like `(min-width: 30px) and (max-width: 50px)`
-pub(super) fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelectors, CssError> {
+pub(super) fn parse_media_selectors(parser: &mut CssParser) -> Result<MediaSelectors, CssError> {
     parser.expect_parenthesis_block()?;
-    let first_selector = parser.parse_nested_block_with(parse_media_selector_atom)?;
+    let first_selector = parser.parse_nested_block(parse_media_selector_atom)?;
 
     let mut selectors = vec![first_selector];
 
@@ -142,7 +143,7 @@ pub(super) fn parse_media_selectors(parser: &mut Parser) -> Result<MediaSelector
         parser.expect_ident_matching("and")?;
         parser.expect_parenthesis_block()?;
 
-        parser.parse_nested_block_with(parse_media_selector_atom)
+        parser.parse_nested_block(parse_media_selector_atom)
     }) {
         selectors.push(media_selector);
     }

@@ -2,12 +2,13 @@ use crate::style_sheet_parser::{
     CssDeclaration, CssParserContext, CssRulesetBodyParser, CssStyleSheetItem,
     ParseAnimationProperties, collect_parser,
 };
-use crate::{CssError, ParserExt, error_codes};
+use crate::{error_codes, CssError, CssParser, SpannedStr};
 use cssparser::{
-    AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserState,
+    AtRuleParser, DeclarationParser, ParseError, Parser, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, Token,
 };
 use std::sync::Arc;
+
 
 #[derive(Clone, Debug)]
 pub(crate) enum ParserAnimationKeyFrame {
@@ -42,8 +43,8 @@ pub(crate) struct ParserAnimationKeyFrames {
     pub keyframes: Vec<ParserAnimationKeyFrame>,
 }
 
-fn parse_keyframe(parser: &mut Parser) -> Result<f32, CssError> {
-    let next = parser.located_next()?;
+fn parse_keyframe(parser: &mut CssParser) -> Result<f32, CssError> {
+    let next = parser.next()?;
 
     Ok(match &*next {
         Token::Ident(ident) if ident.eq_ignore_ascii_case("from") => 0.0,
@@ -53,7 +54,7 @@ fn parse_keyframe(parser: &mut Parser) -> Result<f32, CssError> {
         }
         Token::Number { value, .. } if value.clamp(0.0, 1.0) == *value => *value,
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::animations::UNEXPECTED_KEYFRAME_TOKEN,
                 "Is not valid as keyframe. 'from', 'to', 20% are valid examples",
@@ -80,11 +81,13 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
 
     fn parse_prelude(
         &mut self,
-        input: &mut Parser<'i>,
+        parser: &mut Parser<'i>,
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
-        input.parse_comma_separated(|parser| {
-            parse_keyframe(parser).map_err(|err| err.into_parse_error())
-        })
+        let mut parser = CssParser::from_parser(parser);
+
+        Ok(parser.parse_comma_separated(|parser| {
+            parse_keyframe(parser)
+        })?)
     }
 
     fn parse_block(
@@ -126,7 +129,7 @@ impl<'i> RuleBodyItemParser<'i, ParserAnimationKeyFrame, CssError>
 }
 
 pub(super) fn parse_keyframes_body<'i, 'a>(
-    name: CowRcStr<'i>,
+    name: SpannedStr<'i>,
     context: CssParserContext<'a, 'i>,
     input: &mut Parser<'i>,
 ) -> CssStyleSheetItem {
@@ -139,7 +142,8 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
     let mut declared_animations = context.defined_animations.borrow_mut();
 
     if declared_animations.contains(&name) {
-        return CssError::new_unlocated(
+        return CssError::new(
+            &name,
             error_codes::basic::DUPLICATED_KEYFRAMES_ANIMATION,
             format!("Animation with name '{name}' was already defined"),
         )
@@ -149,7 +153,7 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
     declared_animations.insert(name.clone());
 
     CssStyleSheetItem::AnimationKeyFrames(ParserAnimationKeyFrames {
-        name: Arc::from(&*name),
+        name: Arc::from(name.as_ref()),
         keyframes,
     })
 }

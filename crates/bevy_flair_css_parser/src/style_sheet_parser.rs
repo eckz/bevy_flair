@@ -9,11 +9,14 @@ use std::cell::RefCell;
 
 use cssparser::*;
 
-use crate::error::CssError;
+use crate::error::{CssError, CssErrorLocation, StyleErrorData};
 use crate::reflect::ReflectParseCssEnum;
 use crate::utils::{ImportantLevel, resolve_asset_path, try_parse_important_level};
 use crate::vars::parse_var_tokens;
-use crate::{CssParseResult, ParserExt, ShorthandProperty, ShorthandPropertyRegistry};
+use crate::{
+    CssErrorCodeDef, CssParseResult, CssParser, ShorthandProperty, ShorthandPropertyRegistry,
+    Spanned, SpannedStr,
+};
 use crate::{ReflectParseCss, error_codes};
 use bevy_flair_core::{
     ComponentPropertyId, CssPropertyRegistry, MaybeTypePath, PropertyRegistry, PropertyValue,
@@ -21,20 +24,20 @@ use bevy_flair_core::{
 use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, TransitionPropertyId};
 use bevy_flair_style::{DynamicParseVarTokens, MediaSelectors, StyleSheet, VarTokens};
 
+use crate::internal_loader::{ImportMapping, Imports};
+use crate::style_sheet_parser::media_selectors::parse_media_selectors;
 pub use animations::*;
 use bevy_asset::AssetPath;
 use bevy_reflect::TypeRegistry;
+use derive_more::Deref;
+pub(crate) use font_face::*;
+pub(crate) use keyframes::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::internal_loader::{ImportMapping, Imports};
-use crate::style_sheet_parser::media_selectors::parse_media_selectors;
-pub(crate) use font_face::*;
-pub(crate) use keyframes::*;
-
-pub(crate) static VAR_FUNCTION: [&str; 1] = ["var"];
+pub(crate) static SUBSTITUTION_FUNCTIONS: [&str; 1] = ["var"];
 
 #[derive(Clone, derive_more::Debug)]
 pub enum CssDeclaration {
@@ -60,9 +63,9 @@ impl From<CssError> for CssDeclaration {
 }
 
 impl CssDeclaration {
-    fn into_parse_result(self) -> Result<CssDeclaration, ParseError<CssError>> {
+    fn into_parse_result(self) -> Result<CssDeclaration, CssError> {
         match self {
-            CssDeclaration::Error(err) => Err(err.into_parse_error()),
+            CssDeclaration::Error(err) => Err(err),
             other => Ok(other),
         }
     }
@@ -92,11 +95,9 @@ impl From<CssError> for CssStyleSheetItem {
     }
 }
 
-fn consume_as_var_tokens(
-    parser: &mut Parser,
-) -> Result<(VarTokens, ImportantLevel), ParseError<CssError>> {
+fn consume_as_var_tokens(parser: &mut CssParser) -> Result<(VarTokens, ImportantLevel), CssError> {
     parser.parse_entirely(|parser| {
-        let var_tokens = parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
+        let var_tokens = parse_var_tokens(parser)?;
         let important_level = try_parse_important_level(parser);
         Ok((var_tokens, important_level))
     })
@@ -113,7 +114,7 @@ pub(crate) struct CssPropertyParser<'a> {
 #[derive(Clone)]
 struct CssParserContext<'a, 'i> {
     property_parser: CssPropertyParser<'a>,
-    defined_animations: Rc<RefCell<FxHashSet<CowRcStr<'i>>>>,
+    defined_animations: Rc<RefCell<FxHashSet<SpannedStr<'i>>>>,
     asset_path: Option<AssetPath<'static>>,
     imports: &'a Imports,
     media_selectors: MediaSelectors,
@@ -155,22 +156,24 @@ impl CssPropertyParser<'_> {
 
     pub(crate) fn parse_ruleset_property(
         &self,
-        property_name: &str,
-        parser: &mut Parser,
+        property_name: LocatedPropertyName,
+        parser: &mut CssParser,
     ) -> CssDeclaration {
-        if let Some(shorthand_property) = self.get_shorthand_css(property_name) {
+        if let Some(shorthand_property) = self.get_shorthand_css(&property_name) {
             let initial_state = parser.state();
-            parser.look_for_arbitrary_substitution_functions(&VAR_FUNCTION);
+            parser
+                .inner_parser_mut()
+                .look_for_arbitrary_substitution_functions(&SUBSTITUTION_FUNCTIONS);
 
             let result = parser.parse_entirely(|parser| {
-                let properties = shorthand_property
-                    .parse(parser)
-                    .map_err(|error| error.into_parse_error())?;
+                let properties = shorthand_property.parse(parser)?;
                 let important_level = try_parse_important_level(parser);
                 Ok((properties, important_level))
             });
 
-            let seen_var = parser.seen_arbitrary_substitution_functions();
+            let seen_var = parser
+                .inner_parser_mut()
+                .seen_arbitrary_substitution_functions();
 
             return match result {
                 Ok((properties, important_level)) => CssDeclaration::MultipleProperties(
@@ -207,19 +210,25 @@ impl CssPropertyParser<'_> {
             };
         }
 
-        let Some(property_id) = self.get_css_property(property_name) else {
-            return CssDeclaration::Error(CssError::new_unlocated(
-                error_codes::basic::PROPERTY_NOT_RECOGNIZED,
-                format!("Property '{property_name}' is not recognized as a valid property name",),
-            ));
+        let Some(property_id) = self.get_css_property(&property_name) else {
+            return CssDeclaration::Error(
+                property_name.into_error(
+                    error_codes::basic::PROPERTY_NOT_RECOGNIZED,
+                    |property_name| {
+                        format!(
+                            "Property '{property_name}' is not recognized as a valid property name",
+                        )
+                    },
+                ),
+            );
         };
 
         let property = &self.property_registry[property_id];
 
         let Some(reflect_parse_css) = self.get_reflect_parse_css(property.value_type_id()) else {
-            return CssDeclaration::Error(CssError::new_unlocated(
+            return CssDeclaration::Error(property_name.into_error(
                 error_codes::basic::NON_PARSEABLE_TYPE,
-                format!(
+                |property_name| format!(
                     "Property {property_name} of type '{value_type_path}' does not have a configured way of parsing it. It should implement ReflectParseCss or ReflectParseCssEnum",
                     value_type_path = MaybeTypePath::from_type_registry(
                         property.value_type_id(),
@@ -229,16 +238,20 @@ impl CssPropertyParser<'_> {
             ));
         };
         let initial_state = parser.state();
-        parser.look_for_arbitrary_substitution_functions(&VAR_FUNCTION);
+        parser
+            .inner_parser_mut()
+            .look_for_arbitrary_substitution_functions(&SUBSTITUTION_FUNCTIONS);
 
         let parse_fn = reflect_parse_css.parse_fn();
         let result = parser.parse_entirely(|parser| {
-            let value = parse_fn(parser).map_err(|error| error.into_parse_error())?;
+            let value = parse_fn(parser)?;
             let important_level = try_parse_important_level(parser);
             Ok((value, important_level))
         });
 
-        let seen_var = parser.seen_arbitrary_substitution_functions();
+        let seen_var = parser
+            .inner_parser_mut()
+            .seen_arbitrary_substitution_functions();
 
         match result {
             Ok((value, important_level)) => {
@@ -249,29 +262,28 @@ impl CssPropertyParser<'_> {
                 let result = consume_as_var_tokens(parser);
                 match result {
                     Ok((var_tokens, important_level)) => CssDeclaration::DynamicProperty(
-                        property_name.into(),
+                        (*property_name).into(),
                         reflect_parse_css.as_dynamic_parse_var_tokens(property_id),
                         var_tokens,
                         important_level,
                     ),
-                    Err(err) => CssDeclaration::Error(CssError::from(err)),
+                    Err(err) => CssDeclaration::Error(err),
                 }
             }
-            Err(err) => CssDeclaration::Error(CssError::from(err)),
+            Err(err) => CssDeclaration::Error(err),
         }
     }
 }
 
 fn collect_parser<'a, I, E>(parser: I) -> Vec<E>
 where
-    I: Iterator<Item = Result<E, (ParseError<CssError>, &'a str)>>,
+    I: Iterator<Item = Result<E, (ParseError<CssError>, &'a str, SourceLocation)>>,
     E: From<CssError>,
 {
     parser
         .map(|result| {
-            result.unwrap_or_else(|(err, error_substr)| {
-                let mut css_error = CssError::from(err);
-                css_error.improve_location_with_sub_str(error_substr);
+            result.unwrap_or_else(|(err, error_substr, source)| {
+                let css_error = CssError::from_parse_error_with_location(err, source, error_substr);
                 css_error.into()
             })
         })
@@ -318,13 +330,14 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
             todo!("error at rule invalid")
             //return Err(ParseError::custom(BasicParseErrorKind::AtRuleInvalid));
         }
+        let mut parser = CssParser::from_parser(parser);
         match_ignore_ascii_case! { &name,
             "media" =>  {
-                let media_selectors = parse_media_selectors(parser).map_err(|err| err.into_parse_error())?;
+                let media_selectors = parse_media_selectors(&mut parser)?;
                 Ok(AtRuleType::MediaSelector(media_selectors))
             },
             "layer" =>  {
-                let layer_name = parser.expect_ident_cloned()?;
+                let layer_name = parser.expect_ident()?;
                 Ok(AtRuleType::Layer(vec![layer_name]))
             },
             _ => {
@@ -400,12 +413,12 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
 
     fn parse_prelude(
         &mut self,
-        input: &mut Parser<'i>,
+        parser: &mut Parser<'i>,
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
-        Ok(
-            CssSelector::parse_comma_separated_for_nested(input)
-                .map_err(CssError::from_parse_error),
-        )
+        let mut css_parser = CssParser::from_parser(parser);
+        let selectors = css_parser
+            .inner_spanned(|parser| CssSelector::parse_comma_separated_for_nested(parser));
+        Ok(selectors.map(Spanned::into_inner))
     }
 
     fn parse_block(
@@ -440,6 +453,47 @@ pub fn prefix_eq_ignore_ascii_case(s: &str, prefix: &str) -> bool {
     start_slice.eq_ignore_ascii_case(prefix)
 }
 
+#[derive(Deref)]
+pub(crate) struct LocatedPropertyName<'a> {
+    #[deref]
+    pub property_name: &'a str,
+
+    location: CssErrorLocation,
+}
+
+impl<'a> LocatedPropertyName<'a> {
+    pub fn from_parser_state(property_name: &'a str, declaration_start: &ParserState) -> Self {
+        let location = CssErrorLocation::from_source_and_sub_str(
+            declaration_start.source_location(),
+            &property_name,
+        );
+        Self {
+            property_name,
+            location,
+        }
+    }
+
+    pub fn new(property_name: &'a SpannedStr) -> Self {
+        let span = property_name.span;
+        let location = CssErrorLocation::Range(span);
+        Self {
+            property_name: property_name.as_ref(),
+            location,
+        }
+    }
+
+    pub fn into_error<M: Into<Arc<str>>, F: FnOnce(&str) -> M>(
+        self,
+        code: &'static CssErrorCodeDef,
+        annotated_message: F,
+    ) -> CssError {
+        CssError::from_data_and_location(
+            StyleErrorData::new(code, annotated_message(self.property_name)),
+            self.location,
+        )
+    }
+}
+
 impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
     type Declaration = CssDeclaration;
     type Error = CssError;
@@ -447,43 +501,52 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
     fn parse_value(
         &mut self,
         property_name: CowRcStr<'i>,
-        input: &mut Parser<'i>,
-        _declaration_start: &ParserState,
+        parser: &mut Parser<'i>,
+        declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<Self::Error>> {
-        if self.parse_vars && property_name.starts_with("--") {
-            let var_name = property_name.strip_prefix("--").unwrap();
+        let property_name =
+            LocatedPropertyName::from_parser_state(&property_name, declaration_start);
+        let mut parser = CssParser::from_parser(parser);
 
-            let result = input.parse_entirely(|parser| {
-                parse_var_tokens(parser).map_err(|err| err.into_parse_error())
-            });
+        // It's better that we return the `parse_entirely` error ourselves in case not everything is consumed
+        // instead of letting `DeclarationParser`
+        // return the error. Errors returned by DeclarationParser are not located.
 
-            Ok(match result {
-                Ok(value) => CssDeclaration::Var(var_name.into(), value),
-                Err(err) => CssDeclaration::Error(CssError::from(err)),
-            })
-        } else if self.parse_transition && prefix_eq_ignore_ascii_case(&property_name, "transition")
-        {
-            let result = parse_transition_property(&property_name, input);
-            Ok(match result {
-                Ok(transition_property) => CssDeclaration::TransitionProperty(transition_property),
-                Err(err) => CssDeclaration::Error(err),
-            })
-        } else if self.parse_animation == ParseAnimationProperties::All
-            && prefix_eq_ignore_ascii_case(&property_name, "animation")
-            || self.parse_animation == ParseAnimationProperties::OnlyTimingFunction
+        Ok(parser.parse_entirely(|parser| {
+            if self.parse_vars && property_name.starts_with("--") {
+                let var_name = property_name.strip_prefix("--").unwrap();
+
+                let result = parser.parse_entirely(parse_var_tokens);
+
+                Ok(match result {
+                    Ok(value) => CssDeclaration::Var(var_name.into(), value),
+                    Err(err) => CssDeclaration::Error(err),
+                })
+            } else if self.parse_transition && prefix_eq_ignore_ascii_case(&property_name, "transition")
+            {
+                let result = parse_transition_property(property_name, parser);
+                Ok(match result {
+                    Ok(transition_property) => CssDeclaration::TransitionProperty(transition_property),
+                    Err(err) => CssDeclaration::Error(err),
+                })
+            } else if self.parse_animation == ParseAnimationProperties::All
+                && prefix_eq_ignore_ascii_case(&property_name, "animation")
+                || self.parse_animation == ParseAnimationProperties::OnlyTimingFunction
                 && property_name.eq_ignore_ascii_case("animation-timing-function")
-        {
-            let result = parse_animation_property(&property_name, input);
-            Ok(match result {
-                Ok(animation_property) => CssDeclaration::AnimationProperty(animation_property),
-                Err(err) => CssDeclaration::Error(err),
-            })
-        } else {
-            self.inner
-                .property_parser
-                .parse_ruleset_property(&property_name, input)
-                .into_parse_result()
-        }
+            {
+                let result = parse_animation_property(property_name, parser);
+                Ok(match result {
+                    Ok(animation_property) => CssDeclaration::AnimationProperty(animation_property),
+                    Err(err) => CssDeclaration::Error(err),
+                })
+            } else {
+                self.inner
+                    .property_parser
+                    .parse_ruleset_property(property_name, parser)
+                    .into_parse_result()
+            }
+        })?)
+
     }
 }
 
@@ -507,10 +570,10 @@ struct CssStyleSheetParser<'a, 'i> {
 #[derive(Debug)]
 enum AtRuleType<'i> {
     FontFace,
-    KeyFrames(CowRcStr<'i>),
+    KeyFrames(SpannedStr<'i>),
     Import(AssetPath<'static>, Option<String>),
     MediaSelector(MediaSelectors),
-    Layer(Vec<CowRcStr<'i>>),
+    Layer(Vec<SpannedStr<'i>>),
 }
 
 fn parse_inner_at_rule<'a, 'i>(
@@ -527,9 +590,8 @@ fn parse_inner_at_rule<'a, 'i>(
     let mut inner = Vec::new();
 
     for item in stylesheet_parser {
-        let item = item.unwrap_or_else(|(parse_error, error_str)| {
-            let mut css_error = CssError::from(parse_error);
-            css_error.improve_location_with_sub_str(error_str);
+        let item = item.unwrap_or_else(|(err, error_substr, source)| {
+            let css_error = CssError::from_parse_error_with_location(err, source, error_substr);
             CssStyleSheetItem::Error(css_error)
         });
         inner.push(item);
@@ -547,59 +609,61 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
     fn parse_prelude(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i>,
+        parser: &mut Parser<'i>,
     ) -> Result<AtRuleType<'i>, ParseError<CssError>> {
         let is_top_level = self.is_top_level;
+        let mut parser = CssParser::from_parser(parser);
+
         Ok(match_ignore_ascii_case! { &name,
             "font-face" if is_top_level => AtRuleType::FontFace,
             "keyframes" if is_top_level => {
-                let name = input.expect_ident()?.clone();
-                input.expect_exhausted()?;
+                let name = parser.expect_ident()?;
+                parser.expect_exhausted()?;
                 AtRuleType::KeyFrames(name)
             },
             "import" if is_top_level =>  {
-                let url = input.expect_url_or_string()?;
+                let url = parser.expect_url_or_string()?;
 
                 // The only valid extra tokens is `layer(ident)`
-                let layer = input.try_parse_with(|parser| {
+                let layer = parser.try_parse(|parser| {
                     parser.expect_function_matching("layer")?;
-                    parser.parse_nested_block_with(|parser| {
-                        Ok(parser.expect_ident_cloned()?)
+                    parser.parse_nested_block(|parser| {
+                        parser.expect_ident()
                     })
                 }).ok().map(|l| String::from(l.as_ref()));
 
                 let asset_path = match AssetPath::try_parse(&url) {
                     Ok(path) => path,
                     Err(err) => {
-                        return Err(CssError::new_unlocated(
+                        return Err(CssError::unlocated(
                             error_codes::basic::ASSET_PATH_PARSE_ERROR,
                             format!("Cannot load import \"{url}\" because: {err}"),
-                        ).into_parse_error());
+                        ).into());
                     }
                 };
 
                 let full_path = self.inner.resolve_asset_path(&asset_path);
 
                 if !self.inner.imports.contains_key(&full_path.to_string()) {
-                    return Err(CssError::new_unlocated(
+                    return Err(CssError::unlocated(
                         error_codes::basic::CANNOT_LOAD_IMPORT,
                         format!("Import url \"{url}\" could not be loaded"),
-                    ).into_parse_error());
+                    ).into());
                 };
 
                 AtRuleType::Import(full_path, layer)
             },
             "media" =>  {
-                let media_selectors = parse_media_selectors(input).map_err(|err| err.into_parse_error())?;
+                let media_selectors = parse_media_selectors(&mut parser)?;
                 AtRuleType::MediaSelector(media_selectors)
             },
             "layer" =>  {
-                let layers = input.parse_comma_separated(|parser| {
-                    Ok(parser.expect_ident()?.clone())
+                let layers = parser.parse_comma_separated(|parser| {
+                    parser.expect_ident()
                 })?;
                 AtRuleType::Layer(layers)
             },
-            _ => return Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name)))
+            _ => return Err(ParseError::from_basic_kind(BasicParseErrorKind::AtRuleInvalid))
         })
     }
 
@@ -642,33 +706,38 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         &mut self,
         at_rule_type: AtRuleType<'i>,
         _: &ParserState,
-        input: &mut Parser<'i>,
+        parser: &mut Parser<'i>,
     ) -> Result<CssStyleSheetItem, ParseError<CssError>> {
+        let mut parser = CssParser::from_parser(parser);
+        let parser = &mut parser;
+
         Ok(match at_rule_type {
-            AtRuleType::FontFace => parse_font_face_body(input),
-            AtRuleType::KeyFrames(name) => parse_keyframes_body(name, self.inner.clone(), input),
+            AtRuleType::FontFace => parse_font_face_body(parser),
+            AtRuleType::KeyFrames(name) => {
+                parse_keyframes_body(name, self.inner.clone(), parser.inner_parser_mut())
+            }
 
             AtRuleType::MediaSelector(media_selectors) => {
                 let mut new_context = self.inner.clone();
                 new_context.media_selectors =
                     new_context.media_selectors.merge_with(media_selectors);
 
-                parse_inner_at_rule(input, new_context)
+                parse_inner_at_rule(parser.inner_parser_mut(), new_context)
             }
             AtRuleType::Import(_name, _layer) => {
-                return Err(CssError::new_unlocated(
+                return Err(CssError::unlocated(
                     error_codes::basic::INVALID_AT_RULE,
                     "@import cannot be a block",
                 )
-                .into_parse_error());
+                .into());
             }
             AtRuleType::Layer(layers) => {
                 if layers.len() > 1 {
-                    return Err(CssError::new_unlocated(
+                    return Err(CssError::unlocated(
                         error_codes::basic::INVALID_AT_RULE,
                         "@layer block cannot contain more than one layer",
                     )
-                    .into_parse_error());
+                    .into());
                 }
                 debug_assert!(layers.len() == 1);
                 let layer = &layers[0];
@@ -677,7 +746,7 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
                     new_context.current_layer.push('.');
                 }
                 new_context.current_layer.push_str(layer.as_ref());
-                parse_inner_at_rule(input, new_context)
+                parse_inner_at_rule(parser.inner_parser_mut(), new_context)
             }
         })
     }
@@ -692,18 +761,25 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         &mut self,
         parser: &mut Parser<'i>,
     ) -> Result<CssParseResult<Vec<CssSelector>>, ParseError<CssError>> {
-        let selectors = parser.catching(CssSelector::parse_comma_separated).map_err(CssError::into_parse_error)?;
-        
-        
-        Ok(CssParseResult::Ok(selectors
-            .into_iter()
-            .map(|selector| {
-                selector
-                    .with_media_selectors(self.inner.media_selectors.clone())
-                    .with_layer(self.inner.current_layer.clone())
-            })
-            .collect()))
-            
+        let mut parser = CssParser::from_parser(parser);
+        let selectors = parser
+            .inner_spanned_err(CssSelector::parse_comma_separated)
+            .map_err(|err| {
+                let (err, span) = err.into_inner_and_span();
+                CssError::from_data_and_location(err, span)
+            });
+
+        let selectors = selectors.map(|selectors| {
+            selectors
+                .into_iter()
+                .map(|selector| {
+                    selector
+                        .with_media_selectors(self.inner.media_selectors.clone())
+                        .with_layer(self.inner.current_layer.clone())
+                })
+                .collect()
+        });
+        Ok(selectors)
     }
 
     fn parse_block(
@@ -757,7 +833,7 @@ pub fn parse_inline_properties(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn parse_css<F>(
+pub fn parse_style_sheet<F>(
     type_registry: &TypeRegistry,
     property_registry: &PropertyRegistry,
     css_property_registry: &CssPropertyRegistry,
@@ -791,9 +867,8 @@ pub fn parse_css<F>(
     let stylesheet_parser = StyleSheetParser::new(&mut parser, &mut css_style_sheet_parser);
 
     for item in stylesheet_parser {
-        let item = item.unwrap_or_else(|(parse_error, error_str)| {
-            let mut css_error = CssError::from(parse_error);
-            css_error.improve_location_with_sub_str(error_str);
+        let item = item.unwrap_or_else(|(err, error_substr, source)| {
+            let css_error = CssError::from_parse_error_with_location(err, source, error_substr);
             CssStyleSheetItem::Error(css_error)
         });
         processor(item);
@@ -835,9 +910,9 @@ mod tests {
         pub property_enum: TestEnum,
     }
 
-    fn parse_i32_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
+    fn parse_i32_property_value(parser: &mut CssParser) -> Result<PropertyValue, CssError> {
         parse_property_value_with(parser, |parser| {
-            Ok(ReflectValue::new(parser.expect_integer()?))
+            Ok(ReflectValue::new(*parser.expect_integer()?))
         })
     }
 
@@ -922,7 +997,7 @@ mod tests {
         let mut items = Vec::new();
         let type_registry = type_registry();
 
-        parse_css(
+        parse_style_sheet(
             &type_registry,
             &PROPERTY_REGISTRY,
             &CSS_PROPERTY_REGISTRY,
@@ -1068,7 +1143,10 @@ mod tests {
     macro_rules! property_id {
         ($property_name:literal) => {
             $crate::style_sheet_parser::tests::CSS_PROPERTY_REGISTRY
-                .resolve_property($property_name, &$crate::style_sheet_parser::tests::PROPERTY_REGISTRY)
+                .resolve_property(
+                    $property_name,
+                    &$crate::style_sheet_parser::tests::PROPERTY_REGISTRY,
+                )
                 .expect("Invalid property_name provided")
         };
     }
@@ -1429,11 +1507,11 @@ mod tests {
         assert_eq!(
             error_report,
             "[01] Warning: Unexpected token
-   ,-[ test.css:3:34 ]
+   ,-[ test.css:3:35 ]
    |
  3 |               transition: invalid invalid, height 4s linear;
-   |                                  |^^^^^^\x20\x20
-   |                                  `-------- unexpected token: Ident(\"invalid\")
+   |                                   |^^^^^^\x20\x20
+   |                                   `-------- Unexpected token: 'invalid'. Was expecting EOF
 ---'
 "
         );
@@ -1529,11 +1607,11 @@ mod tests {
         assert_eq!(
             error_report,
             "[01] Warning: Unexpected token
-   ,-[ test.css:2:10 ]
+   ,-[ test.css:2:5 ]
    |
  2 |     width 33;
-   |          |^\x20\x20
-   |          `--- unexpected token: Number { has_sign: false, value: 33.0, int_value: Some(33) }
+   |     |^^^^^^^^\x20\x20
+   |     `---------- Unexpected token
 ---'
 "
         );
@@ -1571,8 +1649,8 @@ mod tests {
    ,-[ test.css:2:5 ]
    |
  2 |     not-existing-property: 33;
-   |     |^^^^^^^^^^^^^^^^^^^^^^^^^\x20\x20
-   |     `--------------------------- Property 'not-existing-property' is not recognized as a valid property name
+   |     |^^^^^^^^^^^^^^^^^^^^\x20\x20
+   |     `---------------------- Property 'not-existing-property' is not recognized as a valid property name
 ---'
 ");
 
@@ -1598,11 +1676,11 @@ mod tests {
         assert_eq!(
             error_report,
             "[04] Warning: Invalid selector
-   ,-[ test.css:1:2 ]
+   ,-[ test.css:1:1 ]
    |
  1 | .#not-valid {
-   |  |^^^^^^^^^\x20\x20
-   |  `----------- Expected an ident for a class, got '#not-valid'
+   | |^^^^^^^^^^^\x20\x20
+   | `------------- Expected an ident for a class
 ---'
 "
         );

@@ -1,11 +1,11 @@
 use crate::calc::{CalcOptions, parse_calc_with_options};
 use crate::utils::try_parse_none;
-use crate::{CalcValue, CssError};
+use crate::{CalcValue, CssError, CssParser};
 use bevy_math::Rot2;
 use bevy_reflect::prelude::*;
-use cssparser::Parser;
 use smol_str::SmolStr;
 use std::f32::consts;
+
 
 /// A 2D angle stored internally in radians.
 ///
@@ -137,14 +137,14 @@ pub(crate) fn convert_angle_dimension(value: f32, dim: &str) -> Option<(f32, Smo
 ///
 /// # Example
 /// ```
-/// # use cssparser::Parser;
+/// # use bevy_flair_css_parser::CssParser;
 /// # use bevy_flair_css_parser::{parse_angle, Angle};
 ///
-/// let mut parser = Parser::new("calc(90deg * 2)");
+/// let mut parser = CssParser::new("calc(90deg * 2)");
 /// let angle = parse_angle(&mut parser).unwrap();
 /// assert_eq!(angle, Angle::degrees(180.0))
 /// ```
-pub fn parse_angle(parser: &mut Parser) -> Result<Angle, CssError> {
+pub fn parse_angle(parser: &mut CssParser) -> Result<Angle, CssError> {
     if let Some(none) = try_parse_none(parser) {
         return Ok(none);
     }
