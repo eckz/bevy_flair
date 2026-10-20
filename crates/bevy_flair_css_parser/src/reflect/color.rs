@@ -8,9 +8,9 @@ use bevy_flair_core::ReflectValue;
 use bevy_reflect::CreateTypeData;
 
 use crate::color::parse_color;
-use cssparser::Parser;
+use crate::CssParser;
 
-pub fn parse_option_color(parser: &mut Parser) -> Result<Option<Color>, CssError> {
+pub fn parse_option_color(parser: &mut CssParser) -> Result<Option<Color>, CssError> {
     if let Some(none_value) = try_parse_none::<Option<Color>>(parser) {
         Ok(none_value)
     } else {

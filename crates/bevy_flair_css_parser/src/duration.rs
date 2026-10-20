@@ -1,6 +1,6 @@
 use crate::calc::{CalcOptions, parse_calc_with_options};
 use crate::{CalcValue, CssError};
-use cssparser::Parser;
+use crate::CssParser;
 use smol_str::SmolStr;
 use std::time::Duration;
 
@@ -43,14 +43,14 @@ fn convert_duration_dimension(value: f32, dim: &str) -> Option<(f32, SmolStr)> {
 ///
 /// ```
 /// # use std::time::Duration;
-/// # use cssparser::Parser;
+/// # use bevy_flair_css_parser::CssParser;
 /// # use bevy_flair_css_parser::parse_duration;
 ///
-/// let mut style_sheet_parser = Parser::new("3s");
-/// let duration = parse_duration(&mut style_sheet_parser).unwrap();
+/// let mut parser = CssParser::new("3s");
+/// let duration = parse_duration(&mut parser).unwrap();
 /// assert_eq!(duration, Duration::from_secs(3));
 /// ```
-pub fn parse_duration(parser: &mut Parser) -> Result<Duration, CssError> {
+pub fn parse_duration(parser: &mut CssParser) -> Result<Duration, CssError> {
     parse_calc_with_options(
         parser,
         duration_from_calc_value,

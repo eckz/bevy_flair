@@ -1,39 +1,40 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::range::Range;
 use cssparser::CowRcStr;
 use derive_more::{Deref, DerefMut};
 
 /// Wrapper for a value that has a location in a byte range
-#[derive(Clone, Deref, DerefMut)]
+#[derive(Copy, Clone, Deref, DerefMut)]
 pub struct Spanned<T> {
     #[deref]
     #[deref_mut]
     item: T,
 
     /// Span in byte range
-    pub span: Range<usize>,
+    pub span: Range<u32>,
 }
 
 impl<T> Spanned<T> {
     /// Wraps a value with the given span.
     /// The range is the byte range from the original source.
-    pub fn new(item: T, span: impl Into<Range<usize>>) -> Self {
+    pub fn new(item: T, span: impl Into<Range<u32>>) -> Self {
         let span = span.into();
         Self { item, span }
     }
 
     /// Extracts the inner value
+    #[inline]
     pub fn into_inner(self) -> T {
         self.item
     }
 
-    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Spanned<U> {
-        let item = f(self.item);
-        Spanned {
-            item,
-            span: self.span,
-        }
+    /// Extracts the inner value and the span of the value
+    #[inline]
+    pub fn into_inner_and_span(self) -> (T, Range<u32>) {
+        (self.item, self.span)
     }
+
 }
 
 impl<T> PartialEq for Spanned<T>
@@ -56,6 +57,13 @@ where
     }
 }
 
+impl<T> Eq for Spanned<T>
+where
+    T: Eq,
+{
+    
+}
+
 impl<T> Debug for Spanned<T>
 where
     T: Debug,
@@ -73,6 +81,16 @@ where
         Display::fmt(&self.item, f)
     }
 }
+
+impl<T> Hash for Spanned<T>
+where
+    T: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&self.item, state)
+    }
+}
+
 
 pub type SpannedStr<'a> = Spanned<CowRcStr<'a>>;
 

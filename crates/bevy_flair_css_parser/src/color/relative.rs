@@ -4,20 +4,20 @@ use super::{
 };
 use crate::calc::CalcConstants;
 use crate::error_codes::color as error_codes;
-use crate::{CssError, LocatedStr, ParserExt};
+use crate::{CssError, CssParser, SpannedStr};
 use bevy_color::*;
 
 use cssparser::color::{OPAQUE, PredefinedColorSpace, clamp_floor_256_f32, clamp_unit_f32};
 use cssparser::{Parser, match_ignore_ascii_case};
 use cssparser_color::NumberOrPercentage;
 
-pub(crate) fn looks_like_relative_color(parser: &mut Parser) -> bool {
+pub(crate) fn looks_like_relative_color(parser: &mut CssParser) -> bool {
     let initial_state = parser.state();
 
     let looks_like_relative_color = parser
-        .try_parse_with(|parser| {
+        .try_parse(|parser| {
             parser.expect_function()?;
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 parser.expect_ident_matching("from")?;
                 // If we don't consume the whole style_sheet_parser, an error will be returned
                 while !parser.is_exhausted() {
@@ -38,13 +38,13 @@ pub(crate) fn looks_like_relative_color(parser: &mut Parser) -> bool {
 }
 
 #[inline]
-fn parse_alpha_component(parser: &mut Parser, constants: CalcConstants) -> Result<f32, CssError> {
+fn parse_alpha_component(parser: &mut CssParser, constants: CalcConstants) -> Result<f32, CssError> {
     Ok(super::parse_number_or_percentage(parser, constants)?
         .unit_value()
         .clamp(0.0, OPAQUE))
 }
 
-fn parse_alpha(parser: &mut Parser, constants: CalcConstants) -> Result<f32, CssError> {
+fn parse_alpha(parser: &mut CssParser, constants: CalcConstants) -> Result<f32, CssError> {
     if !parser.is_exhausted() {
         parser.expect_delim('/')?;
         parse_alpha_component(parser, constants)
@@ -67,16 +67,16 @@ fn normalize_hue(hue: f32) -> f32 {
 }
 
 pub fn parse_components<F1, F2, F3, R1, R2, R3>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     constants: CalcConstants,
     f1: F1,
     f2: F2,
     f3: F3,
 ) -> Result<(R1, R2, R3, f32), CssError>
 where
-    F1: FnOnce(&mut Parser, CalcConstants) -> Result<R1, CssError>,
-    F2: FnOnce(&mut Parser, CalcConstants) -> Result<R2, CssError>,
-    F3: FnOnce(&mut Parser, CalcConstants) -> Result<R3, CssError>,
+    F1: FnOnce(&mut CssParser, CalcConstants) -> Result<R1, CssError>,
+    F2: FnOnce(&mut CssParser, CalcConstants) -> Result<R2, CssError>,
+    F3: FnOnce(&mut CssParser, CalcConstants) -> Result<R3, CssError>,
 {
     let r1 = f1(parser, constants)?;
     let r2 = f2(parser, constants)?;
@@ -87,7 +87,7 @@ where
     Ok((r1, r2, r3, alpha))
 }
 
-fn parse_relative_rgb(base: Color, parser: &mut Parser) -> Result<Color, CssError> {
+fn parse_relative_rgb(base: Color, parser: &mut CssParser) -> Result<Color, CssError> {
     #[inline]
     fn get_component_value(c: NumberOrPercentage) -> u8 {
         match c {
@@ -119,7 +119,7 @@ fn parse_relative_rgb(base: Color, parser: &mut Parser) -> Result<Color, CssErro
     Ok(Color::srgb_u8(red, green, blue).with_alpha(alpha))
 }
 
-fn parse_relative_hsl(base: Color, parser: &mut Parser) -> Result<Color, CssError> {
+fn parse_relative_hsl(base: Color, parser: &mut CssParser) -> Result<Color, CssError> {
     let base: Hsla = base.into();
     let constants = [
         ("h", base.hue),
@@ -143,7 +143,7 @@ fn parse_relative_hsl(base: Color, parser: &mut Parser) -> Result<Color, CssErro
     Ok(Color::hsla(hue, saturation, lightness, alpha))
 }
 
-fn parse_relative_hwb(base: Color, parser: &mut Parser) -> Result<Color, CssError> {
+fn parse_relative_hwb(base: Color, parser: &mut CssParser) -> Result<Color, CssError> {
     let base: Hwba = base.into();
     let constants = [
         ("h", base.hue),
@@ -169,7 +169,7 @@ fn parse_relative_hwb(base: Color, parser: &mut Parser) -> Result<Color, CssErro
 
 fn parse_relative_lab_like<C: Copy + From<Color>>(
     base: Color,
-    parser: &mut Parser,
+    parser: &mut CssParser,
     lightness_range: f32,
     a_b_range: f32,
     to_calc_components: impl FnOnce(C) -> [f32; 4],
@@ -201,7 +201,7 @@ fn parse_relative_lab_like<C: Copy + From<Color>>(
 
 fn parse_relative_lch_like<C: Copy + From<Color>>(
     base: Color,
-    parser: &mut Parser,
+    parser: &mut CssParser,
     lightness_range: f32,
     chroma_range: f32,
     to_calc_components: impl FnOnce(C) -> [f32; 4],
@@ -234,9 +234,9 @@ fn parse_relative_lch_like<C: Copy + From<Color>>(
 #[inline]
 fn parse_relative_color_with_color_space(
     base: Color,
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<Color, CssError> {
-    let color_space = parser.located(PredefinedColorSpace::parse)?;
+    let color_space = parser.inner_spanned(PredefinedColorSpace::parse)?;
 
     let components = match &*color_space {
         PredefinedColorSpace::Srgb => {
@@ -267,7 +267,7 @@ fn parse_relative_color_with_color_space(
             ]
         }
         unsupported => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &color_space,
                 error_codes::UNSUPPORTED_COLOR_SPACE,
                 format!(
@@ -299,9 +299,9 @@ fn parse_relative_color_with_color_space(
 }
 
 fn parse_relative_color_function(
-    name: LocatedStr,
+    name: SpannedStr,
     base_color: Color,
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<Color, CssError> {
     let color = match_ignore_ascii_case! { &name,
         "rgb" | "rgba" => parse_relative_rgb(base_color, parser),
@@ -313,7 +313,7 @@ fn parse_relative_color_function(
         "oklch" => parse_relative_lch_like::<Oklcha>(base_color, parser, 1.0, 0.4, ColorToComponents::to_f32_array, Color::oklcha),
         "color" => parse_relative_color_with_color_space(base_color, parser),
 
-        _ => return Err(CssError::new_located(&name, error_codes::UNSUPPORTED_COLOR_FUNCTION, format!("Color function '{name}' is not supported"))),
+        _ => return Err(CssError::new(&name, error_codes::UNSUPPORTED_COLOR_FUNCTION, format!("Color function '{name}' is not supported"))),
     }?;
 
     parser.expect_exhausted()?;
@@ -321,9 +321,9 @@ fn parse_relative_color_function(
     Ok(color)
 }
 
-pub(crate) fn parse_relative_color(parser: &mut Parser) -> Result<Color, CssError> {
-    let name = parser.expect_located_function()?;
-    parser.parse_nested_block_with(|parser| {
+pub(crate) fn parse_relative_color(parser: &mut CssParser) -> Result<Color, CssError> {
+    let name = parser.expect_function()?;
+    parser.parse_nested_block(|parser| {
         parser.expect_ident_matching("from")?;
         let base_color = super::parse_color(parser)?;
         parse_relative_color_function(name, base_color, parser)

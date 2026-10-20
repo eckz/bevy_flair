@@ -1,36 +1,36 @@
+use std::sync::Arc;
 use ariadne::*;
 
-use crate::{Located, Spanned};
+use crate::{Spanned, SpannedStr};
 use bevy_flair_style::css_selector::SelectorErrorKind;
 use cssparser::{
     BasicParseError, BasicParseErrorKind, ParseError, ParseErrorKind, SourceLocation, ToCss, Token,
 };
 use selectors::parser::SelectorParseErrorKind;
 
-#[derive(Default)]
-struct WriteLengthCounter {
-    length: usize,
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct SourceLocationU16 {
+    pub line: u16,
+    pub column: u16,
 }
 
-impl std::fmt::Write for WriteLengthCounter {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        self.length += s.len();
-        Ok(())
+impl SourceLocationU16 {
+    fn from_source_location(source_location: SourceLocation) -> Self {
+        Self {
+            line: u16::try_from(source_location.line).unwrap_or(u16::MAX),
+            column: u16::try_from(source_location.column).unwrap_or(u16::MAX),
+        }
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum CssErrorLocation {
-    Range(std::range::Range<usize>),
+    Range(std::range::Range<u32>),
     Unlocated,
-    SubStr {
-        substr_ptr: usize,
-        len: usize,
-    },
-    SourceLocation {
-        source_location: SourceLocation,
+    SourceLocationAndLen {
+        source_location: SourceLocationU16,
         // Offset in bytes
-        len_offset: usize,
+        len_offset: u32,
     },
 }
 
@@ -48,49 +48,25 @@ fn substr_range(original: &str, substr: &str) -> Option<core::range::Range<usize
 }
 
 impl CssErrorLocation {
-    pub(crate) fn from_source_location(source_location: SourceLocation) -> Self {
-        Self::SourceLocation {
-            source_location,
-            len_offset: 0,
-        }
-    }
-
-    pub(crate) fn from_token(source_location: SourceLocation, token: &Token<'_>) -> Self {
-        // Let's measure the token length
-        let mut counter = WriteLengthCounter::default();
-        token.to_css(&mut counter).unwrap();
-
-        Self::SourceLocation {
-            source_location,
-            len_offset: counter.length,
-        }
-    }
-
-    pub(crate) fn from_str(source_location: SourceLocation, s: impl AsRef<str>) -> Self {
-        Self::SourceLocation {
-            source_location,
-            len_offset: s.as_ref().len(),
+    pub(crate) fn from_source_and_sub_str(
+        source_location: SourceLocation,
+        s: impl AsRef<str>,
+    ) -> Self {
+        Self::SourceLocationAndLen {
+            source_location: SourceLocationU16::from_source_location(source_location),
+            len_offset: s.as_ref().len() as u32,
         }
     }
 
     pub(crate) fn into_range(self, contents: &str) -> std::ops::Range<usize> {
         match self {
             CssErrorLocation::Unlocated => {
-                panic!("Unexpected unlocated CssError")
+                unreachable!("Unlocated CssError")
             }
-            CssErrorLocation::Range(range) => range.into(),
-            CssErrorLocation::SubStr { substr_ptr, len } => {
-                let contents_ptr = contents.as_ptr() as usize;
-                let start = substr_ptr.wrapping_sub(contents_ptr);
-                let end = start.wrapping_add(len);
-
-                if start <= contents.len() && end <= contents.len() {
-                    std::ops::Range { start, end }
-                } else {
-                    panic!("invalid range generated");
-                }
-            }
-            CssErrorLocation::SourceLocation {
+            CssErrorLocation::Range(range) => {
+                std::ops::Range { start: range.start as usize, end: range.end as usize }
+            },
+            CssErrorLocation::SourceLocationAndLen {
                 source_location,
                 len_offset,
             } => {
@@ -102,7 +78,7 @@ impl CssErrorLocation {
 
                 // The column number within a line starts at 1 for first the character of the line.
                 // Column numbers are counted in UTF-16 code units.
-                let mut utf16_code_points_remaining = source_location.column - 1;
+                let mut utf16_code_points_remaining = source_location.column as u32 - 1;
                 let mut column_byte_offset = 0;
 
                 let mut chars = line.chars();
@@ -121,7 +97,7 @@ impl CssErrorLocation {
 
                 substr_range(
                     contents,
-                    &line[column_byte_offset..(column_byte_offset + len_offset)],
+                    &line[column_byte_offset..(column_byte_offset + len_offset as usize)],
                 )
                 .expect("Invalid range generated")
                 .into()
@@ -130,41 +106,26 @@ impl CssErrorLocation {
     }
 }
 
-impl From<std::range::Range<usize>> for CssErrorLocation {
-    fn from(range: std::range::Range<usize>) -> Self {
+impl From<std::range::Range<u32>> for CssErrorLocation {
+    fn from(range: std::range::Range<u32>) -> Self {
         Self::Range(range)
     }
 }
 
-impl From<std::ops::Range<usize>> for CssErrorLocation {
-    fn from(range: std::ops::Range<usize>) -> Self {
+impl From<std::ops::Range<u32>> for CssErrorLocation {
+    fn from(range: std::ops::Range<u32>) -> Self {
         Self::Range(range.into())
     }
 }
 
-// TODO
-// impl<'a> From<(SourceLocation, BasicParseErrorKind)> for CssErrorLocation {
-//     fn from(value: (SourceLocation, BasicParseErrorKind)) -> Self {
-//         let (source_location, _) = value;
-//         Self::from_source_location(source_location)
-//     }
-// }
-//
-// impl<'a> From<(SourceLocation, SelectorParseErrorKind)> for CssErrorLocation {
-//     fn from(value: (SourceLocation, SelectorParseErrorKind)) -> Self {
-//         let (source_location, _) = value;
-//         Self::from_source_location(source_location)
-//     }
-// }
-
 #[derive(Clone, Debug)]
 pub(crate) struct StyleErrorData {
-    code: CssErrorCode,
-    annotated_message: String,
+    code: &'static CssErrorCodeDef,
+    annotated_message: Arc<str>,
 }
 
 impl StyleErrorData {
-    pub(crate) fn new(code: CssErrorCode, annotated_message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static CssErrorCodeDef, annotated_message: impl Into<Arc<str>>) -> Self {
         let annotated_message = annotated_message.into();
         Self {
             code,
@@ -176,15 +137,17 @@ impl StyleErrorData {
 impl From<BasicParseErrorKind> for StyleErrorData {
     fn from(kind: BasicParseErrorKind) -> Self {
         use crate::error_codes::basic as basic_error_codes;
-        let code = match &kind {
-            BasicParseErrorKind::UnexpectedToken => basic_error_codes::UNEXPECTED_TOKEN,
-            BasicParseErrorKind::AtRuleInvalid => basic_error_codes::INVALID_AT_RULE,
-            _ => basic_error_codes::BASIC_PARSE_ERROR,
+
+        let (code, annotated_message) = match kind {
+            BasicParseErrorKind::UnexpectedToken => (basic_error_codes::UNEXPECTED_TOKEN, "Unexpected token".into()),
+            BasicParseErrorKind::AtRuleInvalid => (basic_error_codes::INVALID_AT_RULE, "Invalid at rule".into()),
+            BasicParseErrorKind::EndOfInput => (basic_error_codes::END_OF_INPUT, "Unexpected end of input".into()),
+            other => (basic_error_codes::BASIC_PARSE_ERROR, other.to_string().into()),
         };
 
         Self {
             code,
-            annotated_message: kind.to_string(),
+            annotated_message,
         }
     }
 }
@@ -198,42 +161,56 @@ impl From<BasicParseError> for StyleErrorData {
 impl From<SelectorParseErrorKind> for StyleErrorData {
     fn from(kind: SelectorParseErrorKind) -> Self {
         let code = crate::error_codes::basic::INVALID_SELECTOR;
-
-        let selector_error: SelectorErrorKind = kind.into();
-
+        let selector_error = SelectorErrorKind::Selector(kind);
         Self {
             code,
-            annotated_message: selector_error.to_string(),
+            annotated_message: selector_error.to_string().into(),
         }
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-enum CssErrorCodeInner {
-    Internal { code: u32, message: &'static str },
-    Custom { code: u32, message: &'static str },
+impl<E: Into<StyleErrorData>> From<ParseErrorKind<E>> for StyleErrorData {
+    fn from(kind: ParseErrorKind<E>) -> Self {
+        match kind {
+            ParseErrorKind::Basic(basic_kind) => basic_kind.into(),
+            ParseErrorKind::Custom(selector_kind) => selector_kind.into(),
+        }
+    }
 }
+
+impl<E: Into<StyleErrorData>> From<ParseError<E>> for StyleErrorData {
+    fn from(error: ParseError<E>) -> Self {
+        // Cannot call .into() here because it's a method defined for `ParseErrorKind`
+        StyleErrorData::from(error.kind)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum CssErrorKind { Internal, Custom }
 
 /// Represents a pair of code and message for a CSS error.
 /// Errors will be reported like `"[$code] $message:`
-#[derive(Copy, Clone, Debug)]
-pub struct CssErrorCode(CssErrorCodeInner);
+#[derive(Debug)]
+pub struct CssErrorCodeDef {
+    kind: CssErrorKind,
+    code: u32,
+    message: &'static str,
+}
 
-impl CssErrorCode {
-    /// Creates a new custom error code.
+impl CssErrorCodeDef {
     pub const fn new_custom(code: u32, message: &'static str) -> Self {
-        // TODO: Assert that the code is not already used.
-        Self(CssErrorCodeInner::Custom { code, message })
+        Self {
+            kind: CssErrorKind::Custom,
+            code,
+            message
+        }
     }
 
     pub(crate) const fn new_internal(code: u32, message: &'static str) -> Self {
-        Self(CssErrorCodeInner::Internal { code, message })
-    }
-
-    pub(crate) fn into_code_and_message(self) -> (u32, &'static str) {
-        match self.0 {
-            CssErrorCodeInner::Internal { code, message } => (code, message),
-            CssErrorCodeInner::Custom { code, message } => (code, message),
+        Self {
+            kind: CssErrorKind::Internal,
+            code,
+            message
         }
     }
 }
@@ -261,17 +238,38 @@ pub struct CssError {
     data: StyleErrorData,
     location: CssErrorLocation,
     #[cfg(test)]
-    pub(crate) backtrace: std::sync::Arc<std::backtrace::Backtrace>,
+    pub(crate) backtrace: Arc<std::backtrace::Backtrace>,
 }
+
+#[cfg(not(test))]
+const _: () = assert!(size_of::<CssError>() <= 40);
 
 impl CssError {
     #[track_caller]
-    pub(crate) fn new(data: impl Into<StyleErrorData>, location: impl Into<CssErrorLocation>) -> Self {
+    pub(crate) fn from_data_and_location(
+        data: impl Into<StyleErrorData>,
+        location: impl Into<CssErrorLocation>,
+    ) -> Self {
         Self {
             data: data.into(),
             location: location.into(),
             #[cfg(test)]
-            backtrace: std::sync::Arc::new(std::backtrace::Backtrace::capture()),
+            backtrace: Arc::new(std::backtrace::Backtrace::capture()),
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn from_parse_error_with_location(
+        parse_error: ParseError<CssError>,
+        source: SourceLocation,
+        error_sub_str: &str,
+    ) -> Self {
+        match parse_error.kind {
+            ParseErrorKind::Basic(basic_kind) => Self::from_data_and_location(
+                basic_kind,
+                CssErrorLocation::from_source_and_sub_str(source, error_sub_str),
+            ),
+            ParseErrorKind::Custom(error) => error,
         }
     }
 
@@ -282,58 +280,77 @@ impl CssError {
     ///
     /// [`ParserExt`]: crate::ParserExt
     #[track_caller]
-    pub fn new_located<T>(
-        located: &Located<T>,
-        code: CssErrorCode,
-        annotated_message: impl Into<String>,
+    pub fn new<T>(
+        spanned: &Spanned<T>,
+        code: &'static CssErrorCodeDef,
+        annotated_message: impl Into<Arc<str>>,
     ) -> Self {
-        Self::new(
+        Self::from_data_and_location(
             StyleErrorData::new(code, annotated_message),
-            CssErrorLocation::Range(located.span),
+            CssErrorLocation::Range(spanned.span),
+        )
+    }
+
+    #[track_caller]
+    pub fn from_error_location(
+        error_location: CssErrorLocation,
+        code: &'static CssErrorCodeDef,
+        annotated_message: impl Into<Arc<str>>,
+    ) -> Self {
+        Self::from_data_and_location(
+            StyleErrorData::new(code, annotated_message),
+            error_location,
+        )
+    }
+
+    // This should be used only when the error will not be shown to the user
+    // Like when it's inside a try_parse
+    pub(crate) fn unexpected<T>(spanned: &Spanned<T>) -> Self {
+        Self::new(
+            &spanned,
+            &crate::error_codes::basic::UNEXPECTED_TOKEN,
+            String::new(),
+        )
+    }
+
+    #[track_caller]
+    pub fn unexpected_token(token: &Spanned<Token>, expected: &str) -> Self {
+        let token_css = token.to_css_string();
+        Self::new(
+            &token,
+            crate::error_codes::basic::UNEXPECTED_TOKEN,
+            format!("Unexpected token: '{token_css}'. Was expecting {expected}"),
+        )
+    }
+
+    #[track_caller]
+    pub fn unexpected_ident(token: &SpannedStr, expected: &str) -> Self {
+        Self::new(
+            &token,
+            crate::error_codes::basic::UNEXPECTED_TOKEN,
+            format!("Unexpected token: {token}. Was expecting {expected}"),
         )
     }
 
     /// New error where the location is unknown.
-    /// Is ok to construct errors this way when implementing [`crate::reflect::ReflectParseCss`],
-    /// since the location will be automatically upgraded to the current line.
+    /// Use with care because it might cause panics.
+    /// It's meant to be used inside a `AtRuleParser` or `DeclarationParser` where the span is not known.
     #[track_caller]
-    pub fn new_unlocated(code: CssErrorCode, annotated_message: impl Into<String>) -> Self {
-        Self::new(
+    pub(crate) fn unlocated(code: &'static CssErrorCodeDef, annotated_message: impl Into<Arc<str>>) -> Self {
+        Self::from_data_and_location(
             StyleErrorData::new(code, annotated_message),
             CssErrorLocation::Unlocated,
         )
     }
 
-    // Mainly used to convert from Selector errors.
-    #[track_caller]
-    pub(crate) fn from_parse_error<E>(error: Spanned<ParseError<E>>) -> Self
-    where
-        E: Into<StyleErrorData>,
-    {
-        let location = error.span;
-        match error.into_inner().kind {
-            ParseErrorKind::Basic(basic) => {
-                Self::new(basic, location)
-            }
-            ParseErrorKind::Custom(custom) => {
-                Self::new(custom, location)
-            }
-        }
+    pub(crate) fn is_eof(&self) -> bool {
+        self.data.code.code == crate::error_codes::basic::END_OF_INPUT.code
     }
 
-    pub(crate) fn improve_location_with_sub_str(&mut self, substr: &str) {
+    pub(crate) fn improve_location_with_span(&mut self, span: std::range::Range<u32>) {
         if matches!(self.location, CssErrorLocation::Unlocated) {
-            self.location = CssErrorLocation::SubStr {
-                substr_ptr: substr.as_ptr() as usize,
-                len: substr.len(),
-            };
+            self.location = CssErrorLocation::Range(span);
         }
-    }
-
-    /// Converts this error into a [`ParseError`] setting itself as a custom type.
-    /// It can covert back to a [`CssError`] using `CssError::from(parse_error)`.
-    pub fn into_parse_error(self) -> ParseError<CssError> {
-        ParseError::custom(self)
     }
 
     /// Converts this error into a message without any context.
@@ -343,71 +360,51 @@ impl CssError {
             annotated_message,
         } = self.data;
 
-        let (code, message) = code.into_code_and_message();
+        let message = code.message;
+        let code = code.code;
 
         match self.location {
-            CssErrorLocation::Unlocated
-            | CssErrorLocation::Range(_)
-            | CssErrorLocation::SubStr { .. } => {
+            CssErrorLocation::Unlocated | CssErrorLocation::Range(_) => {
                 format!("[{code:02}] {message}. {annotated_message}")
             }
-            CssErrorLocation::SourceLocation {
+            CssErrorLocation::SourceLocationAndLen {
                 source_location, ..
             } => {
-                let SourceLocation { line, column } = source_location;
+                let SourceLocationU16 { line, column } = source_location;
                 format!("[{code:02}] {message}. {annotated_message} at {line}:{column}")
             }
         }
     }
 }
 
-impl From<Located<BasicParseError>> for CssError {
-    fn from(value: Located<BasicParseError>) -> Self {
-        Self::new(value.kind.clone(), value.span)
+impl From<Spanned<BasicParseError>> for CssError {
+    fn from(value: Spanned<BasicParseError>) -> Self {
+        let (value, span) = value.into_inner_and_span();
+        Self::from_data_and_location(value.kind, span)
     }
 }
 
-impl From<Located<CssError>> for CssError {
-    fn from(value: Located<CssError>) -> Self {
+impl From<Spanned<CssError>> for CssError {
+    fn from(value: Spanned<CssError>) -> Self {
         value.into_inner()
     }
 }
 
-impl From<Located<ParseError<CssError>>> for CssError {
-    fn from(error: Located<ParseError<CssError>>) -> Self {
-        let location = error.span;
-        match error.into_inner().kind {
-            ParseErrorKind::Basic(basic) => Self::new(basic, location),
+impl From<Spanned<ParseError<CssError>>> for CssError {
+    fn from(error: Spanned<ParseError<CssError>>) -> Self {
+        let (error, span) = error.into_inner_and_span();
+        match error.kind {
+            ParseErrorKind::Basic(basic) => Self::from_data_and_location(basic, span),
             ParseErrorKind::Custom(err) => err,
         }
     }
 }
 
-impl<'a> From<ParseError<CssError>> for CssError {
-    fn from(error: ParseError<CssError>) -> Self {
-        match error.kind {
-            ParseErrorKind::Basic(basic_kind) => unreachable!(
-                "Found an error of type {basic_kind:?} when it should have been custom type"
-            ),
-            ParseErrorKind::Custom(custom) => custom,
-        }
+impl From<CssError> for ParseError<CssError> {
+    fn from(error: CssError) -> Self {
+        ParseError::custom(error)
     }
 }
-
-// TODO:???
-// impl<'a> From<ParseError<()>> for CssError {
-//     fn from(error: ParseError<()>) -> Self {
-//         match error.kind {
-//             ParseErrorKind::Basic(basic_kind) => Self::new(
-//                 basic_kind.clone().into(),
-//                 (error.location, basic_kind).into(),
-//             ),
-//             ParseErrorKind::Custom(_) => {
-//                 panic!("Custom unit error found")
-//             }
-//         }
-//     }
-// }
 
 /// A helper struct to generate error reports out of [`CssError`].
 /// It uses the [`ariadne`] crate to generate the error report.
@@ -448,13 +445,19 @@ impl<'a> ErrorReportGenerator<'a> {
 
     /// Add an error to this report.
     pub fn add_error(&mut self, error: CssError) {
+        if matches!(error.location, CssErrorLocation::Unlocated) {
+            // TODO: Warning and first line?
+            panic!("Error without location:\n{}", error.into_context_less_report());
+        }
+
         self.contains_errors = true;
 
         let StyleErrorData {
             code,
             annotated_message,
         } = error.data;
-        let (code, message) = code.into_code_and_message();
+        let message = code.message;
+        let code = code.code;
 
         let range = error.location.into_range(self.contents);
 
@@ -479,7 +482,7 @@ impl<'a> ErrorReportGenerator<'a> {
     /// Add advice to this report.
     pub fn add_advice(
         &mut self,
-        location: std::ops::Range<usize>,
+        location: std::ops::Range<u32>,
         message: &'static str,
         annotated_message: impl Into<String>,
     ) {
@@ -488,6 +491,7 @@ impl<'a> ErrorReportGenerator<'a> {
         if !self.full_message.is_empty() {
             self.full_message.push(b'\n');
         }
+        let location = std::ops::Range { start: location.start as usize, end: location.end as usize };
 
         Report::build(ReportKind::Advice, (self.file_name, location.clone()))
             .with_config(self.config)
@@ -509,7 +513,7 @@ impl<'a> ErrorReportGenerator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cssparser::*;
+    use crate::CssParser;
     use indoc::indoc;
 
     const TEST_REPORT_CONFIG: Config = Config::new()
@@ -526,24 +530,60 @@ mod tests {
         }};
     }
 
-    fn error_at_token(contents: &str, num_token: u32) -> CssError {
-        let mut parser = Parser::new(contents);
+    fn error_at_token(contents: &str, num_token: usize) -> CssError {
+        let parser = CssParser::new(contents);
+        let token = parser.into_iter().nth(num_token).expect("No token found");
+        CssError::new(&token, crate::error_codes::basic::UNEXPECTED_TOKEN, "TestError")
+    }
 
-        for _ in 0..num_token {
-            parser.next().unwrap();
-        }
-        parser.skip_whitespace();
-        let start_location = parser.current_source_location();
-        let next_token = parser.next().cloned().unwrap();
+    #[test]
+    fn empty_file_eof_reporting() {
+        let contents = "";
 
-        CssError::from(start_location.new_unexpected_token_error::<()>(next_token))
+        let mut parser = CssParser::new(contents);
+        let error = parser.next().expect_err("EOF expected");
+
+        let report = into_report!(error, contents);
+
+        assert_eq!(
+            report,
+            "[12] Warning: Unexpected end of input
+   ,-[ test.css:1:1 ]
+   |
+ 1 |\x20
+   | |\x20
+   | `- Unexpected end of input
+---'
+"
+        );
+    }
+
+    #[test]
+    fn eof_reporting() {
+        let contents = "2.0";
+
+        let mut parser = CssParser::new(contents);
+        let _ = parser.next().expect("Not error expected");
+        let error = parser.next().expect_err("EOF expected");
+
+        let report = into_report!(error, contents);
+
+        assert_eq!(
+            report,
+            "[12] Warning: Unexpected end of input
+   ,-[ test.css:1:4 ]
+   |
+ 1 | 2.0
+   |    |\x20
+   |    `- Unexpected end of input
+---'
+"
+        );
     }
 
     #[test]
     fn test_source_location_conversion() {
-        let contents = indoc! {r#"
-            #hash 12345
-        "#};
+        let contents = "#hash 12345";
 
         let error = error_at_token(contents, 1);
 
@@ -556,7 +596,7 @@ mod tests {
    |
  1 | #hash 12345
    |       |^^^^\x20\x20
-   |       `------ unexpected token: Number { has_sign: false, value: 12345.0, int_value: Some(12345) }
+   |       `------ TestError
 ---'
 "
         );
@@ -567,8 +607,8 @@ mod tests {
         // A parse error's SourceLocation can point one line past EOF (e.g. a
         // trailing block-less rule); into_range must not panic on it.
         let contents = "#kept 12345\n";
-        let location = CssErrorLocation::SourceLocation {
-            source_location: SourceLocation { line: 5, column: 1 },
+        let location = CssErrorLocation::SourceLocationAndLen {
+            source_location: SourceLocationU16 { line: 5, column: 1 },
             len_offset: 3,
         };
         assert_eq!(
@@ -595,7 +635,7 @@ mod tests {
    |
  2 | #💣💣 ßè🥳ñ
    |       |^^^^\x20\x20
-   |       `------ unexpected token: Ident(\"ßè🥳ñ\")
+   |       `------ TestError
 ---'
 "
         );

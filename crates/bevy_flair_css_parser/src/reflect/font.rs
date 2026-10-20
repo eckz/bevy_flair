@@ -1,8 +1,5 @@
 use crate::calc::CalcValue;
-use crate::{
-    CalcOptions, CssError, ParserExt, ReflectParseCss, error_codes, parse_angle, parse_calc,
-    parse_calc_with_options, parse_property_value_with,
-};
+use crate::{error_codes, parse_angle, parse_calc, parse_calc_with_options, parse_property_value_with, CalcOptions, CssError, CssParser, ReflectParseCss};
 use bevy_flair_style::placeholder::FontSourcePlaceholder;
 use bevy_reflect::CreateTypeData;
 use bevy_text::{
@@ -12,7 +9,7 @@ use bevy_text::{
 };
 use cssparser::{Parser, Token, match_ignore_ascii_case};
 
-pub fn parse_font_size(parser: &mut Parser) -> Result<FontSize, CssError> {
+pub fn parse_font_size(parser: &mut CssParser) -> Result<FontSize, CssError> {
     fn font_size_from_calc_value(calc_value: &CalcValue) -> Result<FontSize, String> {
         match calc_value {
             CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => {
@@ -49,7 +46,7 @@ pub fn parse_font_size(parser: &mut Parser) -> Result<FontSize, CssError> {
     parse_calc(parser, font_size_from_calc_value)
 }
 
-pub fn parse_font_weight(parser: &mut Parser) -> Result<FontWeight, CssError> {
+pub fn parse_font_weight(parser: &mut CssParser) -> Result<FontWeight, CssError> {
     static FONT_WEIGHT_CONSTANTS: &[(&str, f32)] = &[
         ("normal", FontWeight::NORMAL.0 as f32),
         ("bold", FontWeight::BOLD.0 as f32),
@@ -74,8 +71,8 @@ pub fn parse_font_weight(parser: &mut Parser) -> Result<FontWeight, CssError> {
     )
 }
 
-fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
-    let mut fonts = parser.parse_comma_separated_with(parse_single_font_source)?;
+fn parse_font_source(parser: &mut CssParser) -> Result<FontSourcePlaceholder, CssError> {
+    let mut fonts = parser.parse_comma_separated_until_non_comma(parse_single_font_source)?;
     if fonts.len() == 1 {
         Ok(fonts.pop().unwrap())
     } else {
@@ -83,7 +80,7 @@ fn parse_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssEr
     }
 }
 
-fn parse_single_font_source(parser: &mut Parser) -> Result<FontSourcePlaceholder, CssError> {
+fn parse_single_font_source(parser: &mut CssParser) -> Result<FontSourcePlaceholder, CssError> {
     let path = parser.expect_ident_or_string()?;
     Ok(match_ignore_ascii_case! { path.as_ref(),
          // basic families
@@ -125,8 +122,8 @@ fn match_font_width_percentage(value: f32) -> Option<FontWidth> {
     })
 }
 
-pub fn parse_font_width(parser: &mut Parser) -> Result<FontWidth, CssError> {
-    let next = parser.located_next()?;
+pub fn parse_font_width(parser: &mut CssParser) -> Result<FontWidth, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Ident(ident) => {
             match_ignore_ascii_case! { ident.as_ref(),
@@ -140,7 +137,7 @@ pub fn parse_font_width(parser: &mut Parser) -> Result<FontWidth, CssError> {
                 "extra-expanded" => FontWidth::EXTRA_EXPANDED,
                 "ultra-expanded" => FontWidth::ULTRA_EXPANDED,
                 _ => {
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &next,
                         error_codes::font::UNEXPECTED_FONT_WIDTH_TOKEN,
                         format!("Ident '{ident}' is not recognized for FontWidth. Valid widths are 'condensed' | 'normal' | 'semi-expanded' | 'expanded' | 100%")
@@ -154,7 +151,7 @@ pub fn parse_font_width(parser: &mut Parser) -> Result<FontWidth, CssError> {
             value
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::font::UNEXPECTED_FONT_WIDTH_TOKEN,
                 "This is not a valid FontWidth token. Valid widths are 'condensed' | 'normal' | 'semi-expanded' | 'expanded' | 100%",
@@ -163,22 +160,22 @@ pub fn parse_font_width(parser: &mut Parser) -> Result<FontWidth, CssError> {
     })
 }
 
-pub fn parse_font_style(parser: &mut Parser) -> Result<FontStyle, CssError> {
-    let next = parser.located_next()?;
+pub fn parse_font_style(parser: &mut CssParser) -> Result<FontStyle, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Ident(ident) => {
             match_ignore_ascii_case! { ident.as_ref(),
                 "normal" => FontStyle::Normal,
                 "italic" => FontStyle::Italic,
                 "oblique" => {
-                    if let Ok(angle) = parser.try_parse_with(parse_angle) {
+                    if let Ok(angle) = parser.try_parse(parse_angle) {
                         FontStyle::Oblique(Some(angle.as_degrees()))
                     } else {
                         FontStyle::Oblique(None)
                     }
                 },
                 _ => {
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &next,
                         error_codes::font::UNEXPECTED_FONT_STYLE_TOKEN,
                         format!("Ident '{ident}' is not recognized for FontStyle. Valid weights are 'normal' | 'italic' | oblique 45deg")
@@ -187,7 +184,7 @@ pub fn parse_font_style(parser: &mut Parser) -> Result<FontStyle, CssError> {
             }
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::font::UNEXPECTED_FONT_STYLE_TOKEN,
                 "This is not valid FontStyle token. Valid weights are 'normal' | 'italic' | oblique 45deg",
@@ -196,12 +193,12 @@ pub fn parse_font_style(parser: &mut Parser) -> Result<FontStyle, CssError> {
     })
 }
 
-fn parse_four_ascii_characters(parser: &mut Parser) -> Result<[u8; 4], CssError> {
-    let str = parser.located(|parser| parser.expect_string_cloned())?;
+fn parse_four_ascii_characters(parser: &mut CssParser) -> Result<[u8; 4], CssError> {
+    let str = parser.expect_string()?;
     Ok(match str.as_ref().as_bytes().try_into() {
         Ok(c) => c,
         Err(_) => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &str,
                 error_codes::font::FOUR_ASCII_CHARS_STRING,
                 format!("Expected \"{str}\" to be four ASCII characters long"),
@@ -216,15 +213,15 @@ enum FontFeatureArg {
     Value(u32),
 }
 
-fn parse_font_feature_arg(parser: &mut Parser) -> Result<FontFeatureArg, CssError> {
-    let next = parser.located_next()?;
+fn parse_font_feature_arg(parser: &mut CssParser) -> Result<FontFeatureArg, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Ident(ident) => {
             match_ignore_ascii_case! { ident.as_ref(),
                 "on" => FontFeatureArg::On,
                 "off" => FontFeatureArg::Off,
                 _ => {
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &next,
                         error_codes::basic::UNEXPECTED_TOKEN,
                         "Unexpected token"
@@ -237,7 +234,7 @@ fn parse_font_feature_arg(parser: &mut Parser) -> Result<FontFeatureArg, CssErro
             ..
         } if *int_value >= 0 && *int_value <= 5000 => FontFeatureArg::Value(*int_value as u32),
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::basic::UNEXPECTED_TOKEN,
                 "Unexpected token",
@@ -247,12 +244,12 @@ fn parse_font_feature_arg(parser: &mut Parser) -> Result<FontFeatureArg, CssErro
 }
 
 fn parse_single_font_feature(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     builder: FontFeaturesBuilder,
 ) -> Result<FontFeaturesBuilder, CssError> {
     let feature_name = parse_four_ascii_characters(parser)?;
     let feature_arg = parser
-        .try_parse_with(parse_font_feature_arg)
+        .try_parse(parse_font_feature_arg)
         .unwrap_or(FontFeatureArg::On);
 
     let tag = FontFeatureTag::new(&feature_name);
@@ -264,7 +261,7 @@ fn parse_single_font_feature(
     })
 }
 
-pub fn parse_font_features(parser: &mut Parser) -> Result<FontFeatures, CssError> {
+pub fn parse_font_features(parser: &mut CssParser) -> Result<FontFeatures, CssError> {
     let mut builder = FontFeatures::builder();
     builder = parse_single_font_feature(parser, builder)?;
     while parser.try_parse(|parser| parser.expect_comma()).is_ok() {
@@ -274,16 +271,16 @@ pub fn parse_font_features(parser: &mut Parser) -> Result<FontFeatures, CssError
 }
 
 fn parse_single_font_variation(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     builder: FontVariationsBuilder,
 ) -> Result<FontVariationsBuilder, CssError> {
     let variation_name = parse_four_ascii_characters(parser)?;
     let value = parser.expect_number()?;
     let tag = FontVariationTag::new(&variation_name);
-    Ok(builder.set(tag, value))
+    Ok(builder.set(tag, *value))
 }
 
-pub fn parse_font_variations(parser: &mut Parser) -> Result<FontVariations, CssError> {
+pub fn parse_font_variations(parser: &mut CssParser) -> Result<FontVariations, CssError> {
     let mut builder = FontVariations::builder();
     builder = parse_single_font_variation(parser, builder)?;
     while parser.try_parse(|parser| parser.expect_comma()).is_ok() {

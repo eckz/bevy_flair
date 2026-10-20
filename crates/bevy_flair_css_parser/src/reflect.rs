@@ -29,11 +29,12 @@ use bevy_text::{
     FontWidth, Justify, LetterSpacing, LineBreak, LineHeight,
 };
 use bevy_ui::widget::NodeImageMode;
+use crate::CssParser;
 
 /// A function that parses a CSS type.
 /// When the function succeeds, it should return a [`bevy_flair_core::ReflectValue`].
 /// When the function fails, it should return a [`CssError`].
-pub type PropertyValueParseFn = fn(&mut cssparser::Parser) -> Result<PropertyValue, CssError>;
+pub type PropertyValueParseFn = fn(&mut CssParser) -> Result<PropertyValue, CssError>;
 
 /// [`bevy_reflect::TypeData`] for parsing a CSS type when the type is an enum.
 /// It's automatically implemented to all [`Enum`] types.
@@ -68,10 +69,10 @@ impl ReflectParseCss {
         Arc::new(move |tokens| {
             let tokens_as_css = tokens.to_css_string();
 
-            let mut parser = Parser::new(&tokens_as_css);
+            let mut parser = CssParser::new(&tokens_as_css);
 
             let result = parser
-                .parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
+                .parse_entirely(|parser| parse_fn(parser));
 
             result
                 .map(|v| vec![(ComponentPropertyRef::Id(property_id), v)])

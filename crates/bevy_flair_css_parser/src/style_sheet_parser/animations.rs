@@ -1,5 +1,5 @@
 use crate::{
-    CssError, ErrorReportGenerator, ParserExt, error_codes::animations as error_codes,
+    CssError, CssParser, ErrorReportGenerator,  error_codes::animations as error_codes,
     parse_duration,
 };
 use bevy_flair_style::ToCss;
@@ -10,20 +10,21 @@ use bevy_flair_style::animations::{
 };
 use cssparser::{ParseError, Parser, Token, match_ignore_ascii_case};
 
-use crate::style_sheet_parser::VAR_FUNCTION;
+use crate::style_sheet_parser::{LocatedPropertyName, SUBSTITUTION_FUNCTIONS};
 use crate::utils::{try_parse_important_level, try_parse_none};
 use crate::vars::parse_var_tokens;
 use easing::parse_easing_function;
 use smallvec::SmallVec;
 use std::sync::Arc;
+use crate::error::CssErrorLocation;
 
 pub(crate) mod easing {
-    use crate::{CssError, ParserExt, error_codes::animations as error_codes};
+    use crate::{CssError, CssParser, Spanned, error_codes::animations as error_codes};
     use bevy_flair_style::animations::{EasingFunction, StepPosition};
     use bevy_math::Vec2;
-    use cssparser::{Parser, Token, match_ignore_ascii_case};
+    use cssparser::{Token, match_ignore_ascii_case};
 
-    fn parse_easing_linear_parameters(parser: &mut Parser) -> Result<Vec<(f32, f32)>, CssError> {
+    fn parse_easing_linear_parameters(parser: &mut CssParser) -> Result<Vec<(f32, f32)>, CssError> {
         fn unwrap_points(points: Vec<(Option<f32>, f32)>) -> Vec<(f32, f32)> {
             points
                 .into_iter()
@@ -31,13 +32,14 @@ pub(crate) mod easing {
                 .collect()
         }
 
-        parser.skip_whitespace();
+        // TODO: Needed?
+        parser.inner_parser_mut().skip_whitespace();
 
         if parser.is_exhausted() {
             return Ok(Vec::new());
         }
 
-        let mut points = parser.parse_comma_separated::<_, _, ()>(|parser| {
+        let points = parser.parse_comma_separated(|parser| {
             let point = parser.expect_number()?;
 
             // TODO: Fail if percentage is outside of the 0.0-1.0 range
@@ -51,6 +53,11 @@ pub(crate) mod easing {
 
         // points cannot be empty at this point
         debug_assert!(!points.is_empty());
+
+        let mut points = points
+            .into_iter()
+            .map(|(progress, point)| (progress.map(Spanned::into_inner), point.into_inner()))
+            .collect::<Vec<_>>();
 
         // If the first control point lacks an input progress value, set its input progress value to 0.
         if points[0].0.is_none() {
@@ -116,7 +123,7 @@ pub(crate) mod easing {
         Ok(unwrap_points(points))
     }
 
-    fn parse_easing_steps_parameters(parser: &mut Parser) -> Result<EasingFunction, CssError> {
+    fn parse_easing_steps_parameters(parser: &mut CssParser) -> Result<EasingFunction, CssError> {
         let steps = parser.expect_integer()?;
 
         // TODO: If the <step-position> is jump-none, the <integer> must be at least 2,
@@ -125,12 +132,12 @@ pub(crate) mod easing {
 
         if parser.is_exhausted() {
             Ok(EasingFunction::Steps {
-                steps,
+                steps: *steps,
                 pos: StepPosition::default(),
             })
         } else {
             parser.expect_comma()?;
-            let step_position = parser.expect_located_ident()?;
+            let step_position = parser.expect_ident()?;
 
             let pos = match_ignore_ascii_case! { &step_position,
                 "jump-start" => StepPosition::JumpStart,
@@ -140,7 +147,7 @@ pub(crate) mod easing {
                 "start" => StepPosition::Start,
                 "end" => StepPosition::End,
                 _ =>
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &step_position,
                         error_codes::INVALID_STEP_POSITION,
                         "Expected a step position name. Valid values are: 'jump-start' | 'jump-end' | 'jump-none' | 'jump-both' | 'start' | 'end'",
@@ -148,37 +155,32 @@ pub(crate) mod easing {
 
             };
 
-            Ok(EasingFunction::Steps { steps, pos })
+            Ok(EasingFunction::Steps { steps: *steps, pos })
         }
     }
 
     fn parse_easing_cubic_bezier_parameters(
-        parser: &mut Parser,
+        parser: &mut CssParser,
     ) -> Result<EasingFunction, CssError> {
         // TODO: Both x values must be in the range [0, 1] or the definition is invalid.
-
-        let (x1, y1, x2, y2) = parser.catching(|parser| {
-            let x1 = parser.expect_number()?;
-            parser.expect_comma()?;
-            let y1 = parser.expect_number()?;
-            parser.expect_comma()?;
-            let x2 = parser.expect_number()?;
-            parser.expect_comma()?;
-            let y2 = parser.expect_number()?;
-
-            Ok((x1, y1, x2, y2))
-        })?;
-
-
+        let x1 = parser.expect_number()?;
+        parser.expect_comma()?;
+        let y1 = parser.expect_number()?;
+        parser.expect_comma()?;
+        let x2 = parser.expect_number()?;
+        parser.expect_comma()?;
+        let y2 = parser.expect_number()?;
 
         Ok(EasingFunction::CubicBezier {
-            p1: Vec2::new(x1, y1),
-            p2: Vec2::new(x2, y2),
+            p1: Vec2::new(*x1, *y1),
+            p2: Vec2::new(*x2, *y2),
         })
     }
 
-    pub(super) fn parse_easing_function(parser: &mut Parser) -> Result<EasingFunction, CssError> {
-        let next = parser.located_next()?;
+    pub(super) fn parse_easing_function(
+        parser: &mut CssParser,
+    ) -> Result<EasingFunction, CssError> {
+        let next = parser.next()?;
 
         match &*next {
             Token::Ident(easing_name) => Ok(match_ignore_ascii_case! { &easing_name,
@@ -190,7 +192,7 @@ pub(crate) mod easing {
                 "step-start" => EasingFunction::STEP_START,
                 "step-end" => EasingFunction::STEP_END,
                 _ =>
-                    return Err(CssError::new_located(
+                    return Err(CssError::new(
                         &next,
                         error_codes::INVALID_EASING_FUNCTION_KEYWORD,
                         "Expected a valid easing function. Valid values are: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'step-start' | 'step-end'",
@@ -201,24 +203,24 @@ pub(crate) mod easing {
                 match_ignore_ascii_case! { &function_name,
                     "linear" => Ok(
                         EasingFunction::LinearPoints(
-                            parser.parse_nested_block_with(parse_easing_linear_parameters)?
+                            parser.parse_nested_block(parse_easing_linear_parameters)?
                         )
                     ),
                     "steps" => {
-                        parser.parse_nested_block_with(parse_easing_steps_parameters)
+                        parser.parse_nested_block(parse_easing_steps_parameters)
                     },
                     "cubic-bezier" => {
-                        parser.parse_nested_block_with(parse_easing_cubic_bezier_parameters)
+                        parser.parse_nested_block(parse_easing_cubic_bezier_parameters)
                     },
                     _ =>
-                        Err(CssError::new_located(
+                        Err(CssError::new(
                             &next,
                             error_codes::INVALID_EASING_FUNCTION_NAME,
                             "Expected a valid easing function name. Valid values are: 'linear()' | 'steps()' | cubic-bezier()",
                         )),
                 }
             }
-            _ => Err(CssError::new_located(
+            _ => Err(CssError::new(
                 &next,
                 error_codes::INVALID_EASING_FUNCTION_TOKEN,
                 "Expected a valid easing function token. Valid values are: 'linear' | 'ease' | 'steps(..)'",
@@ -227,12 +229,12 @@ pub(crate) mod easing {
     }
 }
 
-fn parse_animation_name(parser: &mut Parser) -> Result<Arc<str>, CssError> {
-    let next = parser.located_next()?;
+fn parse_animation_name(parser: &mut CssParser) -> Result<Arc<str>, CssError> {
+    let next = parser.next()?;
 
     match &*next {
         Token::Ident(name) | Token::QuotedString(name) => Ok(name.as_ref().into()),
-        _ => Err(CssError::new_located(
+        _ => Err(CssError::new(
             &next,
             error_codes::INVALID_ANIMATION_NAME,
             "Expected animation name, like 'slide', or '\"anim\"'",
@@ -240,12 +242,12 @@ fn parse_animation_name(parser: &mut Parser) -> Result<Arc<str>, CssError> {
     }
 }
 
-fn parse_property_name(parser: &mut Parser) -> Result<Arc<str>, CssError> {
-    let next = parser.located_next()?;
+fn parse_property_name(parser: &mut CssParser) -> Result<Arc<str>, CssError> {
+    let next = parser.next()?;
 
     match &*next {
         Token::Ident(name) => Ok(name.as_ref().into()),
-        _ => Err(CssError::new_located(
+        _ => Err(CssError::new(
             &next,
             error_codes::INVALID_TRANSITION_PROPERTY_NAME,
             "Expected a property name, like 'width' or 'top'",
@@ -253,8 +255,8 @@ fn parse_property_name(parser: &mut Parser) -> Result<Arc<str>, CssError> {
     }
 }
 
-pub fn parse_iteration_count(parser: &mut Parser) -> Result<IterationCount, CssError> {
-    let next = parser.located_next()?;
+pub fn parse_iteration_count(parser: &mut CssParser) -> Result<IterationCount, CssError> {
+    let next = parser.next()?;
 
     Ok(match &*next {
         Token::Ident(ident) if ident.eq_ignore_ascii_case("infinite") => IterationCount::Infinite,
@@ -263,7 +265,7 @@ pub fn parse_iteration_count(parser: &mut Parser) -> Result<IterationCount, CssE
             ..
         } if *int_value >= 0 => IterationCount::Count(*int_value as u32),
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::INVALID_ITERATION_COUNT,
                 "Expected a whole number, like 3, or 'infinite'",
@@ -273,9 +275,9 @@ pub fn parse_iteration_count(parser: &mut Parser) -> Result<IterationCount, CssE
 }
 
 pub(crate) fn parse_animation_direction(
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<AnimationDirection, CssError> {
-    let easing_function_name = parser.expect_located_ident()?;
+    let easing_function_name = parser.expect_ident()?;
 
     Ok(match_ignore_ascii_case! { &easing_function_name,
         "normal" => AnimationDirection::Normal,
@@ -284,7 +286,7 @@ pub(crate) fn parse_animation_direction(
         "alternate-reverse" => AnimationDirection::AlternateReverse,
         _ =>
 
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &easing_function_name,
                 error_codes::INVALID_ANIMATION_DIRECTION,
                 "Expected a valid animation direction. Valid values are: 'normal' | 'reverse' | 'alternate'",
@@ -293,8 +295,8 @@ pub(crate) fn parse_animation_direction(
     })
 }
 
-fn parse_animation_fill_mode(parser: &mut Parser) -> Result<AnimationFillMode, CssError> {
-    let easing_function_name = parser.expect_located_ident()?;
+fn parse_animation_fill_mode(parser: &mut CssParser) -> Result<AnimationFillMode, CssError> {
+    let easing_function_name = parser.expect_ident()?;
 
     Ok(match_ignore_ascii_case! { &easing_function_name,
         "none" => AnimationFillMode::None,
@@ -302,7 +304,7 @@ fn parse_animation_fill_mode(parser: &mut Parser) -> Result<AnimationFillMode, C
         "backwards" => AnimationFillMode::Backwards,
         "both" => AnimationFillMode::Both,
         _ =>
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &easing_function_name,
                 error_codes::INVALID_ANIMATION_FILL_MODE,
                 "Expected a valid fill mode. Valid values are: 'none' | 'forwards' | 'backwards' | 'both",
@@ -310,14 +312,14 @@ fn parse_animation_fill_mode(parser: &mut Parser) -> Result<AnimationFillMode, C
     })
 }
 
-fn parse_animation_play_state(parser: &mut Parser) -> Result<AnimationPlayState, CssError> {
-    let easing_function_name = parser.expect_located_ident()?;
+fn parse_animation_play_state(parser: &mut CssParser) -> Result<AnimationPlayState, CssError> {
+    let easing_function_name = parser.expect_ident()?;
 
     Ok(match_ignore_ascii_case! { &easing_function_name,
         "running" => AnimationPlayState::Running,
         "paused" => AnimationPlayState::Paused,
         _ =>
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &easing_function_name,
                 error_codes::INVALID_ANIMATION_PLAY_STATE,
                 "Expected a valid play state. Valid values are: 'running' | 'paused'",
@@ -326,7 +328,7 @@ fn parse_animation_play_state(parser: &mut Parser) -> Result<AnimationPlayState,
 }
 
 fn parse_animation_shorthand(
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<Vec<(AnimationPropertyId, AnimationSpecificValue)>, CssError> {
     let mut result = Vec::new();
 
@@ -347,7 +349,7 @@ fn parse_animation_shorthand(
         //  - animation-name
 
         if !contains_property(&result, AnimationPropertyId::Duration) {
-            if let Ok(duration) = parser.try_parse_with(parse_duration) {
+            if let Ok(duration) = parser.try_parse(parse_duration) {
                 result.push((
                     AnimationPropertyId::Duration,
                     AnimationSpecificValue::Duration(duration),
@@ -355,7 +357,7 @@ fn parse_animation_shorthand(
                 continue;
             }
         } else if !contains_property(&result, AnimationPropertyId::Delay)
-            && let Ok(delay) = parser.try_parse_with(parse_duration)
+            && let Ok(delay) = parser.try_parse(parse_duration)
         {
             result.push((
                 AnimationPropertyId::Delay,
@@ -365,7 +367,7 @@ fn parse_animation_shorthand(
         }
 
         if !contains_property(&result, AnimationPropertyId::Direction)
-            && let Ok(direction) = parser.try_parse_with(parse_animation_direction)
+            && let Ok(direction) = parser.try_parse(parse_animation_direction)
         {
             result.push((
                 AnimationPropertyId::Direction,
@@ -375,7 +377,7 @@ fn parse_animation_shorthand(
         }
 
         if !contains_property(&result, AnimationPropertyId::FillMode)
-            && let Ok(fill_mode) = parser.try_parse_with(parse_animation_fill_mode)
+            && let Ok(fill_mode) = parser.try_parse(parse_animation_fill_mode)
         {
             result.push((
                 AnimationPropertyId::FillMode,
@@ -385,7 +387,7 @@ fn parse_animation_shorthand(
         }
 
         if !contains_property(&result, AnimationPropertyId::IterationCount)
-            && let Ok(iteration_count) = parser.try_parse_with(parse_iteration_count)
+            && let Ok(iteration_count) = parser.try_parse(parse_iteration_count)
         {
             result.push((
                 AnimationPropertyId::IterationCount,
@@ -395,7 +397,7 @@ fn parse_animation_shorthand(
         }
 
         if !contains_property(&result, AnimationPropertyId::PlayState)
-            && let Ok(play_state) = parser.try_parse_with(parse_animation_play_state)
+            && let Ok(play_state) = parser.try_parse(parse_animation_play_state)
         {
             result.push((
                 AnimationPropertyId::PlayState,
@@ -404,7 +406,7 @@ fn parse_animation_shorthand(
         }
 
         if !contains_property(&result, AnimationPropertyId::TimingFunction)
-            && let Ok(timing_function) = parser.try_parse_with(parse_easing_function)
+            && let Ok(timing_function) = parser.try_parse(parse_easing_function)
         {
             result.push((
                 AnimationPropertyId::TimingFunction,
@@ -415,7 +417,7 @@ fn parse_animation_shorthand(
 
         // Name has to be the last one always since any keyword can be identified as a animation name
         if !contains_property(&result, AnimationPropertyId::Name)
-            && let Ok(animation_name) = parser.try_parse_with(parse_animation_name)
+            && let Ok(animation_name) = parser.try_parse(parse_animation_name)
         {
             result.push((
                 AnimationPropertyId::Name,
@@ -430,7 +432,7 @@ fn parse_animation_shorthand(
 }
 
 fn parse_transition_shorthand(
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<Vec<(TransitionPropertyId, AnimationSpecificValue)>, CssError> {
     let mut result = Vec::new();
 
@@ -447,7 +449,7 @@ fn parse_transition_shorthand(
         //  - transition-property
 
         if !contains_property(&result, TransitionPropertyId::Duration) {
-            if let Ok(duration) = parser.try_parse_with(parse_duration) {
+            if let Ok(duration) = parser.try_parse(parse_duration) {
                 result.push((
                     TransitionPropertyId::Duration,
                     AnimationSpecificValue::Duration(duration),
@@ -455,7 +457,7 @@ fn parse_transition_shorthand(
                 continue;
             }
         } else if !contains_property(&result, TransitionPropertyId::Delay)
-            && let Ok(delay) = parser.try_parse_with(parse_duration)
+            && let Ok(delay) = parser.try_parse(parse_duration)
         {
             result.push((
                 TransitionPropertyId::Delay,
@@ -465,7 +467,7 @@ fn parse_transition_shorthand(
         }
 
         if !contains_property(&result, TransitionPropertyId::TimingFunction)
-            && let Ok(timing_function) = parser.try_parse_with(parse_easing_function)
+            && let Ok(timing_function) = parser.try_parse(parse_easing_function)
         {
             result.push((
                 TransitionPropertyId::TimingFunction,
@@ -476,7 +478,7 @@ fn parse_transition_shorthand(
 
         // PropertyName has to be the last one always since any keyword can be identified as a property name
         if !contains_property(&result, TransitionPropertyId::PropertyName)
-            && let Ok(animation_name) = parser.try_parse_with(parse_property_name)
+            && let Ok(animation_name) = parser.try_parse(parse_property_name)
         {
             result.push((
                 TransitionPropertyId::PropertyName,
@@ -491,24 +493,22 @@ fn parse_transition_shorthand(
 }
 
 fn parse_animation_values<'i, T: Send + 'static>(
-    parser: &mut Parser<'i>,
-    parse_one: fn(&mut Parser<'i>) -> Result<T, CssError>,
-) -> Result<SmallVec<[T; 1]>, ParseError<CssError>> {
+    parser: &mut CssParser<'_, 'i>,
+    parse_one: fn(&mut CssParser<'_, 'i>) -> Result<T, CssError>,
+) -> Result<SmallVec<[T; 1]>, CssError> {
     parser.parse_entirely(|parser| {
-        let result = parser
-            .parse_comma_separated_with(parse_one)
-            .map_err(|error| error.into_parse_error())?;
+        let result = parser.parse_comma_separated_until_non_comma(parse_one)?;
         let _ = try_parse_important_level(parser);
         Ok(SmallVec::<[T; 1]>::from_vec(result))
     })
 }
 
 fn as_parse_var_tokens<T: Send + 'static>(
-    parse_one: fn(&mut Parser) -> Result<T, CssError>,
+    parse_one: fn(&mut CssParser) -> Result<T, CssError>,
 ) -> ParseAnimationValuesFromVarTokens<T> {
     Arc::new(move |tokens| {
         let tokens_as_css = tokens.to_css_string();
-        let mut parser = Parser::new(&tokens_as_css);
+        let mut parser = CssParser::new(&tokens_as_css);
 
         let result = parse_animation_values(&mut parser, parse_one);
 
@@ -522,18 +522,20 @@ fn as_parse_var_tokens<T: Send + 'static>(
 }
 
 fn parse_animation_property_helper<T>(
-    parser: &mut Parser,
-    parse_one: fn(&mut Parser) -> Result<T, CssError>,
+    parser: &mut CssParser,
+    parse_one: fn(&mut CssParser) -> Result<T, CssError>,
 ) -> Result<AnimationValues<T>, CssError>
 where
     T: Send + 'static,
 {
     let initial_state = parser.state();
-    parser.look_for_arbitrary_substitution_functions(&VAR_FUNCTION);
+    parser
+        .inner_parser_mut()
+        .look_for_arbitrary_substitution_functions(&SUBSTITUTION_FUNCTIONS);
 
     let result = parse_animation_values(parser, parse_one);
 
-    let seen_var = parser.seen_arbitrary_substitution_functions();
+    let seen_var = parser.inner_parser_mut().seen_arbitrary_substitution_functions();
 
     match result {
         Ok(values) => Ok(AnimationValues::Specific(values)),
@@ -541,7 +543,7 @@ where
             parser.reset(&initial_state);
             let result = parser.parse_entirely(|parser| {
                 let var_tokens =
-                    parse_var_tokens(parser).map_err(|error| error.into_parse_error())?;
+                    parse_var_tokens(parser)?;
                 let _ = try_parse_important_level(parser);
                 Ok(var_tokens)
             });
@@ -570,10 +572,10 @@ where
 ///  - `animation-play-state`
 ///  - `animation-timing-function`
 pub(crate) fn parse_animation_property(
-    property_name: &str,
-    parser: &mut Parser,
+    property_name: LocatedPropertyName,
+    parser: &mut CssParser,
 ) -> Result<AnimationProperty<AnimationPropertyId>, CssError> {
-    match_ignore_ascii_case! { property_name,
+    match_ignore_ascii_case! { &*property_name,
         "animation" =>  {
             let values = parse_animation_property_helper(parser, parse_animation_shorthand)?;
             Ok(AnimationProperty::Shorthand(values))
@@ -659,7 +661,7 @@ pub(crate) fn parse_animation_property(
                 values
             })
         },
-        _ => Err(CssError::new_unlocated(error_codes::INVALID_ANIMATION_PROPERTY, format!("Property '{property_name}' is not recognized as a valid animation property")))
+        _ => Err(property_name.into_error(error_codes::INVALID_ANIMATION_PROPERTY, |property_name| format!("Property '{property_name}' is not recognized as a valid animation property")))
     }
 }
 
@@ -671,10 +673,10 @@ pub(crate) fn parse_animation_property(
 ///  - `transition-property`
 ///  - `transition-timing-function`
 pub(crate) fn parse_transition_property(
-    property_name: &str,
-    parser: &mut Parser,
+    property_name: LocatedPropertyName,
+    parser: &mut CssParser,
 ) -> Result<AnimationProperty<TransitionPropertyId>, CssError> {
-    match_ignore_ascii_case! { property_name,
+    match_ignore_ascii_case! { &*property_name,
         "transition" =>  {
             let values = parse_animation_property_helper(parser, parse_transition_shorthand)?;
             Ok(AnimationProperty::Shorthand(values))
@@ -726,7 +728,7 @@ pub(crate) fn parse_transition_property(
                 values
             })
         },
-        _ => Err(CssError::new_unlocated(error_codes::INVALID_TRANSITION_PROPERTY, format!("Property '{property_name}' is not recognized as a valid transition property")))
+        _ => Err(property_name.into_error(error_codes::INVALID_TRANSITION_PROPERTY, |property_name| format!("Property '{property_name}' is not recognized as a valid transition property")))
     }
 }
 
@@ -737,15 +739,17 @@ mod tests {
     use bevy_flair_style::animations::*;
     use bevy_math::Vec2;
     use std::time::Duration;
+    use crate::style_sheet_parser::LocatedPropertyName;
 
     #[track_caller]
     fn test_animation_property(css: &str) -> AnimationProperty<AnimationPropertyId> {
         // We insert !important at the end to make sure it's consumed.
         let contents = format!("{css} !important");
         let result = parse_content_with(&contents, |parser| {
-            let property_name = parser.expect_ident_cloned()?;
+            let property_name = parser.expect_ident()?;
+            let property_name = LocatedPropertyName::new(&property_name);
             parser.expect_colon()?;
-            parse_animation_property(&property_name, parser)
+            parse_animation_property(property_name, parser)
         });
         expects_parse_ok(&contents, result)
     }
@@ -755,9 +759,10 @@ mod tests {
         // We insert !important at the end to make sure it's consumed.
         let contents = format!("{css} !important");
         let result = parse_content_with(&contents, |parser| {
-            let property_name = parser.expect_ident_cloned()?;
+            let property_name = parser.expect_ident()?;
+            let property_name = LocatedPropertyName::new(&property_name);
             parser.expect_colon()?;
-            parse_transition_property(&property_name, parser)
+            parse_transition_property(property_name, parser)
         });
         expects_parse_ok(&contents, result)
     }

@@ -2,8 +2,8 @@ mod ast;
 mod parse;
 mod simplify;
 
-use crate::{CssError, ParserExt};
-use cssparser::Parser;
+use crate::{CssError};
+use crate::CssParser;
 
 use smol_str::SmolStr;
 use std::fmt::{Debug, Display};
@@ -77,22 +77,25 @@ impl Default for CalcOptions<'_> {
 }
 
 fn parse_calc_with_context<T, E: Display, F: FnOnce(&CalcValue) -> Result<T, E>>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     from_calc_value_fn: F,
     ctx: &CalcContext,
 ) -> Result<T, CssError> {
-    let mut located_calc_value = parser.located(|parser| parse_calc_value(parser, ctx))?;
-    located_calc_value.try_simplify().map_err(|calc_err| {
-        CssError::new_located(
-            &located_calc_value,
+    let mut result = parser.spanned(|parser| {
+        parse_calc_value(parser, &ctx)
+    })?;
+
+    result.try_simplify().map_err(|calc_err| {
+        CssError::new(
+            &result,
             crate::error_codes::calc::CALC_ERROR,
             calc_err.to_string(),
         )
     })?;
 
-    from_calc_value_fn(&located_calc_value).map_err(|calc_err| {
-        CssError::new_located(
-            &located_calc_value,
+    from_calc_value_fn(&result).map_err(|calc_err| {
+        CssError::new(
+            &result,
             crate::error_codes::calc::CALC_CONVERSION_ERROR,
             calc_err.to_string(),
         )
@@ -110,10 +113,10 @@ fn parse_calc_with_context<T, E: Display, F: FnOnce(&CalcValue) -> Result<T, E>>
 ///
 /// # Example
 /// ```
-/// # use cssparser::Parser;
+/// # use bevy_flair_css_parser::CssParser;
 /// # use bevy_flair_css_parser::{parse_calc_with_options, CalcValue, CalcOptions};
 ///
-/// let mut parser = Parser::new("calc(2 + my_constant)");
+/// let mut parser = CssParser::new("calc(2 + my_constant)");
 ///
 /// let options =  CalcOptions::new().with_custom_constants(&[("my_constant", 10.0)]);
 ///
@@ -126,7 +129,7 @@ fn parse_calc_with_context<T, E: Display, F: FnOnce(&CalcValue) -> Result<T, E>>
 /// assert_eq!(value, 12.0);
 /// ```
 pub fn parse_calc_with_options<T, E: Display, F: FnOnce(&CalcValue) -> Result<T, E>>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     from_calc_value_fn: F,
     options: CalcOptions<'_>,
 ) -> Result<T, CssError> {
@@ -145,10 +148,10 @@ pub fn parse_calc_with_options<T, E: Display, F: FnOnce(&CalcValue) -> Result<T,
 ///
 /// # Example
 /// ```
-/// # use cssparser::Parser;
+/// # use bevy_flair_css_parser::CssParser;
 /// # use bevy_flair_css_parser::{parse_calc, CalcValue};
 ///
-/// let mut parser = Parser::new("calc(2px + 3px)");
+/// let mut parser = CssParser::new("calc(2px + 3px)");
 /// let value = parse_calc(&mut parser, |calc_value| {
 ///     match calc_value {
 ///         CalcValue::Dimension { value, dim } if dim.eq_ignore_ascii_case("px") => Ok(*value),
@@ -158,7 +161,7 @@ pub fn parse_calc_with_options<T, E: Display, F: FnOnce(&CalcValue) -> Result<T,
 /// assert_eq!(value, 5.0);
 /// ```
 pub fn parse_calc<T, E: Display, F: FnOnce(&CalcValue) -> Result<T, E>>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     from_calc_value_fn: F,
 ) -> Result<T, CssError> {
     let ctx = CalcContext::default();

@@ -2,13 +2,14 @@ use crate::error::CssError;
 use crate::error_codes::image as error_codes;
 use crate::reflect::ui::parse_four_values;
 use crate::utils::parse_property_value_with;
-use crate::{ParserExt, ReflectParseCss, parse_px};
+use crate::{parse_px, CssParser, ReflectParseCss};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
 use bevy_reflect::CreateTypeData;
 use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
 use bevy_ui::widget::NodeImageMode;
-use cssparser::{Parser, Token};
+use cssparser::{Token};
+
 
 struct TiledParams {
     tile_x: bool,
@@ -26,11 +27,11 @@ impl Default for TiledParams {
     }
 }
 
-fn parse_tiled_params(parser: &mut Parser) -> Result<TiledParams, CssError> {
+fn parse_tiled_params(parser: &mut CssParser) -> Result<TiledParams, CssError> {
     let mut result = TiledParams::default();
 
     while !parser.is_exhausted() {
-        let next = parser.located_next()?;
+        let next = parser.next()?;
         match &*next {
             Token::Ident(ident) if ident.as_ref() == "tile_x" => {
                 result.tile_x = true;
@@ -42,7 +43,7 @@ fn parse_tiled_params(parser: &mut Parser) -> Result<TiledParams, CssError> {
                 result.stretch_value = *value;
             }
             _ => {
-                return Err(CssError::new_located(
+                return Err(CssError::new(
                     &next,
                     error_codes::UNEXPECTED_TILED_TOKEN,
                     "This is not valid tiled token. 'tile_x', 'tile_y', 3.2 are valid tokens",
@@ -54,16 +55,16 @@ fn parse_tiled_params(parser: &mut Parser) -> Result<TiledParams, CssError> {
     Ok(result)
 }
 
-fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssError> {
-    let next = parser.located_next()?;
+fn parse_slice_scale_mode(parser: &mut CssParser) -> Result<SliceScaleMode, CssError> {
+    let next = parser.next()?;
     match &*next {
         Token::Ident(ident) if ident.as_ref() == "auto" => Ok(SliceScaleMode::default()),
         Token::Ident(ident) if ident.as_ref() == "stretch" => Ok(SliceScaleMode::Stretch),
         Token::Function(name) if name.eq_ignore_ascii_case("tile") => {
-            let stretch_value = parser.parse_nested_block_with(parse_px)?;
+            let stretch_value = parser.parse_nested_block(parse_px)?;
             Ok(SliceScaleMode::Tile { stretch_value })
         }
-        _ => Err(CssError::new_located(
+        _ => Err(CssError::new(
             &next,
             error_codes::UNEXPECTED_SLICE_SCALE_MODE_TOKEN,
             "This is not valid slice scale mode token. 'stretch', 'tile(2.0)' are valid tokens",
@@ -71,7 +72,7 @@ fn parse_slice_scale_mode(parser: &mut Parser) -> Result<SliceScaleMode, CssErro
     }
 }
 
-fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
+fn parse_sliced_params(parser: &mut CssParser) -> Result<TextureSlicer, CssError> {
     let [top, right, bottom, left] = parse_four_values(parser, parse_px)?;
 
     let border = BorderRect {
@@ -92,8 +93,8 @@ fn parse_sliced_params(parser: &mut Parser) -> Result<TextureSlicer, CssError> {
 }
 
 // This is completely custom parsing, since there is nothing in css similar
-fn parse_image_mode(parser: &mut Parser) -> Result<NodeImageMode, CssError> {
-    let next = parser.located_next()?;
+fn parse_image_mode(parser: &mut CssParser) -> Result<NodeImageMode, CssError> {
+    let next = parser.next()?;
     Ok(match &*next {
         Token::Ident(ident) if ident.as_ref() == "auto" => NodeImageMode::Auto,
         Token::Ident(ident) if ident.as_ref() == "stretch" => NodeImageMode::Stretch,
@@ -102,7 +103,7 @@ fn parse_image_mode(parser: &mut Parser) -> Result<NodeImageMode, CssError> {
                 tile_x,
                 tile_y,
                 stretch_value,
-            } = parser.parse_nested_block_with(parse_tiled_params)?;
+            } = parser.parse_nested_block(parse_tiled_params)?;
 
             NodeImageMode::Tiled {
                 tile_x,
@@ -111,12 +112,12 @@ fn parse_image_mode(parser: &mut Parser) -> Result<NodeImageMode, CssError> {
             }
         }
         Token::Function(name) if name.eq_ignore_ascii_case("sliced") => {
-            let texture_slicer = parser.parse_nested_block_with(parse_sliced_params)?;
+            let texture_slicer = parser.parse_nested_block(parse_sliced_params)?;
 
             NodeImageMode::Sliced(texture_slicer)
         }
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::UNEXPECTED_IMAGE_MODE_TOKEN,
                 "This is not valid ImageMode token. 'auto', 'stretch', tiled(tile_x), sliced(20px) are valid examples",
