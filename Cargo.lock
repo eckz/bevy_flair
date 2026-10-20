@@ -1026,6 +1026,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_flair_css_selector"
+version = "0.9.0"
+dependencies = [
+ "bevy_ecs",
+ "bevy_reflect",
+ "bevy_text",
+ "bevy_ui",
+ "bitflags 2.13.2",
+ "cssparser",
+ "itertools 0.15.0",
+ "precomputed-hash",
+ "rand",
+ "rustc-hash 2.1.3",
+ "selectors",
+ "smallvec",
+ "smol_str",
+ "tracing",
+]
+
+[[package]]
 name = "bevy_flair_style"
 version = "0.9.0"
 dependencies = [
