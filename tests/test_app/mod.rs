@@ -1,5 +1,7 @@
 use bevy::asset::io::memory::{Dir, MemoryAssetReader};
-use bevy::asset::{AssetApp, AssetLoadFailedEvent, AssetPath, AssetPlugin, AssetServer, Handle};
+use bevy::asset::{
+    AssetApp, AssetEvent, AssetLoadFailedEvent, AssetPath, AssetPlugin, AssetServer, Handle,
+};
 use bevy::image::{ImagePlugin, TextureAtlasPlugin};
 use bevy::input::InputPlugin;
 use bevy::input_focus::{InputFocus, InputFocusVisible};
@@ -10,7 +12,9 @@ use bevy::text::TextPlugin;
 use bevy::ui::UiPlugin;
 use bevy::window::WindowPlugin;
 use bevy_app::{App, TaskPoolOptions, TaskPoolPlugin, Update};
+use bevy_ecs::change_detection::{Res, ResMut};
 use bevy_ecs::message::MessageReader;
+use bevy_ecs::resource::Resource;
 use bevy_flair::FlairPlugin;
 use bevy_flair::parser::{CssStyleLoaderErrorMode, CssStyleLoaderSetting};
 use bevy_flair::style::StyleSheet;
@@ -113,18 +117,20 @@ mod gated_reader {
 
 pub(crate) static ASSETS_DIR: LazyLock<Dir> = LazyLock::new(|| Dir::new("assets".into()));
 
-pub(crate) static GATED_ASSETS_READER: LazyLock<(GatedReader<MemoryAssetReader>, GateOpener)> =
-    LazyLock::new(|| {
-        GatedReader::new(MemoryAssetReader {
-            root: ASSETS_DIR.clone(),
-        })
-    });
+pub(crate) static GATED_ASSETS_READER: LazyLock<(
+    gated_reader::GatedReader<MemoryAssetReader>,
+    gated_reader::GateOpener,
+)> = LazyLock::new(|| {
+    gated_reader::GatedReader::new(MemoryAssetReader {
+        root: ASSETS_DIR.clone(),
+    })
+});
 
-pub(crate) fn gate_opener() -> &'static GateOpener {
+pub(crate) fn gate_opener() -> &'static gated_reader::GateOpener {
     &GATED_ASSETS_READER.1
 }
 
-fn assets_reader() -> &'static GatedReader<MemoryAssetReader> {
+fn assets_reader() -> &'static gated_reader::GatedReader<MemoryAssetReader> {
     &GATED_ASSETS_READER.0
 }
 
@@ -143,6 +149,16 @@ macro_rules! include_test_css_closed {
     ($($file_name:literal),* $(,)?) => {
         $(
             test_app::ASSETS_DIR.insert_asset($file_name.as_ref(), include_bytes!(concat!("./css/", $file_name)));
+        )*
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! include_css_inline {
+    ($($file_name:literal => $contents:expr),* $(,)?) => {
+        $(
+            test_app::ASSETS_DIR.insert_asset_text($file_name.as_ref(), &$contents);
+            test_app::gate_opener().open($file_name);
         )*
     };
 }
@@ -177,6 +193,30 @@ fn panic_on_load_error(
 ) {
     if let Some(event) = failed_loaded_messages.read().next() {
         panic!("Error loading '{}': {}", event.path, event.error);
+    }
+}
+
+#[derive(Default, Resource)]
+pub struct LoadedStyleSheets(Vec<AssetPath<'static>>);
+
+impl LoadedStyleSheets {
+    #[allow(unused)]
+    pub fn is_loaded(&self, path_to_test: &str) -> bool {
+        self.0.iter().any(|path| path.to_string() == path_to_test)
+    }
+}
+
+fn track_loaded_style_sheets(
+    asset_server: Res<AssetServer>,
+    mut loaded_paths: ResMut<LoadedStyleSheets>,
+    mut asset_events: MessageReader<AssetEvent<StyleSheet>>,
+) {
+    for event in asset_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = event
+            && let Some(path) = asset_server.get_path(*id)
+        {
+            loaded_paths.0.push(path.into_owned());
+        }
     }
 }
 
@@ -321,18 +361,17 @@ pub(crate) fn test_app() -> App {
 
     app.finish();
 
-    //app.init_resource::<UniqueNamesMap>();
-    app.add_systems(Update, panic_on_load_error);
+    app.init_resource::<LoadedStyleSheets>();
+    app.add_systems(Update, (panic_on_load_error, track_loaded_style_sheets));
 
     app
 }
 
 #[allow(unused_imports)]
+pub(crate) use include_assets;
+#[allow(unused_imports)]
+pub(crate) use include_css_inline;
+#[allow(unused_imports)]
 pub(crate) use include_test_css;
-
 #[allow(unused_imports)]
 pub(crate) use include_test_css_closed;
-
-use crate::test_app::gated_reader::{GateOpener, GatedReader};
-#[allow(unused_imports)]
-pub(crate) use include_assets;

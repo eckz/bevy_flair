@@ -71,6 +71,7 @@ bevy = {version = "0.20.0", default-features = false, features = [
     "track_location",
 ] }
 cssparser = { version = "0.37" }
+random_css = { path = "./random_css" }
 
 [[bench]]
 name = "flair_benches"

@@ -1,0 +1,14 @@
+[package]
+name = "random_css"
+version = "0.9.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/eckz/bevy_flair"
+rust-version = "1.97.1"
+publish = false
+
+
+[dependencies]
+rand = "0.10.0"
+rand_chacha = "0.10.0"
+
