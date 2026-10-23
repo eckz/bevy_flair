@@ -80,7 +80,7 @@ impl<'i> CssParser<'_, 'i> {
     #[inline]
     pub(crate) fn inner_parser(&self) -> &cssparser::Parser<'i> {
         match &self.parser {
-            CssParserInner::Borrowed(borrowed) => *borrowed,
+            CssParserInner::Borrowed(borrowed) => borrowed,
             CssParserInner::Owned(owned) => owned,
         }
     }
@@ -154,7 +154,8 @@ impl<'i> CssParser<'_, 'i> {
         F: FnOnce(&mut cssparser::Parser<'i>) -> Result<(), E>,
         E: Into<StyleErrorData>,
     {
-        Ok(self.inner_spanned(inner)?.into_inner())
+        let _: () = self.inner_spanned(inner)?.into_inner();
+        Ok(())
     }
 
     #[inline]
@@ -338,8 +339,6 @@ impl<'i> CssParser<'_, 'i> {
             Token::Delim(value) if *value == expected_value => Ok(()),
         }
     }
-
-
 
     /// Parse a `( /* ... */ )` parenthesis block.
     ///

@@ -1,13 +1,12 @@
 use crate::error_codes::vars as error_codes;
 use crate::{CssError, CssParser};
 use bevy_flair_style::{VarOrToken, VarToken, VarTokens};
-use cssparser::{Parser, Token, parse_important};
-
+use cssparser::{Token, parse_important};
 
 pub(crate) fn parse_var_fn(parser: &mut CssParser) -> Result<VarOrToken, CssError> {
     parser.expect_function_matching("var")?;
 
-    Ok(parser.parse_nested_block(|parser| {
+    parser.parse_nested_block(|parser| {
         let var_name = parser.expect_ident()?;
 
         if !var_name.starts_with("--") || var_name.len() < 3 {
@@ -18,7 +17,7 @@ pub(crate) fn parse_var_fn(parser: &mut CssParser) -> Result<VarOrToken, CssErro
             ));
         }
         Ok(VarOrToken::Var((&var_name.as_ref()[2..]).into()))
-    })?)
+    })
 }
 
 fn parse_var_token(input: &mut CssParser) -> Result<VarToken, CssError> {
@@ -62,7 +61,10 @@ fn parse_var_or_token(parser: &mut CssParser) -> Result<VarOrToken, CssError> {
 
 pub fn parse_var_tokens(input: &mut CssParser) -> Result<VarTokens, CssError> {
     fn parse_next(parser: &mut CssParser) -> Result<VarTokens, CssError> {
-        if parser.try_parse(|parser| parser.inner_spanned(parse_important)).is_ok() {
+        if parser
+            .try_parse(|parser| parser.inner_spanned(parse_important))
+            .is_ok()
+        {
             return Err(CssError::unexpected(&parser.peek()?));
         }
         let mut next_tokens = VarTokens::new();

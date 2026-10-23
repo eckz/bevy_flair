@@ -1,8 +1,8 @@
+use cssparser::CowRcStr;
+use derive_more::{Deref, DerefMut};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::range::Range;
-use cssparser::CowRcStr;
-use derive_more::{Deref, DerefMut};
 
 /// Wrapper for a value that has a location in a byte range
 #[derive(Copy, Clone, Deref, DerefMut)]
@@ -34,7 +34,6 @@ impl<T> Spanned<T> {
     pub fn into_inner_and_span(self) -> (T, Range<u32>) {
         (self.item, self.span)
     }
-
 }
 
 impl<T> PartialEq for Spanned<T>
@@ -57,12 +56,7 @@ where
     }
 }
 
-impl<T> Eq for Spanned<T>
-where
-    T: Eq,
-{
-    
-}
+impl<T> Eq for Spanned<T> where T: Eq {}
 
 impl<T> Debug for Spanned<T>
 where
@@ -91,10 +85,9 @@ where
     }
 }
 
-
 pub type SpannedStr<'a> = Spanned<CowRcStr<'a>>;
 
-impl <'a> PartialEq<&'a str> for SpannedStr<'_> {
+impl<'a> PartialEq<&'a str> for SpannedStr<'_> {
     #[inline]
     fn eq(&self, other: &&'a str) -> bool {
         self.item.eq(other)

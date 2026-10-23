@@ -1,11 +1,10 @@
 use crate::style_sheet_parser::{CssStyleSheetItem, collect_parser};
-use crate::{error_codes, CssError, CssParser};
+use crate::{CssError, CssParser, error_codes};
 use bevy_flair_style::StyleFontSource;
 use cssparser::{
-    AtRuleParser, CowRcStr, DeclarationParser, ParseError, ParserState,
-    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, Token, match_ignore_ascii_case,
+    AtRuleParser, CowRcStr, DeclarationParser, ParseError, ParserState, QualifiedRuleParser,
+    RuleBodyItemParser, RuleBodyParser, Token, match_ignore_ascii_case,
 };
-
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum FontFaceSource {
@@ -36,9 +35,7 @@ impl From<CssError> for FontFaceProperty {
 }
 
 impl FontFaceProperty {
-    pub(crate) fn into_parse_result(
-        self,
-    ) -> Result<FontFaceProperty, ParseError<CssError>> {
+    pub(crate) fn into_parse_result(self) -> Result<FontFaceProperty, ParseError<CssError>> {
         match self {
             FontFaceProperty::Error(err) => Err(err.into()),
             other => Ok(other),
@@ -75,12 +72,13 @@ fn parse_font_face_property(property_name: CowRcStr, parser: &mut CssParser) -> 
             Token::QuotedString(value) => Ok(FontFaceProperty::Source(FontFaceSource::Path(
                 value.to_string(),
             ))),
-            Token::Function(name) if name.eq_ignore_ascii_case("url") => parser
-                .parse_nested_block(|parser| {
+            Token::Function(name) if name.eq_ignore_ascii_case("url") => {
+                parser.parse_nested_block(|parser| {
                     Ok(FontFaceProperty::Source(FontFaceSource::Path(
                         parser.expect_string()?.to_string(),
                     )))
-                }),
+                })
+            }
             Token::Function(name) if name.eq_ignore_ascii_case("local") => parser
                 .parse_nested_block(|parser| {
                     Ok(FontFaceProperty::Source(FontFaceSource::Local(

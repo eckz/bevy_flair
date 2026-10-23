@@ -1,6 +1,6 @@
-use crate::{CssError, CssParser};
 use crate::color::{convert_to_bevy_lab, convert_to_bevy_lch};
 use crate::error_codes::color as error_codes;
+use crate::{CssError, CssParser};
 use bevy_color::{Alpha, Color};
 use cssparser::color::PredefinedColorSpace;
 use cssparser::{ParseError, Parser};
@@ -153,19 +153,13 @@ impl<'i> cssparser_color::ColorParser<'i> for ColorParser {
         Ok(super::parse_angle_or_number(&mut parser, &[])?)
     }
 
-    fn parse_percentage(
-        &self,
-        parser: &mut Parser,
-    ) -> Result<f32, ParseError<CssError>> {
+    fn parse_percentage(&self, parser: &mut Parser) -> Result<f32, ParseError<CssError>> {
         let mut parser = CssParser::from_parser(parser);
         Ok(super::parse_percentage(&mut parser, &[])?)
     }
 
     /// Parse a `<number>` value.
-    fn parse_number(
-        &self,
-        parser: &mut Parser,
-    ) -> Result<f32, ParseError<CssError>> {
+    fn parse_number(&self, parser: &mut Parser) -> Result<f32, ParseError<CssError>> {
         let mut parser = CssParser::from_parser(parser);
         Ok(super::parse_number(&mut parser, &[])?)
     }
@@ -186,17 +180,15 @@ impl<'i> cssparser_color::ColorParser<'i> for ColorParser {
 ///   - By <color-function>, no relative colors are supported
 pub fn parse_specific_color(parser: &mut CssParser) -> Result<Color, CssError> {
     let result = parser.spanned(|parser| {
-        parser.inner_spanned_err(|parser| {
-            cssparser_color::parse_color_with(&ColorParser, parser)
-        })
+        parser.inner_spanned_err(|parser| cssparser_color::parse_color_with(&ColorParser, parser))
     })?;
     let (result, span) = result.into_inner_and_span();
-    
+
     match result {
         ParsedColor::Color(color) => Ok(color),
         ParsedColor::Error(mut error) => {
             error.improve_location_with_span(span);
             Err(error)
-        },
+        }
     }
 }

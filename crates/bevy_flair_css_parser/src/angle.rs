@@ -6,7 +6,6 @@ use bevy_reflect::prelude::*;
 use smol_str::SmolStr;
 use std::f32::consts;
 
-
 /// A 2D angle stored internally in radians.
 ///
 /// Angles are not restricted to a single revolution. Values larger than one

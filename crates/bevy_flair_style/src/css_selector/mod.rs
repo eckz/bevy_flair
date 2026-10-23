@@ -54,7 +54,6 @@ impl From<InternalPseudoStateSelector> for NodePseudoStateSelector {
 }
 
 impl NonTSPseudoClass for InternalPseudoStateSelector {
-
     fn is_active_or_hover(&self) -> bool {
         matches!(
             self,
@@ -161,8 +160,7 @@ impl cssparser::ToCss for CssPseudoElement {
     }
 }
 
-impl PseudoElement for CssPseudoElement {
-}
+impl PseudoElement for CssPseudoElement {}
 
 impl SelectorImpl for CssSelectorImpl {
     type ExtraMatchingData<'a> = (bool,);

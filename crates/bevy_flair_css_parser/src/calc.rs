@@ -2,7 +2,7 @@ mod ast;
 mod parse;
 mod simplify;
 
-use crate::{CssError};
+use crate::CssError;
 use crate::CssParser;
 
 use smol_str::SmolStr;
@@ -81,9 +81,7 @@ fn parse_calc_with_context<T, E: Display, F: FnOnce(&CalcValue) -> Result<T, E>>
     from_calc_value_fn: F,
     ctx: &CalcContext,
 ) -> Result<T, CssError> {
-    let mut result = parser.spanned(|parser| {
-        parse_calc_value(parser, &ctx)
-    })?;
+    let mut result = parser.spanned(|parser| parse_calc_value(parser, ctx))?;
 
     result.try_simplify().map_err(|calc_err| {
         CssError::new(

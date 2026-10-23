@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use ariadne::*;
+use std::sync::Arc;
 
 use crate::{Spanned, SpannedStr};
 use bevy_flair_style::css_selector::SelectorErrorKind;
@@ -63,8 +63,9 @@ impl CssErrorLocation {
             CssErrorLocation::Unlocated => {
                 unreachable!("Unlocated CssError")
             }
-            CssErrorLocation::Range(range) => {
-                std::ops::Range { start: range.start as usize, end: range.end as usize }
+            CssErrorLocation::Range(range) => std::ops::Range {
+                start: range.start as usize,
+                end: range.end as usize,
             },
             CssErrorLocation::SourceLocationAndLen {
                 source_location,
@@ -125,7 +126,10 @@ pub(crate) struct StyleErrorData {
 }
 
 impl StyleErrorData {
-    pub(crate) fn new(code: &'static CssErrorCodeDef, annotated_message: impl Into<Arc<str>>) -> Self {
+    pub(crate) fn new(
+        code: &'static CssErrorCodeDef,
+        annotated_message: impl Into<Arc<str>>,
+    ) -> Self {
         let annotated_message = annotated_message.into();
         Self {
             code,
@@ -139,10 +143,21 @@ impl From<BasicParseErrorKind> for StyleErrorData {
         use crate::error_codes::basic as basic_error_codes;
 
         let (code, annotated_message) = match kind {
-            BasicParseErrorKind::UnexpectedToken => (basic_error_codes::UNEXPECTED_TOKEN, "Unexpected token".into()),
-            BasicParseErrorKind::AtRuleInvalid => (basic_error_codes::INVALID_AT_RULE, "Invalid at rule".into()),
-            BasicParseErrorKind::EndOfInput => (basic_error_codes::END_OF_INPUT, "Unexpected end of input".into()),
-            other => (basic_error_codes::BASIC_PARSE_ERROR, other.to_string().into()),
+            BasicParseErrorKind::UnexpectedToken => (
+                basic_error_codes::UNEXPECTED_TOKEN,
+                "Unexpected token".into(),
+            ),
+            BasicParseErrorKind::AtRuleInvalid => {
+                (basic_error_codes::INVALID_AT_RULE, "Invalid at rule".into())
+            }
+            BasicParseErrorKind::EndOfInput => (
+                basic_error_codes::END_OF_INPUT,
+                "Unexpected end of input".into(),
+            ),
+            other => (
+                basic_error_codes::BASIC_PARSE_ERROR,
+                other.to_string().into(),
+            ),
         };
 
         Self {
@@ -186,7 +201,10 @@ impl<E: Into<StyleErrorData>> From<ParseError<E>> for StyleErrorData {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum CssErrorKind { Internal, Custom }
+enum CssErrorKind {
+    Internal,
+    Custom,
+}
 
 /// Represents a pair of code and message for a CSS error.
 /// Errors will be reported like `"[$code] $message:`
@@ -202,7 +220,7 @@ impl CssErrorCodeDef {
         Self {
             kind: CssErrorKind::Custom,
             code,
-            message
+            message,
         }
     }
 
@@ -210,7 +228,7 @@ impl CssErrorCodeDef {
         Self {
             kind: CssErrorKind::Internal,
             code,
-            message
+            message,
         }
     }
 }
@@ -297,18 +315,15 @@ impl CssError {
         code: &'static CssErrorCodeDef,
         annotated_message: impl Into<Arc<str>>,
     ) -> Self {
-        Self::from_data_and_location(
-            StyleErrorData::new(code, annotated_message),
-            error_location,
-        )
+        Self::from_data_and_location(StyleErrorData::new(code, annotated_message), error_location)
     }
 
     // This should be used only when the error will not be shown to the user
     // Like when it's inside a try_parse
     pub(crate) fn unexpected<T>(spanned: &Spanned<T>) -> Self {
         Self::new(
-            &spanned,
-            &crate::error_codes::basic::UNEXPECTED_TOKEN,
+            spanned,
+            crate::error_codes::basic::UNEXPECTED_TOKEN,
             String::new(),
         )
     }
@@ -317,7 +332,7 @@ impl CssError {
     pub fn unexpected_token(token: &Spanned<Token>, expected: &str) -> Self {
         let token_css = token.to_css_string();
         Self::new(
-            &token,
+            token,
             crate::error_codes::basic::UNEXPECTED_TOKEN,
             format!("Unexpected token: '{token_css}'. Was expecting {expected}"),
         )
@@ -326,7 +341,7 @@ impl CssError {
     #[track_caller]
     pub fn unexpected_ident(token: &SpannedStr, expected: &str) -> Self {
         Self::new(
-            &token,
+            token,
             crate::error_codes::basic::UNEXPECTED_TOKEN,
             format!("Unexpected token: {token}. Was expecting {expected}"),
         )
@@ -336,7 +351,10 @@ impl CssError {
     /// Use with care because it might cause panics.
     /// It's meant to be used inside a `AtRuleParser` or `DeclarationParser` where the span is not known.
     #[track_caller]
-    pub(crate) fn unlocated(code: &'static CssErrorCodeDef, annotated_message: impl Into<Arc<str>>) -> Self {
+    pub(crate) fn unlocated(
+        code: &'static CssErrorCodeDef,
+        annotated_message: impl Into<Arc<str>>,
+    ) -> Self {
         Self::from_data_and_location(
             StyleErrorData::new(code, annotated_message),
             CssErrorLocation::Unlocated,
@@ -447,7 +465,10 @@ impl<'a> ErrorReportGenerator<'a> {
     pub fn add_error(&mut self, error: CssError) {
         if matches!(error.location, CssErrorLocation::Unlocated) {
             // TODO: Warning and first line?
-            panic!("Error without location:\n{}", error.into_context_less_report());
+            panic!(
+                "Error without location:\n{}",
+                error.into_context_less_report()
+            );
         }
 
         self.contains_errors = true;
@@ -491,7 +512,10 @@ impl<'a> ErrorReportGenerator<'a> {
         if !self.full_message.is_empty() {
             self.full_message.push(b'\n');
         }
-        let location = std::ops::Range { start: location.start as usize, end: location.end as usize };
+        let location = std::ops::Range {
+            start: location.start as usize,
+            end: location.end as usize,
+        };
 
         Report::build(ReportKind::Advice, (self.file_name, location.clone()))
             .with_config(self.config)
@@ -533,7 +557,11 @@ mod tests {
     fn error_at_token(contents: &str, num_token: usize) -> CssError {
         let parser = CssParser::new(contents);
         let token = parser.into_iter().nth(num_token).expect("No token found");
-        CssError::new(&token, crate::error_codes::basic::UNEXPECTED_TOKEN, "TestError")
+        CssError::new(
+            &token,
+            crate::error_codes::basic::UNEXPECTED_TOKEN,
+            "TestError",
+        )
     }
 
     #[test]

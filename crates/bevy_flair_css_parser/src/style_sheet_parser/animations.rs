@@ -1,5 +1,5 @@
 use crate::{
-    CssError, CssParser, ErrorReportGenerator,  error_codes::animations as error_codes,
+    CssError, CssParser, ErrorReportGenerator, error_codes::animations as error_codes,
     parse_duration,
 };
 use bevy_flair_style::ToCss;
@@ -8,7 +8,7 @@ use bevy_flair_style::animations::{
     AnimationPropertyId, AnimationSpecificValue, AnimationValues, IterationCount,
     ParseAnimationValuesFromVarTokens, TransitionPropertyId,
 };
-use cssparser::{ParseError, Parser, Token, match_ignore_ascii_case};
+use cssparser::{Token, match_ignore_ascii_case};
 
 use crate::style_sheet_parser::{LocatedPropertyName, SUBSTITUTION_FUNCTIONS};
 use crate::utils::{try_parse_important_level, try_parse_none};
@@ -16,7 +16,6 @@ use crate::vars::parse_var_tokens;
 use easing::parse_easing_function;
 use smallvec::SmallVec;
 use std::sync::Arc;
-use crate::error::CssErrorLocation;
 
 pub(crate) mod easing {
     use crate::{CssError, CssParser, Spanned, error_codes::animations as error_codes};
@@ -535,15 +534,16 @@ where
 
     let result = parse_animation_values(parser, parse_one);
 
-    let seen_var = parser.inner_parser_mut().seen_arbitrary_substitution_functions();
+    let seen_var = parser
+        .inner_parser_mut()
+        .seen_arbitrary_substitution_functions();
 
     match result {
         Ok(values) => Ok(AnimationValues::Specific(values)),
         Err(_) if seen_var => {
             parser.reset(&initial_state);
             let result = parser.parse_entirely(|parser| {
-                let var_tokens =
-                    parse_var_tokens(parser)?;
+                let var_tokens = parse_var_tokens(parser)?;
                 let _ = try_parse_important_level(parser);
                 Ok(var_tokens)
             });
@@ -553,10 +553,10 @@ where
                     parser: as_parse_var_tokens(parse_one),
                     tokens,
                 }),
-                Err(err) => Err(CssError::from(err)),
+                Err(err) => Err(err),
             }
         }
-        Err(err) => Err(CssError::from(err)),
+        Err(err) => Err(err),
     }
 }
 
@@ -735,11 +735,11 @@ pub(crate) fn parse_transition_property(
 #[cfg(test)]
 mod tests {
     use super::{parse_animation_property, parse_transition_property};
+    use crate::style_sheet_parser::LocatedPropertyName;
     use crate::test_utils::{expects_parse_ok, parse_content_with};
     use bevy_flair_style::animations::*;
     use bevy_math::Vec2;
     use std::time::Duration;
-    use crate::style_sheet_parser::LocatedPropertyName;
 
     #[track_caller]
     fn test_animation_property(css: &str) -> AnimationProperty<AnimationPropertyId> {

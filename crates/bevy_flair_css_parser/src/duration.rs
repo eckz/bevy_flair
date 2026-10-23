@@ -1,6 +1,6 @@
+use crate::CssParser;
 use crate::calc::{CalcOptions, parse_calc_with_options};
 use crate::{CalcValue, CssError};
-use crate::CssParser;
 use smol_str::SmolStr;
 use std::time::Duration;
 

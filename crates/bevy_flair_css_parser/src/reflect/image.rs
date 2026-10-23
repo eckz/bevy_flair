@@ -2,14 +2,13 @@ use crate::error::CssError;
 use crate::error_codes::image as error_codes;
 use crate::reflect::ui::parse_four_values;
 use crate::utils::parse_property_value_with;
-use crate::{parse_px, CssParser, ReflectParseCss};
+use crate::{CssParser, ReflectParseCss, parse_px};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
 use bevy_reflect::CreateTypeData;
 use bevy_ui::prelude::{BorderRect, SliceScaleMode, TextureSlicer};
 use bevy_ui::widget::NodeImageMode;
-use cssparser::{Token};
-
+use cssparser::Token;
 
 struct TiledParams {
     tile_x: bool,

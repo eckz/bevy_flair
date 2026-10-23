@@ -5,7 +5,7 @@ macro_rules! define_errors {
                 $(
                     #[allow(clippy::zero_prefixed_literal)]
                     pub(crate) static $name: crate::error::CssErrorCodeDef =
-                         crate::error::CssErrorCodeDef::new_internal($code, $msg);    
+                         crate::error::CssErrorCodeDef::new_internal($code, $msg);
                 )*
             }
 

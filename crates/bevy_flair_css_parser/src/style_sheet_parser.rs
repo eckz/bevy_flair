@@ -203,10 +203,10 @@ impl CssPropertyParser<'_> {
                             var_tokens,
                             important_level,
                         ),
-                        Err(err) => CssDeclaration::Error(CssError::from(err)),
+                        Err(err) => CssDeclaration::Error(err),
                     }
                 }
-                Err(err) => CssDeclaration::Error(CssError::from(err)),
+                Err(err) => CssDeclaration::Error(err),
             };
         }
 
@@ -465,7 +465,7 @@ impl<'a> LocatedPropertyName<'a> {
     pub fn from_parser_state(property_name: &'a str, declaration_start: &ParserState) -> Self {
         let location = CssErrorLocation::from_source_and_sub_str(
             declaration_start.source_location(),
-            &property_name,
+            property_name,
         );
         Self {
             property_name,
@@ -522,17 +522,20 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     Ok(value) => CssDeclaration::Var(var_name.into(), value),
                     Err(err) => CssDeclaration::Error(err),
                 })
-            } else if self.parse_transition && prefix_eq_ignore_ascii_case(&property_name, "transition")
+            } else if self.parse_transition
+                && prefix_eq_ignore_ascii_case(&property_name, "transition")
             {
                 let result = parse_transition_property(property_name, parser);
                 Ok(match result {
-                    Ok(transition_property) => CssDeclaration::TransitionProperty(transition_property),
+                    Ok(transition_property) => {
+                        CssDeclaration::TransitionProperty(transition_property)
+                    }
                     Err(err) => CssDeclaration::Error(err),
                 })
             } else if self.parse_animation == ParseAnimationProperties::All
                 && prefix_eq_ignore_ascii_case(&property_name, "animation")
                 || self.parse_animation == ParseAnimationProperties::OnlyTimingFunction
-                && property_name.eq_ignore_ascii_case("animation-timing-function")
+                    && property_name.eq_ignore_ascii_case("animation-timing-function")
             {
                 let result = parse_animation_property(property_name, parser);
                 Ok(match result {
@@ -546,7 +549,6 @@ impl<'i> DeclarationParser<'i> for CssRulesetBodyParser<'_, 'i> {
                     .into_parse_result()
             }
         })?)
-
     }
 }
 

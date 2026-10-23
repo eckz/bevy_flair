@@ -17,6 +17,7 @@ pub use crate::parse_color;
 pub use assets::parse_asset_path;
 pub use ui::parse_val;
 
+use crate::CssParser;
 use crate::error::CssError;
 use bevy_app::{App, Plugin};
 use bevy_camera::visibility::Visibility;
@@ -29,7 +30,6 @@ use bevy_text::{
     FontWidth, Justify, LetterSpacing, LineBreak, LineHeight,
 };
 use bevy_ui::widget::NodeImageMode;
-use crate::CssParser;
 
 /// A function that parses a CSS type.
 /// When the function succeeds, it should return a [`bevy_flair_core::ReflectValue`].
@@ -61,7 +61,7 @@ impl ReflectParseCss {
         property_id: ComponentPropertyId,
     ) -> DynamicParseVarTokens {
         use crate::error::ErrorReportGenerator;
-        use cssparser::{Parser};
+
         use std::sync::Arc;
 
         let parse_fn = self.0;
@@ -71,8 +71,7 @@ impl ReflectParseCss {
 
             let mut parser = CssParser::new(&tokens_as_css);
 
-            let result = parser
-                .parse_entirely(|parser| parse_fn(parser));
+            let result = parser.parse_entirely(|parser| parse_fn(parser));
 
             result
                 .map(|v| vec![(ComponentPropertyRef::Id(property_id), v)])

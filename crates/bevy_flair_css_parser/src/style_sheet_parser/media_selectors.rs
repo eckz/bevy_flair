@@ -1,7 +1,6 @@
-use crate::{error_codes, CssError, CssParser, SpannedStr};
+use crate::{CssError, CssParser, SpannedStr, error_codes};
 use bevy_flair_style::{ColorScheme, MediaRangeSelector, MediaSelector, MediaSelectors};
 use cssparser::{Token, match_ignore_ascii_case};
-
 
 fn parse_size(parser: &mut CssParser) -> Result<u32, CssError> {
     let next = parser.next()?;

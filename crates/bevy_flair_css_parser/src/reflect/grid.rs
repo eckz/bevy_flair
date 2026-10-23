@@ -1,7 +1,7 @@
 use crate::error::CssError;
 use crate::error_codes::grid as error_codes;
 use crate::utils::{parse_many, parse_property_value_with, try_parse_none};
-use crate::{Spanned, ReflectParseCss, CssParser};
+use crate::{CssParser, ReflectParseCss, Spanned};
 
 use bevy_flair_core::ReflectValue;
 use bevy_reflect::{CreateTypeData, TypePath};
@@ -206,14 +206,15 @@ fn parse_grid_track(token: Spanned<Token>, parser: &mut CssParser) -> Result<Gri
                     }
                 })
             })?,
-        Token::Function(name) if name.eq_ignore_ascii_case("minmax") => parser
-            .parse_nested_block(|parser| {
+        Token::Function(name) if name.eq_ignore_ascii_case("minmax") => {
+            parser.parse_nested_block(|parser| {
                 let min = parse_grid_track_type(parser.next()?)?;
 
                 parser.expect_comma()?;
                 let max = parse_grid_track_type(parser.next()?)?;
                 Ok(GridTrack::minmax(min, max))
-            })?,
+            })?
+        }
         _ => return parse_grid_track_type(token),
     })
 }
@@ -275,7 +276,9 @@ fn parse_repeat_function_args(parser: &mut CssParser) -> Result<RepeatedGridTrac
     Ok(RepeatedGridTrack::repeat_many(repetition, grid_tracks))
 }
 
-pub(crate) fn parse_repeated_grid_track_vec(parser: &mut CssParser) -> Result<ReflectValue, CssError> {
+pub(crate) fn parse_repeated_grid_track_vec(
+    parser: &mut CssParser,
+) -> Result<ReflectValue, CssError> {
     if let Some(none_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
         return Ok(ReflectValue::new(none_value));
     }

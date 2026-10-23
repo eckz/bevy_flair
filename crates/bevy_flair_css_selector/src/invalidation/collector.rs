@@ -1,19 +1,19 @@
-use std::sync::Arc;
-use selectors::attr::NamespaceConstraint;
-use selectors::parser::{Combinator, Component, Selector};
-use selectors::SelectorImpl;
-use selectors::visitor::{SelectorListKind, SelectorVisitor};
-use crate::invalidation::{CombinatorKind, Dependency, InvalidationMap};
+use crate::invalidation::map::CombinatorKind;
+use crate::invalidation::{Dependency, InvalidationMap};
 use crate::pseudo_state::PseudoStateFlags;
 use crate::selector::CssSelectorImpl;
-
-
+use selectors::SelectorImpl;
+use selectors::attr::NamespaceConstraint;
+use selectors::parser::{Component, RelativeSelector, Selector};
+use selectors::visitor::{SelectorListKind, SelectorVisitor};
+use std::sync::Arc;
 
 /// "Which compound are we currently collecting features for?"
 struct CollectorContext {
     selector: Selector<CssSelectorImpl>,
     offset: usize,
     next: Option<Arc<Dependency>>,
+    relative: bool,
 }
 
 struct Collector<'a> {
@@ -21,14 +21,32 @@ struct Collector<'a> {
     ctx: CollectorContext,
     states: PseudoStateFlags,
 }
+fn contains_nth_of(selector: &Selector<CssSelectorImpl>, offset: usize) -> bool {
+    selector
+        .iter_from(offset)
+        .any(|c| matches!(c, Component::NthOf(_)))
+}
 
 impl Collector<'_> {
     fn dep(&self) -> Dependency {
+        let kind = if self.ctx.relative {
+            CombinatorKind::relative_at(&self.ctx.selector, self.ctx.offset)
+        } else {
+            CombinatorKind::from_selector_at(&self.ctx.selector, self.ctx.offset)
+        };
+        let offset = self.ctx.offset;
+        let selector = self.ctx.selector.clone();
+        let contains_nth_of = selector
+            .iter_from(offset)
+            .any(|c| matches!(c, Component::NthOf(_)));
+        let next = self.ctx.next.clone();
+
         Dependency {
-            selector: self.ctx.selector.clone(),   // Selector is Arc-backed, cheap
-            offset: self.ctx.offset,
-            next: self.ctx.next.clone(),
-            kind: CombinatorKind::from_selector_at(&self.ctx.selector, self.ctx.offset),
+            selector,
+            offset,
+            next,
+            contains_nth_of,
+            kind,
         }
     }
 
@@ -58,7 +76,12 @@ impl Collector<'_> {
                 // dependency, pointing back at the outer compound via `next`.
                 let mut sub = Collector {
                     map: &mut *self.map,
-                    ctx: CollectorContext { selector: inner.clone(), offset, next: Some(outer.clone()) },
+                    ctx: CollectorContext {
+                        selector: inner.clone(),
+                        offset,
+                        next: Some(outer.clone()),
+                        relative: false,
+                    },
                     states: PseudoStateFlags::empty(),
                 };
                 for c in &mut iter {
@@ -74,6 +97,35 @@ impl Collector<'_> {
             is_subject = false;
         }
     }
+
+    /// Walk the selector inside one `:has()` argument. Unlike `walk_nested`,
+    /// no compound is the same element as the outer one, so every compound
+    /// gets its own dependency that points back at the anchor via `next`.
+    fn walk_relative(&mut self, inner: &Selector<CssSelectorImpl>, outer: &Arc<Dependency>) {
+        let mut iter = inner.iter();
+        let mut offset = 0;
+        loop {
+            let mut sub = Collector {
+                map: &mut *self.map,
+                ctx: CollectorContext {
+                    selector: inner.clone(),
+                    offset,
+                    next: Some(outer.clone()),
+                    relative: true,
+                },
+                states: PseudoStateFlags::empty(),
+            };
+            for c in &mut iter {
+                offset += 1;
+                c.visit(&mut sub);
+            }
+            sub.flush_states();
+            match iter.next_sequence() {
+                Some(_) => offset += 1,
+                None => break,
+            }
+        }
+    }
 }
 
 impl SelectorVisitor for Collector<'_> {
@@ -86,10 +138,18 @@ impl SelectorVisitor for Collector<'_> {
         local_name_lower: &<CssSelectorImpl as SelectorImpl>::LocalName,
     ) -> bool {
         let d = self.dep();
-        self.map.by_attr.entry(local_name.0.clone()).or_default().push(d);
+        self.map
+            .by_attr
+            .entry(local_name.0.clone())
+            .or_default()
+            .push(d);
         if local_name.0 != local_name_lower.0 {
             let d = self.dep();
-            self.map.by_attr.entry(local_name_lower.0.clone()).or_default().push(d);
+            self.map
+                .by_attr
+                .entry(local_name_lower.0.clone())
+                .or_default()
+                .push(d);
         }
         true
     }
@@ -104,25 +164,31 @@ impl SelectorVisitor for Collector<'_> {
                 let d = self.dep();
                 self.map.by_id.entry(id.0.clone()).or_default().push(d);
             }
-            Component::NonTSPseudoClass(pc) => self.states |= pc.as_flags(),
+            Component::NonTSPseudoClass(pc) => self.states |= pc.0.into_single_flag(),
             _ => {} // type selectors, :first-child, etc. are not indexed
         }
         true
     }
 
-    fn visit_selector_list(&mut self, _kind: SelectorListKind, list: &[Selector<CssSelectorImpl>]) -> bool {
-        let outer = Arc::new(self.dep());       // the compound that contains the list
+    fn visit_selector_list(
+        &mut self,
+        _kind: SelectorListKind,
+        list: &[Selector<CssSelectorImpl>],
+    ) -> bool {
+        let outer = Arc::new(self.dep());
         for inner in list {
             self.walk_nested(inner, &outer);
         }
         true
     }
 
-    // TOOD: Support :has()
-    // fn visit_relative_selector_list(&mut self, _l: &[RelativeSelector<CssSelectorImpl>]) -> bool {
-    //     self.map.unsupported.push(self.ctx.selector.clone());
-    //     true
-    // }
+    fn visit_relative_selector_list(&mut self, list: &[RelativeSelector<CssSelectorImpl>]) -> bool {
+        let outer = Arc::new(self.dep());
+        for rel in list {
+            self.walk_relative(&rel.selector, &outer);
+        }
+        true
+    }
 }
 
 pub fn collect_dependencies(selector: &Selector<CssSelectorImpl>, map: &mut InvalidationMap) {
@@ -131,7 +197,12 @@ pub fn collect_dependencies(selector: &Selector<CssSelectorImpl>, map: &mut Inva
     loop {
         let mut collector = Collector {
             map: &mut *map,
-            ctx: CollectorContext { selector: selector.clone(), offset, next: None },
+            ctx: CollectorContext {
+                selector: selector.clone(),
+                offset,
+                next: None,
+                relative: false,
+            },
             states: PseudoStateFlags::empty(),
         };
         for component in &mut iter {

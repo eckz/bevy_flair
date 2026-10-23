@@ -1,6 +1,6 @@
 use cssparser::{
-    AtRuleParser, CowRcStr, ParseError, Parser, ParserState,
-    QualifiedRuleParser, StyleSheetParser, match_ignore_ascii_case,
+    AtRuleParser, CowRcStr, ParseError, Parser, ParserState, QualifiedRuleParser, StyleSheetParser,
+    match_ignore_ascii_case,
 };
 
 use crate::{CssError, CssParser, SpannedStr};

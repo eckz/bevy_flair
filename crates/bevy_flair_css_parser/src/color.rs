@@ -1,6 +1,7 @@
 mod relative;
 mod specific;
 
+use crate::CssParser;
 use crate::angle::convert_angle_dimension;
 use crate::calc::CalcConstants;
 use crate::color::relative::{looks_like_relative_color, parse_relative_color};
@@ -8,7 +9,6 @@ use crate::color::specific::parse_specific_color;
 use crate::{CalcOptions, CalcValue, CssError, parse_calc_with_options};
 use bevy_color::{Color, ColorToComponents, Laba, Lcha};
 use bevy_math::Vec4;
-use crate::CssParser;
 use cssparser_color::{AngleOrNumber, NumberOrPercentage};
 
 const BEVY_TO_CSS_LAB_CONVERSION: bevy_math::Vec4 = bevy_math::Vec4::new(100.0, 125.0, 125.0, 1.0);

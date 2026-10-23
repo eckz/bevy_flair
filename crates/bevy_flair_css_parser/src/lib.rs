@@ -14,7 +14,6 @@ pub use inline_styles::*;
 pub use loader::*;
 pub use reflect::*;
 pub use shorthand::*;
-use cssparser::{ParseErrorKind};
 use tracing::debug;
 
 pub use angle::{Angle, parse_angle};
@@ -22,9 +21,9 @@ pub use calc::{
     CalcOptions, CalcSumExpr, CalcValue, MathFunction, parse_calc, parse_calc_with_options,
 };
 pub use color::parse_color;
+pub use css_parser::CssParser;
 pub use duration::parse_duration;
 pub use utils::parse_property_value_with;
-pub use css_parser::CssParser;
 
 mod error;
 mod style_sheet_parser;
@@ -32,6 +31,7 @@ mod style_sheet_parser;
 mod angle;
 mod calc;
 mod color;
+mod css_parser;
 mod duration;
 mod error_codes;
 mod imports_parser;
@@ -40,10 +40,9 @@ mod internal_loader;
 mod loader;
 mod reflect;
 mod shorthand;
+mod spanned;
 mod utils;
 mod vars;
-mod css_parser;
-mod spanned;
 
 pub use spanned::{Spanned, SpannedStr};
 
@@ -96,7 +95,7 @@ pub(crate) mod test_utils {
     use crate::utils::{ImportantLevel, try_parse_important_level};
     use crate::{CssError, CssParser, ErrorReportGenerator};
     use bevy_flair_style::{VarResolver, VarTokens};
-    use cssparser::{ParseError};
+
     use std::assert_matches;
     use std::backtrace::BacktraceStatus;
     use std::sync::Arc;
@@ -194,10 +193,7 @@ pub(crate) mod test_utils {
     #[inline(always)]
     #[track_caller]
     #[allow(clippy::print_stderr)]
-    pub fn expects_parse_ok<T>(
-        contents: &str,
-        result: Result<T, CssError>,
-    ) -> T {
+    pub fn expects_parse_ok<T>(contents: &str, result: Result<T, CssError>) -> T {
         match result {
             Ok(value) => value,
             Err(error) => {

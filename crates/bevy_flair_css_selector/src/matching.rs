@@ -1,10 +1,9 @@
 use crate::bloom_filters::AncestorsBloomFilterBuilder;
 use crate::bucket::{OpaqueId, SelectorBuckets};
 use crate::context::SelectorMatchingCaches;
-use crate::element::ElementRef;
+use crate::element_impl::ElementDataRef;
 use crate::layers::LayersHierarchy;
 use crate::media_selector::MediaFeaturesProvider;
-use bevy_ecs::entity::Entity;
 use selectors::matching::matches_selector;
 use std::sync::Arc;
 
@@ -43,7 +42,7 @@ pub struct MatchGroup<'a> {
 }
 
 pub fn all_selector_matches<M: MediaFeaturesProvider>(
-    element: &ElementRef,
+    element: &ElementDataRef,
     media_features_provider: &M,
     groups: &[MatchGroup],
     caches: &mut SelectorMatchingCaches,
@@ -55,7 +54,7 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
     let mut result = Vec::new();
 
     for (group_index, group) in groups.iter().enumerate() {
-        for (css_selector, opaque_id) in group.selectors.candidates(element.data()) {
+        for (css_selector, opaque_id) in group.selectors.candidates(element.element_data()) {
             if !css_selector.matches_media_selector(media_features_provider) {
                 continue;
             }
@@ -102,9 +101,9 @@ mod tests {
     use crate::bloom_filters::AncestorsBloomFilterBuilder;
     use crate::bucket::SelectorBuckets;
     use crate::context::SelectorMatchingCaches;
-    use crate::element::{ElementRef, ElementRefSystemParam};
+    use crate::element_impl::ElementRefBuilder;
     use crate::layers::LayersHierarchy;
-    use crate::media_selector::{ColorScheme, MediaFeaturesProvider};
+
     use crate::selector::CssSelector;
     use crate::testing::element_data;
     use bevy_ecs::prelude::*;
@@ -164,26 +163,6 @@ mod tests {
         );
     }
 
-    struct NoMediaFeaturesProvider;
-
-    impl MediaFeaturesProvider for NoMediaFeaturesProvider {
-        fn get_color_scheme(&self) -> Option<ColorScheme> {
-            None
-        }
-
-        fn get_resolution(&self) -> Option<f32> {
-            None
-        }
-
-        fn get_viewport_width(&self) -> Option<u32> {
-            None
-        }
-
-        fn get_viewport_height(&self) -> Option<u32> {
-            None
-        }
-    }
-
     macro_rules! selectors {
         ($($selector:literal => $id:literal,)*) => {{
             let selectors = [$(($selector, $id)),*].into_iter().enumerate();
@@ -232,7 +211,7 @@ mod tests {
 
     fn matches_for_element(
         (In(element_entity), In(groups)): (In<Entity>, In<Vec<(SelectorBuckets, LayersHierarchy)>>),
-        ref_params: ElementRefSystemParam,
+        element_ref_builder: ElementRefBuilder,
         bloom_filter_builder: AncestorsBloomFilterBuilder,
     ) -> Vec<u64> {
         let mut caches = SelectorMatchingCaches::default();
@@ -244,10 +223,10 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let element = ElementRef::new(element_entity, &ref_params);
+        let element = element_ref_builder.new_data_ref(element_entity).unwrap();
         let result = all_selector_matches(
             &element,
-            &NoMediaFeaturesProvider,
+            &crate::testing::NoMediaFeaturesProvider,
             &match_groups,
             &mut caches,
             &bloom_filter_builder,

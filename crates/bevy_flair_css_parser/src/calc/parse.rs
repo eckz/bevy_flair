@@ -127,7 +127,7 @@ pub(crate) fn parse_calc_value(
         Token::Function(name) if name.eq_ignore_ascii_case("round") => {
             return parse_round_fn(parser, &ctx.as_non_top_level()).map(CalcValue::from_math);
         }
-        Token::Function(name) if is_ord_function(&name) => {
+        Token::Function(name) if is_ord_function(name) => {
             return parse_ord_fn(parser, &ctx.as_non_top_level()).map(CalcValue::from_math);
         }
         Token::Function(name)
@@ -188,7 +188,10 @@ pub(crate) fn parse_calc_value(
 }
 
 // Parses <calc-product> = <calc-value> [ [ '*' | / ] <calc-value> ]*
-fn parse_calc_product(parser: &mut CssParser, ctx: &CalcContext) -> Result<CalcProductExpr, CssError> {
+fn parse_calc_product(
+    parser: &mut CssParser,
+    ctx: &CalcContext,
+) -> Result<CalcProductExpr, CssError> {
     let first_value = parse_calc_value(parser, ctx)?;
     let mut operands = SmallVec::new();
     operands.push(ProductOp::Mul(first_value));
@@ -247,7 +250,10 @@ fn parse_ord_items(parser: &mut CssParser, ctx: &CalcContext) -> Result<OrderIte
     Ok(values)
 }
 
-fn parse_clamp_fn_inner(parser: &mut CssParser, ctx: &CalcContext) -> Result<MathFunction, CssError> {
+fn parse_clamp_fn_inner(
+    parser: &mut CssParser,
+    ctx: &CalcContext,
+) -> Result<MathFunction, CssError> {
     let min = parse_calc_sum(parser, ctx)?;
     parser.expect_comma()?;
     let value = parse_calc_sum(parser, ctx)?;
@@ -329,10 +335,10 @@ fn parse_calc_fn(parser: &mut CssParser, ctx: &CalcContext) -> Result<MathFuncti
 #[cfg(test)]
 mod tests {
     use super::{CalcContext, CalcValue, parse_calc_value};
+    use crate::CssError;
+    use crate::CssParser;
     use crate::calc::simplify::Simplifiable;
     use crate::test_utils::{parse_err_property_content_with, parse_property_content_with};
-    use crate::{CssError};
-    use crate::CssParser;
     use smol_str::SmolStr;
     use std::assert_matches;
 
@@ -349,9 +355,7 @@ mod tests {
 
     fn parse_calc_value_for_tests(parser: &mut CssParser) -> Result<CalcValue, CssError> {
         let ctx = CalcContext::default();
-        let mut result = parser.spanned(|parser| {
-            parse_calc_value(parser, &ctx) 
-        })?;
+        let mut result = parser.spanned(|parser| parse_calc_value(parser, &ctx))?;
 
         result.try_simplify().map_err(|calc_err| {
             CssError::new(

@@ -2,13 +2,12 @@ use crate::style_sheet_parser::{
     CssDeclaration, CssParserContext, CssRulesetBodyParser, CssStyleSheetItem,
     ParseAnimationProperties, collect_parser,
 };
-use crate::{error_codes, CssError, CssParser, SpannedStr};
+use crate::{CssError, CssParser, SpannedStr, error_codes};
 use cssparser::{
-    AtRuleParser, DeclarationParser, ParseError, Parser, ParserState,
-    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, Token,
+    AtRuleParser, DeclarationParser, ParseError, Parser, ParserState, QualifiedRuleParser,
+    RuleBodyItemParser, RuleBodyParser, Token,
 };
 use std::sync::Arc;
-
 
 #[derive(Clone, Debug)]
 pub(crate) enum ParserAnimationKeyFrame {
@@ -85,9 +84,7 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
         let mut parser = CssParser::from_parser(parser);
 
-        Ok(parser.parse_comma_separated(|parser| {
-            parse_keyframe(parser)
-        })?)
+        Ok(parser.parse_comma_separated(|parser| parse_keyframe(parser))?)
     }
 
     fn parse_block(

@@ -1,6 +1,6 @@
 use crate::reflect::parse_color;
 use crate::utils::{CombinedParse, parse_property_value_with};
-use crate::{error_codes, parse_angle, parse_val, CssError, CssParser, ReflectParseCss};
+use crate::{CssError, CssParser, ReflectParseCss, error_codes, parse_angle, parse_val};
 use bevy_flair_core::ReflectValue;
 use bevy_math::Rot2;
 use bevy_reflect::CreateTypeData;
@@ -58,10 +58,7 @@ fn parse_radial_gradient_shape(
         })
     }
 
-    if parser
-        .try_parse(parse_circle_or_ellipse_keyword)
-        .is_ok()
-    {
+    if parser.try_parse(parse_circle_or_ellipse_keyword).is_ok() {
         // From here we expect to find a gradient shape in one way or another
 
         if let Ok(shape) = parser.try_parse(parse_circle_or_ellipse) {

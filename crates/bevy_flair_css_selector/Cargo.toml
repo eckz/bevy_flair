@@ -22,13 +22,12 @@ dbg_macro = "warn"
 [dependencies]
 bitflags = "2.8"
 rustc-hash = "2.1"
-itertools = "0.15"
 smol_str = "0.2"
-smallvec = "1.16"
+smallvec = { version = "1.16", features = ["const_new"] }
 bevy_ecs = { workspace = true }
+# TODO, Add feature for this
 bevy_reflect = { workspace = true }
-bevy_text = { workspace = true }
-bevy_ui = { workspace = true }
+bevy_ui = { workspace = true, optional = true }
 
 tracing = "0.1"
 
@@ -36,5 +35,10 @@ cssparser = { workspace = true }
 selectors = { workspace = true }
 precomputed-hash = { version = "0.1" }
 
+[features]
+ghost_nodes = ["dep:bevy_ui", "bevy_ui/ghost_nodes"]
+detailed_trace = []
+
 [dev-dependencies]
+itertools = { version = "0.15" }
 rand = "0.10.3"

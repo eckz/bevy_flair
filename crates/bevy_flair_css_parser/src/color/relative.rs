@@ -8,7 +8,7 @@ use crate::{CssError, CssParser, SpannedStr};
 use bevy_color::*;
 
 use cssparser::color::{OPAQUE, PredefinedColorSpace, clamp_floor_256_f32, clamp_unit_f32};
-use cssparser::{Parser, match_ignore_ascii_case};
+use cssparser::match_ignore_ascii_case;
 use cssparser_color::NumberOrPercentage;
 
 pub(crate) fn looks_like_relative_color(parser: &mut CssParser) -> bool {
@@ -38,7 +38,10 @@ pub(crate) fn looks_like_relative_color(parser: &mut CssParser) -> bool {
 }
 
 #[inline]
-fn parse_alpha_component(parser: &mut CssParser, constants: CalcConstants) -> Result<f32, CssError> {
+fn parse_alpha_component(
+    parser: &mut CssParser,
+    constants: CalcConstants,
+) -> Result<f32, CssError> {
     Ok(super::parse_number_or_percentage(parser, constants)?
         .unit_value()
         .clamp(0.0, OPAQUE))

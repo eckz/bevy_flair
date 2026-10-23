@@ -1,19 +1,18 @@
+use crate::CssParser;
 use crate::calc::CalcValue;
 use crate::error::CssError;
 use crate::error_codes::ui as error_codes;
 use crate::reflect::enums::parse_enum_value;
 use crate::reflect::parse_color;
 use crate::utils::{parse_number, parse_property_value_with, try_parse_none};
-use crate::{Angle, MathFunction,  ReflectParseCss, parse_angle, parse_calc};
+use crate::{Angle, MathFunction, ReflectParseCss, parse_angle, parse_calc};
 use bevy_flair_core::{PropertyValue, ReflectValue};
 use bevy_math::{Rect, Rot2, Vec2};
 use bevy_reflect::CreateTypeData;
 use bevy_ui::{BoxShadow, CornerRadius, OverflowClipMargin, ShadowStyle, Val, Val2, ZIndex};
-use crate::CssParser;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 use thiserror::Error;
-
 
 /// Parses a number, but also accepts <number>px and interpret it as a number.
 pub fn parse_px(parser: &mut CssParser) -> Result<f32, CssError> {

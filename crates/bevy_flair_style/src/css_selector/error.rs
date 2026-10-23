@@ -30,7 +30,7 @@ impl From<cssparser::ParseError<SelectorParseErrorKind>> for SelectorError {
             ParseErrorKind::Basic(err) => SelectorErrorKind::Basic(err),
             ParseErrorKind::Custom(err) => SelectorErrorKind::Selector(err),
         };
-        Self { kind}
+        Self { kind }
     }
 }
 

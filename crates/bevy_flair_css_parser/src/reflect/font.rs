@@ -1,5 +1,8 @@
 use crate::calc::CalcValue;
-use crate::{error_codes, parse_angle, parse_calc, parse_calc_with_options, parse_property_value_with, CalcOptions, CssError, CssParser, ReflectParseCss};
+use crate::{
+    CalcOptions, CssError, CssParser, ReflectParseCss, error_codes, parse_angle, parse_calc,
+    parse_calc_with_options, parse_property_value_with,
+};
 use bevy_flair_style::placeholder::FontSourcePlaceholder;
 use bevy_reflect::CreateTypeData;
 use bevy_text::{
@@ -7,7 +10,7 @@ use bevy_text::{
     FontVariationTag, FontVariations, FontVariationsBuilder, FontWeight, FontWidth,
     GenericFontFamily,
 };
-use cssparser::{Parser, Token, match_ignore_ascii_case};
+use cssparser::{Token, match_ignore_ascii_case};
 
 pub fn parse_font_size(parser: &mut CssParser) -> Result<FontSize, CssError> {
     fn font_size_from_calc_value(calc_value: &CalcValue) -> Result<FontSize, String> {

@@ -1,14 +1,14 @@
 use crate::reflect::parse_color;
 use crate::reflect::ui::parse_px;
 use crate::utils::{parse_property_value_with, try_parse_none_with_value};
-use crate::{error_codes, CssError, CssParser, ReflectParseCss};
+use crate::{CssError, CssParser, ReflectParseCss, error_codes};
 use bevy_color::Color;
 use bevy_flair_core::ReflectValue;
 use bevy_math::Vec2;
 use bevy_reflect::CreateTypeData;
 use bevy_text::{LetterSpacing, LineHeight};
 use bevy_ui::widget::TextShadow;
-use cssparser::{Parser, Token, match_ignore_ascii_case};
+use cssparser::{Token, match_ignore_ascii_case};
 
 const NONE_TEXT_SHADOW: TextShadow = TextShadow {
     offset: Vec2::ZERO,
