@@ -139,8 +139,8 @@ impl LayersHierarchy {
     }
 }
 
-impl <'a> FromIterator<&'a str>  for LayersHierarchy {
-    fn from_iter<T: IntoIterator<Item=&'a str>>(iter: T) -> Self {
+impl<'a> FromIterator<&'a str> for LayersHierarchy {
+    fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
         let mut h = LayersHierarchy::new();
         for s in iter {
             h.define_layer(s);
@@ -178,13 +178,9 @@ mod tests {
     #[test]
     fn simple_layers() {
         let layers = LayersHierarchy::from_iter([
-        "first",
-        "second",
-        "last",
-
-        // These are repeated so they should be ignored
-        "first",
-        "second",
+            "first", "second", "last",
+            // These are repeated so they should be ignored
+            "first", "second",
         ]);
 
         assert_eq!(
@@ -298,11 +294,7 @@ mod tests {
         final_hierarchy.add_all_layers_from(&hierarchy_1);
         final_hierarchy.add_all_layers_from(&hierarchy_2);
 
-        let expected = vec![
-            "reset",
-            "base",
-            "components",
-        ];
+        let expected = vec!["reset", "base", "components"];
 
         assert_eq!(final_hierarchy.get_layers().collect::<Vec<_>>(), expected);
     }

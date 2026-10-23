@@ -18,8 +18,10 @@ impl SelectorMatchingCaches {
         entity: Entity,
         bloom_filter_builder: &AncestorsBloomFilterBuilder,
     ) -> MatchingContext<'_, CssSelectorImpl> {
-        let bloom_filter =
-            add_bloom_filter.then(|| self.bloom_filter_cache.get_or_build(entity, bloom_filter_builder));
+        let bloom_filter = add_bloom_filter.then(|| {
+            self.bloom_filter_cache
+                .get_or_build(entity, bloom_filter_builder)
+        });
         MatchingContext::new(
             MatchingMode::Normal,
             bloom_filter,

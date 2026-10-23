@@ -1,6 +1,9 @@
+use bevy_reflect::prelude::*;
+use cssparser::ToCss;
+use std::fmt;
+use std::fmt::Write;
 use std::ops::Deref;
 use std::sync::Arc;
-use bevy_reflect::prelude::*;
 use tracing::warn;
 
 /// A color scheme that represents `light` or `dark` themes.
@@ -178,5 +181,80 @@ impl MediaSelectors {
     }
 }
 
+impl ToCss for MediaSelector {
+    fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result {
+        fn fmt_range<W: Write, T: fmt::Display>(
+            f: &mut W,
+            feature: &str,
+            unit: &str,
+            range: &MediaRangeSelector<T>,
+        ) -> fmt::Result {
+            match range {
+                MediaRangeSelector::Exact(value) => {
+                    write!(f, "({feature}: {value}{unit})")
+                }
+                MediaRangeSelector::LessOrEqual(value) => {
+                    write!(f, "(max-{feature}: {value}{unit})")
+                }
+                MediaRangeSelector::GreaterOrEqual(value) => {
+                    write!(f, "(min-{feature}: {value}{unit})")
+                }
+            }
+        }
 
-// TODO: ToCss impl
+        match self {
+            Self::ColorScheme(scheme) => {
+                let scheme = match scheme {
+                    ColorScheme::Light => "light",
+                    ColorScheme::Dark => "dark",
+                };
+                write!(dest, "(prefers-color-scheme: {scheme})")
+            }
+            Self::ViewportWidth(range) => fmt_range(dest, "width", "px", range),
+            Self::ViewportHeight(range) => fmt_range(dest, "height", "px", range),
+            Self::AspectRatio(range) => fmt_range(dest, "aspect-ratio", "", range),
+            Self::Resolution(range) => fmt_range(dest, "resolution", "dppx", range),
+        }
+    }
+}
+
+impl ToCss for MediaSelectors {
+    fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result {
+        if self.0.is_empty() {
+            return dest.write_str("@media all");
+        }
+
+        dest.write_str("@media ")?;
+
+        for (index, selector) in self.0.iter().enumerate() {
+            if index > 0 {
+                dest.write_str(" and ")?;
+            }
+            selector.to_css(dest)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for MediaSelectors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        ToCss::to_css(self, f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ColorScheme, MediaSelector, MediaSelectors};
+
+    #[test]
+    fn formats_multiple_media_selectors() {
+        // Create MediaSelectors with a width and color-scheme selector.
+        // Assert the result is:
+        // "@media (min-width: 300px) and (prefers-color-scheme: dark)"
+        let ms: MediaSelectors = MediaSelector::ColorScheme(ColorScheme::Dark).into();
+
+        assert_eq!(MediaSelectors::default().to_string(), "@media all");
+        assert_eq!(ms.to_string(), "@media (prefers-color-scheme: dark)");
+    }
+}

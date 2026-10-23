@@ -1,16 +1,16 @@
-
-mod element;
+mod bloom_filters;
+mod bucket;
 mod components;
-mod custom_iterators;
+mod context;
+mod element_impl;
+mod invalidation;
+mod layers;
+mod matching;
 mod media_selector;
+mod parser_impl;
 mod pseudo_state;
 mod selector;
-mod parser;
-mod bucket;
-mod types;
+#[cfg(test)]
 mod testing;
-mod bloom_filters;
-mod context;
-mod matching;
-mod layers;
-mod invalidation;
+mod tree_iterator;
+mod types;

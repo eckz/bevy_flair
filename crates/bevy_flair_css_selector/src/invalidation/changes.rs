@@ -1,14 +1,14 @@
-use smallvec::SmallVec;
 use crate::components::ElementData;
 use crate::pseudo_state::PseudoStateFlags;
+use smallvec::SmallVec;
 
 /// What differs between the snapshot ("then") and the current data ("now").
 #[derive(Default)]
-pub(crate) struct ElementChanges<'a> {
-    pub(crate) classes: SmallVec<[&'a str; 4]>,   // added or removed
-    pub(crate) ids:     SmallVec<[&'a str; 2]>,   // old and/or new id
-    pub(crate) attrs:   SmallVec<[&'a str; 4]>,   // added, removed or value changed
-    pub(crate) state:   PseudoStateFlags,         // bits that flipped
+pub struct ElementChanges<'a> {
+    pub classes: SmallVec<[&'a str; 4]>, // added or removed
+    pub ids: SmallVec<[&'a str; 2]>,     // old and/or new id
+    pub attrs: SmallVec<[&'a str; 4]>,   // added, removed or value changed
+    pub state: PseudoStateFlags,         // bits that flipped
 }
 
 impl<'a> ElementChanges<'a> {
@@ -16,35 +16,123 @@ impl<'a> ElementChanges<'a> {
         let mut c = Self::default();
 
         // classes: symmetric difference
-        for cls in &now.classes  { if !then.classes.contains(cls) { c.classes.push(cls.as_str()); } }
-        for cls in &then.classes { if !now.classes.contains(cls)  { c.classes.push(cls.as_str()); } }
+        for cls in &now.classes {
+            if !then.classes.contains(cls) {
+                c.classes.push(cls.as_str());
+            }
+        }
+        for cls in &then.classes {
+            if !now.classes.contains(cls) {
+                c.classes.push(cls.as_str());
+            }
+        }
 
         // id: register both the old and the new value
         if then.id != now.id {
-            if let Some(id) = &then.id { c.ids.push(id.as_str()); }
-            if let Some(id) = &now.id  { c.ids.push(id.as_str()); }
+            if let Some(id) = &then.id {
+                c.ids.push(id.as_str());
+            }
+            if let Some(id) = &now.id {
+                c.ids.push(id.as_str());
+            }
         }
 
         // attributes: added, removed, or value changed
         for (k, v) in &now.attributes {
-            if then.attributes.get(k) != Some(v) { c.attrs.push(k.as_str()); }
+            if then.attributes.get(k) != Some(v) {
+                c.attrs.push(k.as_str());
+            }
         }
         for k in then.attributes.keys() {
-            if !now.attributes.contains_key(k) { c.attrs.push(k.as_str()); }
+            if !now.attributes.contains_key(k) {
+                c.attrs.push(k.as_str());
+            }
         }
         // `[class~=x]` / `[id=x]` selectors live in by_attr under "class"/"id",
         // but you store classes and id outside `attributes`:
-        if !c.classes.is_empty() { c.attrs.push("class"); }
-        if !c.ids.is_empty()     { c.attrs.push("id"); }
+        if !c.classes.is_empty() {
+            c.attrs.push("class");
+        }
+        if !c.ids.is_empty() {
+            c.attrs.push("id");
+        }
 
-        // state: XOR gives exactly the flags that flipped
-        // TODO
-        // c.state = then.pseudo_state.state_flags() ^ now.state_flags();
+        c.state = then.pseudo_state ^ now.pseudo_state;
         c
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.classes.is_empty() && self.ids.is_empty()
-            && self.attrs.is_empty() && self.state.is_empty()
+        self.classes.is_empty()
+            && self.ids.is_empty()
+            && self.attrs.is_empty()
+            && self.state.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::element_data;
+
+    /// An element with a bit of everything, to show that equal data gives no changes.
+    fn sample() -> ElementData {
+        element_data!(<a id = "main" class = "a b" href="/home" hover checked />)
+    }
+
+    fn changes<'a>(a: &'a ElementData, b: &'a ElementData) -> ElementChanges<'a> {
+        let mut changes = ElementChanges::diff(a, b);
+        // Sort for easier comparison
+        changes.attrs.sort_unstable();
+        changes.classes.sort_unstable();
+        changes
+    }
+
+    #[test]
+    fn no_changes() {
+        assert!(ElementChanges::default().is_empty());
+        assert!(changes(&element_data!(), &element_data!()).is_empty());
+        assert!(changes(&sample(), &sample()).is_empty());
+    }
+
+    fn changed_id() {
+        let then = element_data!(<div id = "old" />);
+        let now = element_data!(<div id = "new" />);
+        let changes = changes(&then, &now);
+
+        assert_eq!(&*changes.ids, ["old", "new"]);
+        assert_eq!(&*changes.attrs, ["id"]);
+    }
+
+    #[test]
+    fn added_class() {
+        let then = element_data!(<div class = "a" />);
+        let now = element_data!(<div class = "a b c d" />);
+        let changes = changes(&then, &now);
+
+        assert_eq!(&*changes.classes, &["b", "c", "d"]);
+        assert_eq!(&*changes.attrs, &["class"]);
+        assert!(changes.ids.is_empty());
+        assert!(changes.state.is_empty());
+        assert!(!changes.is_empty());
+    }
+
+    #[test]
+    fn attributes() {
+        let then = element_data!(<a href = "/home" title = "Hi" lang = "en" />);
+        let now = element_data!(<a href = "/home" title = "Hello" dir = "rtl" />);
+        let changes = changes(&then, &now);
+
+        assert_eq!(&*changes.attrs, &["dir", "lang", "title"]);
+    }
+
+    #[test]
+    fn flipped_state_bits() {
+        let then = element_data!(<input hover focus />);
+        let now = element_data!(<input hover checked />);
+
+        assert_eq!(
+            changes(&then, &now).state,
+            PseudoStateFlags::FOCUSED | PseudoStateFlags::CHECKED
+        );
     }
 }

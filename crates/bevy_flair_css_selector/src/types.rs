@@ -1,17 +1,16 @@
-use std::borrow::Borrow;
-use std::fmt::{Display, Formatter, Write};
-use std::hash::{BuildHasher};
-use std::ops::Deref;
 use rustc_hash::FxBuildHasher;
 use selectors::parser::PseudoElement;
 use smol_str::SmolStr;
+use std::borrow::Borrow;
+use std::fmt::{Display, Formatter, Write};
+use std::hash::BuildHasher;
+use std::ops::Deref;
 
 // TODO: what to do with these?
 //pub type IdName = std::borrow::Cow<'static, str>;
 //pub type ClassName = std::borrow::Cow<'static, str>;
 //pub type AttributeKey = std::borrow::Cow<'static, str>;
 //pub type AttributeValue = std::borrow::Cow<'static, str>;
-
 
 fn hash_32(value: &str) -> u32 {
     FxBuildHasher.hash_one(value) as u32
@@ -29,7 +28,7 @@ impl CssString {
     pub fn new_static(s: &'static str) -> Self {
         Self(SmolStr::new_static(s), hash_32(s))
     }
-    
+
     pub(crate) fn as_str(&self) -> &str {
         self.0.as_str()
     }
@@ -59,13 +58,13 @@ impl AsRef<[u8]> for CssString {
 
 impl AsRef<str> for CssString {
     fn as_ref(&self) -> &str {
-        &*self
+        self
     }
 }
 
 impl Borrow<str> for CssString {
     fn borrow(&self) -> &str {
-        &*self
+        self
     }
 }
 
@@ -83,13 +82,17 @@ impl PartialEq<str> for CssString {
     }
 }
 
+impl<'a, T: AsRef<str>> PartialEq<&'a T> for CssString {
+    fn eq(&self, other: &&'a T) -> bool {
+        self.0.as_str() == other.as_ref()
+    }
+}
 
 impl Display for CssString {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         <SmolStr as Display>::fmt(&self.0, f)
     }
 }
-
 
 impl cssparser::ToCss for CssString {
     fn to_css<W: Write>(&self, dest: &mut W) -> std::fmt::Result {
@@ -112,5 +115,4 @@ impl cssparser::ToCss for CssNever {
     }
 }
 
-impl PseudoElement for CssNever {
-}
+impl PseudoElement for CssNever {}

@@ -1031,7 +1031,6 @@ version = "0.9.0"
 dependencies = [
  "bevy_ecs",
  "bevy_reflect",
- "bevy_text",
  "bevy_ui",
  "bitflags 2.13.2",
  "cssparser",
@@ -3098,6 +3097,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi 6.0.0",
+ "rand_core",
 ]
 
 [[package]]

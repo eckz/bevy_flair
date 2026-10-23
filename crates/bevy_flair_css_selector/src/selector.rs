@@ -1,17 +1,14 @@
 use crate::media_selector::{MediaFeaturesProvider, MediaSelectors};
-use crate::parser::{CssSelectorParser};
+use crate::parser_impl::CssSelectorParser;
 use crate::pseudo_state::InternalPseudoStateSelector;
 
+use crate::types::{CssNever, CssString};
 use cssparser::ParseError;
-use selectors::context::{
-    MatchingContext, MatchingForInvalidation, MatchingMode, NeedsSelectorFlags, QuirksMode,
-    SelectorCaches,
-};
+use selectors::context::QuirksMode;
 use selectors::parser::{AncestorHashes, ParseRelative, Selector, SelectorParseErrorKind};
 use selectors::{SelectorImpl, SelectorList};
 use std::fmt::{Display, Formatter, Write};
 use std::sync::Arc;
-use crate::types::{CssNever, CssString};
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub(crate) struct CssSelectorImpl;
@@ -40,7 +37,6 @@ pub struct CssSelector {
     ancestor_hashes: AncestorHashes,
     // In the original file, where did this selector appeared?
     pub(crate) source_byte_offset: u32,
-
 }
 
 fn build_ancestor_hashes(selector: &Selector<CssSelectorImpl>) -> AncestorHashes {
@@ -55,7 +51,7 @@ impl CssSelector {
             layer: Arc::default(),
             media_selectors: MediaSelectors::empty(),
             ancestor_hashes,
-            source_byte_offset
+            source_byte_offset,
         }
     }
 
@@ -69,7 +65,12 @@ impl CssSelector {
         let css_selector_parser = CssSelectorParser {
             nested_selector: false,
         };
-        Self::parse_comma_separated_inner(parser, &css_selector_parser, ParseRelative::No, source_byte_offset)
+        Self::parse_comma_separated_inner(
+            parser,
+            &css_selector_parser,
+            ParseRelative::No,
+            source_byte_offset,
+        )
     }
 
     /// Parse a comma-separated list of Selectors when is a nested selector.
@@ -83,7 +84,12 @@ impl CssSelector {
         let css_selector_parser = CssSelectorParser {
             nested_selector: true,
         };
-        Self::parse_comma_separated_inner(parser, &css_selector_parser, ParseRelative::ForNesting, source_byte_offset)
+        Self::parse_comma_separated_inner(
+            parser,
+            &css_selector_parser,
+            ParseRelative::ForNesting,
+            source_byte_offset,
+        )
     }
 
     fn parse_comma_separated_inner<'a>(
@@ -103,7 +109,10 @@ impl CssSelector {
     }
 
     /// Parse a single selector from a string
-    pub fn parse_single(selector: &str, source_byte_offset: u32) -> Result<Self, ParseError<SelectorParseErrorKind>> {
+    pub fn parse_single(
+        selector: &str,
+        source_byte_offset: u32,
+    ) -> Result<Self, ParseError<SelectorParseErrorKind>> {
         let mut parser = cssparser::Parser::new(selector);
 
         let css_selector_parser = CssSelectorParser {
@@ -115,7 +124,10 @@ impl CssSelector {
     }
 
     /// Parse a single selector from a string when the selector can be a nested selector.
-    pub fn parse_single_for_nested(selector: &str, source_byte_offset: u32) -> Result<Self, ParseError<SelectorParseErrorKind>> {
+    pub fn parse_single_for_nested(
+        selector: &str,
+        source_byte_offset: u32,
+    ) -> Result<Self, ParseError<SelectorParseErrorKind>> {
         let mut parser = cssparser::Parser::new(selector);
 
         let css_selector_parser = CssSelectorParser {
@@ -250,7 +262,7 @@ impl CssSelector {
             format!("{parent_layer}.{}", self.layer).into()
         };
 
-        let media_selectors = parent_media_selectors.merge_with(self.media_selectors)  ;
+        let media_selectors = parent_media_selectors.merge_with(self.media_selectors);
 
         Self {
             layer,
@@ -268,7 +280,6 @@ impl CssSelector {
     pub(crate) fn specificity(&self) -> u32 {
         self.selector.specificity()
     }
-
 }
 
 impl cssparser::ToCss for CssSelector {
