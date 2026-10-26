@@ -134,8 +134,9 @@ mod tests {
     use super::{StructuralChange, mark_dirty_from_structural_change};
     use crate::bloom_filters::AncestorsBloomFilterBuilder;
     use crate::bucket::SelectorBuckets;
-    use crate::components::{ElementData, ElementFlags};
     use crate::context::SelectorMatchingCaches;
+    use crate::element_data::ElementData;
+    use crate::element_flags::ElementFlags;
     use crate::element_impl::ElementRefBuilder;
     use crate::layers::LayersHierarchy;
     use crate::matching::{MatchGroup, all_selector_matches};
@@ -144,7 +145,6 @@ mod tests {
     use bevy_ecs::prelude::*;
     use bevy_ecs::system::RunSystemOnce;
     // I generally don't like doing things like this, but for this case it improves the readability a lot
-
     use selectors::matching::ElementSelectorFlags as F;
 
     fn extract_dirty_by_flags(

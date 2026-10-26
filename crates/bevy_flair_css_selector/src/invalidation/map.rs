@@ -108,7 +108,11 @@ impl InvalidationMap {
         map
     }
 
-    pub(crate) fn collect<'a>(&'a self, ch: &ElementChanges<'_>, out: &mut Vec<&'a Dependency>) {
+    pub(crate) fn collect_dependencies<'a>(
+        &'a self,
+        ch: &ElementChanges<'_>,
+        out: &mut Vec<&'a Dependency>,
+    ) {
         for c in &ch.classes {
             if let Some(d) = self.by_class.get(*c) {
                 out.extend(d);
@@ -134,13 +138,10 @@ impl InvalidationMap {
         }
     }
 
-    pub(crate) fn dependencies_for_change<'a>(
-        &'a self,
-        changes: &ElementChanges,
-    ) -> Vec<&'a Dependency> {
+    pub fn dependencies_for_change<'a>(&'a self, changes: &ElementChanges) -> Vec<&'a Dependency> {
         let mut out = Vec::new();
         if !changes.is_empty() {
-            self.collect(changes, &mut out);
+            self.collect_dependencies(changes, &mut out);
         }
         out
     }
@@ -149,7 +150,7 @@ impl InvalidationMap {
 #[cfg(test)]
 mod tests {
     use super::{CombinatorKind, Dependency, InvalidationMap};
-    use crate::components::ElementData;
+    use crate::element_data::ElementData;
     use crate::invalidation::changes::ElementChanges;
     use crate::selector::CssSelector;
     use crate::testing::element_data;

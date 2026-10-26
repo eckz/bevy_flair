@@ -1,30 +1,25 @@
-use crate::components::ElementData;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
-#[cfg(feature = "ghost_nodes")]
-use bevy_ui::experimental::GhostNode;
 use std::collections::VecDeque;
-
-#[cfg(feature = "ghost_nodes")]
-compile_error!("Ghost nodes not fully supported yet");
 
 /// Utility class for iterating over root entities.
 ///
 /// Uses [`UiRootNodes`] internally, so it will skip over any ghost nodes when traversing the hierarchy.
 #[derive(SystemParam)]
-pub struct TreeRoots<'w, 's> {
-    roots_query: Query<'w, 's, Entity, (With<ElementData>, Without<ChildOf>)>,
-    // #[cfg(feature = "ghost_nodes")]
-    // ui_roots: bevy_ui::experimental::UiRootNodes<'w, 's>,
+pub struct ElementTreeRoots<'w, 's> {
+    #[cfg(not(feature = "ghost_elements"))]
+    roots_query: Query<'w, 's, Entity, (With<crate::element_data::ElementData>, Without<ChildOf>)>,
+    #[cfg(feature = "ghost_elements")]
+    ghost_roots: crate::ghost_element::GhostElementsRoots<'w, 's>,
 }
 
-impl<'w, 's> TreeRoots<'w, 's> {
-    pub fn contains(&self, entity: Entity) -> bool {
+impl<'w, 's> ElementTreeRoots<'w, 's> {
+    pub fn iter_roots(&self) -> impl Iterator<Item = Entity> {
         cfg_select! {
-            feature = "ghost_nodes" => {
-                todo!("ghost_nodes");
+            feature = "ghost_elements" => {
+                self.ghost_roots.iter_roots()
             },
-            _ => self.roots_query.contains(entity)
+            _ => self.roots_query.iter()
         }
     }
 }
@@ -33,72 +28,37 @@ impl<'w, 's> TreeRoots<'w, 's> {
 ///
 /// Uses [`UiChildren`] internally, so it will skip over any ghost nodes when traversing the hierarchy.
 #[derive(SystemParam)]
-pub struct TreeIterators<'w, 's> {
-    #[cfg(not(feature = "ghost_nodes"))]
-    children_query: Query<'w, 's, &'static Children, With<ElementData>>,
-    #[cfg(feature = "ghost_nodes")]
-    children_query: Query<
-        'w,
-        's,
-        (Option<&'static Children>, Has<GhostNode>),
-        Or<(With<ElementData>, With<GhostNode>)>,
-    >,
-    #[cfg(feature = "ghost_nodes")]
-    ghost_nodes_query: Query<'w, 's, Entity, With<GhostNode>>,
-    child_of_query: Query<'w, 's, &'static ChildOf, With<ElementData>>,
+pub struct ElementTreeIterators<'w, 's> {
+    #[cfg(not(feature = "ghost_elements"))]
+    children_query: Query<'w, 's, &'static Children, With<crate::element_data::ElementData>>,
+    #[cfg(not(feature = "ghost_elements"))]
+    child_of_query: Query<'w, 's, &'static ChildOf, With<crate::element_data::ElementData>>,
+    #[cfg(feature = "ghost_elements")]
+    ghost_children: crate::ghost_element::GhostElementChildren<'w, 's>,
 }
 
-#[cfg(feature = "ghost_nodes")]
-pub struct ChildrenIter<'w, 's> {
-    stack: SmallVec<[Entity; 8]>,
-    query: &'s Query<
-        'w,
-        's,
-        (Option<&'static Children>, Has<GhostNode>),
-        Or<(With<ElementData>, With<GhostNode>)>,
-    >,
-}
-
-#[cfg(feature = "ghost_nodes")]
-impl<'w, 's> Iterator for ChildrenIter<'w, 's> {
-    type Item = Entity;
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let entity = self.stack.pop()?;
-            if let Ok((children, has_ghost_node)) = self.query.get(entity) {
-                if !has_ghost_node {
-                    return Some(entity);
-                }
-                if let Some(children) = children {
-                    self.stack.extend(children.iter().rev());
-                }
+impl<'w, 's> ElementTreeIterators<'w, 's> {
+    /// Iterates the children of `entity`.
+    pub fn iter_children(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
+        cfg_select! {
+            feature = "ghost_elements" => {
+                self.ghost_children.iter_children(entity)
+            },
+            _ => {
+                self.children_query
+                    .get(entity)
+                    .ok()
+                    .into_iter()
+                    .flat_map(|children| children.into_iter().copied())
             }
         }
-    }
-}
-
-impl<'w, 's> TreeIterators<'w, 's> {
-    /// Returns an iterator over the direct children of the given entity.
-    pub fn iter_children(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
-        self.children_query
-            .get(entity)
-            .ok()
-            .into_iter()
-            .flat_map(|children| children.into_iter().copied())
     }
 
     /// Returns the parent entity of the given entity, or [`None`] if it has no parent.
     pub fn get_parent(&self, entity: Entity) -> Option<Entity> {
         cfg_select! {
-            feature = "ghost_nodes" => {
-                if self.ui_children.is_ui_node(entity) {
-                    self.ui_children.get_parent(entity)
-                } else {
-                    self.child_of_query
-                        .get(entity)
-                        .ok()
-                        .map(|child_of| child_of.0)
-                }
+            feature = "ghost_elements" => {
+                self.ghost_children.get_parent(entity)
             }
             _ => {
                 self.child_of_query
@@ -110,7 +70,7 @@ impl<'w, 's> TreeIterators<'w, 's> {
     }
 
     /// Returns a breadth-first iterator over descendants with their direct parent.
-    pub(crate) fn iter_descendants_with_parent(
+    pub fn iter_descendants_with_parent(
         &'s self,
         entity: Entity,
     ) -> ElementDescendantWithParentIter<'w, 's> {
@@ -118,9 +78,8 @@ impl<'w, 's> TreeIterators<'w, 's> {
     }
 
     /// Returns a breadth-first iterator over all descendants of the given entity.
-    pub fn iter_descendants(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
-        self.iter_descendants_with_parent(entity)
-            .map(|(_, entity)| entity)
+    pub fn iter_descendants(&'s self, entity: Entity) -> ElementDescendantIter<'w, 's> {
+        ElementDescendantIter::new(self, entity)
     }
 
     /// Returns an iterator over the siblings of the given entity.
@@ -179,17 +138,17 @@ impl<'w, 's> TreeIterators<'w, 's> {
     }
 }
 
-/// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
+/// An [`Iterator`] of [`Entity`]s and their corresponding parent, over the descendants of an [`Entity`].
 ///
 /// Traverses the hierarchy Breadth-first.
-pub(crate) struct ElementDescendantWithParentIter<'w, 's> {
-    iterators: &'w TreeIterators<'w, 's>,
+pub struct ElementDescendantWithParentIter<'w, 's> {
+    iterators: &'w ElementTreeIterators<'w, 's>,
     vecdeque: VecDeque<(Entity, Entity)>,
 }
 
 impl<'w, 's> ElementDescendantWithParentIter<'w, 's> {
     /// Returns a new [`ElementDescendantWithParentIter`].
-    pub fn new(iterators: &'w TreeIterators<'w, 's>, entity: Entity) -> Self {
+    pub fn new(iterators: &'w ElementTreeIterators<'w, 's>, entity: Entity) -> Self {
         ElementDescendantWithParentIter {
             iterators,
             vecdeque: iterators
@@ -216,15 +175,45 @@ impl<'w, 's> Iterator for ElementDescendantWithParentIter<'w, 's> {
     }
 }
 
+/// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
+///
+/// Traverses the hierarchy Breadth-first.
+pub struct ElementDescendantIter<'w, 's> {
+    iterators: &'s ElementTreeIterators<'w, 's>,
+    vecdeque: VecDeque<Entity>,
+}
+
+impl<'w, 's> ElementDescendantIter<'w, 's> {
+    /// Returns a new [`ElementDescendantIter`].
+    pub fn new(iterators: &'s ElementTreeIterators<'w, 's>, entity: Entity) -> Self {
+        ElementDescendantIter {
+            iterators,
+            vecdeque: iterators.iter_children(entity).collect(),
+        }
+    }
+}
+
+impl<'w, 's> Iterator for ElementDescendantIter<'w, 's> {
+    type Item = Entity;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entity = self.vecdeque.pop_front()?;
+
+        self.vecdeque.extend(self.iterators.iter_children(entity));
+
+        Some(entity)
+    }
+}
+
 /// An [`Iterator`] of [`Entity`]s over the ancestors of an [`Entity`].
-pub(crate) struct ElementAncestorsIter<'w, 's> {
-    iterators: &'w TreeIterators<'w, 's>,
+pub struct ElementAncestorsIter<'w, 's> {
+    iterators: &'s ElementTreeIterators<'w, 's>,
     next: Option<Entity>,
 }
 
 impl<'w, 's> ElementAncestorsIter<'w, 's> {
     /// Returns a new [`ElementAncestorsIter`].
-    pub fn new(iterators: &'w TreeIterators<'w, 's>, entity: Entity) -> Self {
+    pub fn new(iterators: &'s ElementTreeIterators<'w, 's>, entity: Entity) -> Self {
         ElementAncestorsIter {
             iterators,
             next: Some(entity),
@@ -243,10 +232,119 @@ impl<'w, 's> Iterator for ElementAncestorsIter<'w, 's> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TreeIterators, TreeRoots};
+    use super::{ElementTreeIterators, ElementTreeRoots};
+    #[cfg(feature = "ghost_elements")]
+    use crate::ghost_element::GhostElement;
     use crate::testing::{WorldTestingExt, element_data};
     use bevy_ecs::prelude::*;
     use bevy_ecs::system::SystemState;
+
+    fn sorted<E: Ord>(v: impl IntoIterator<Item = E>) -> Vec<E> {
+        let mut v: Vec<E> = v.into_iter().collect();
+        v.sort_unstable();
+        v
+    }
+
+    fn to_vec<E>(v: impl IntoIterator<Item = E>) -> Vec<E> {
+        v.into_iter().collect()
+    }
+
+    #[track_caller]
+    fn assert_hierarchy(world: &mut World) {
+        let root = world.find_by_id("root");
+        let root_2 = world.find_by_id("root_2");
+        let root_3 = world.find_by_id("root_3");
+        let parent = world.find_by_id("parent");
+        let c1 = world.find_by_id("c1");
+        let c2 = world.find_by_id("c2");
+        let c3 = world.find_by_id("c3");
+
+        let mut state = SystemState::<(ElementTreeRoots, ElementTreeIterators)>::new(world);
+        let (roots, it) = state.get(world).unwrap();
+
+        assert_eq!(
+            sorted(roots.iter_roots()),
+            sorted(vec![root, root_2, root_3]),
+            "iter_roots()"
+        );
+
+        assert_eq!(
+            to_vec(it.iter_children(root)),
+            &[parent],
+            "iter_children(root)"
+        );
+        assert_eq!(
+            to_vec(it.iter_children(parent)),
+            &[c1, c2, c3],
+            "iter_children(parent)"
+        );
+        assert_eq!(to_vec(it.iter_children(c1)), &[], "iter_children(c1)");
+        assert_eq!(
+            to_vec(it.iter_ancestors(c1)),
+            &[parent, root],
+            "iter_ancestors(c1)"
+        );
+        assert_eq!(
+            to_vec(it.iter_ancestors(root_2)),
+            &[],
+            "iter_ancestors(root_2)"
+        );
+        assert_eq!(
+            to_vec(it.iter_descendants(root)),
+            &[parent, c1, c2, c3],
+            "iter_descendants(root)"
+        );
+        assert_eq!(
+            to_vec(it.iter_descendants(parent)),
+            &[c1, c2, c3],
+            "iter_descendants(parent)"
+        );
+        assert_eq!(it.next_sibling(root), None, "next_sibling(root)");
+        assert_eq!(it.next_sibling(root_2), None, "next_sibling(root_2)");
+        assert_eq!(it.next_sibling(root_3), None, "next_sibling(root_3)");
+        assert_eq!(it.next_sibling(parent), None, "next_sibling(parent)");
+        assert_eq!(it.next_sibling(c1), Some(c2), "next_sibling(c1)");
+        assert_eq!(it.next_sibling(c2), Some(c3), "next_sibling(c2)");
+        assert_eq!(it.next_sibling(c3), None, "next_sibling(c3)");
+        assert_eq!(it.prev_sibling(c1), None, "prev_sibling(c1)");
+        assert_eq!(it.prev_sibling(c2), Some(c1), "prev_sibling(c2)");
+        assert_eq!(it.prev_sibling(c3), Some(c2), "prev_sibling(c3)");
+        assert_eq!(
+            to_vec(it.iter_siblings(c1)),
+            &[c1, c2, c3],
+            "iter_siblings(c1)"
+        );
+        assert_eq!(
+            to_vec(it.iter_next_siblings(c1)),
+            &[c2, c3],
+            "iter_next_siblings(c1)"
+        );
+        assert_eq!(
+            to_vec(it.iter_prev_siblings(c1)),
+            &[],
+            "iter_prev_siblings(c1)"
+        );
+        assert_eq!(
+            to_vec(it.iter_next_siblings(c2)),
+            &[c3],
+            "iter_next_siblings(c2)"
+        );
+        assert_eq!(
+            to_vec(it.iter_prev_siblings(c2)),
+            &[c1],
+            "iter_prev_siblings(c2)"
+        );
+        assert_eq!(
+            to_vec(it.iter_next_siblings(c3)),
+            &[],
+            "iter_next_siblings(c3)"
+        );
+        assert_eq!(
+            to_vec(it.iter_prev_siblings(c3)),
+            &[c1, c2],
+            "iter_prev_siblings(c3)"
+        );
+    }
 
     #[test]
     fn iterators() {
@@ -265,45 +363,38 @@ mod tests {
             ),],
         ));
 
-        let root = world.find_by_id("root");
-        let parent = world.find_by_id("parent");
-        let c1 = world.find_by_id("c1");
-        let c2 = world.find_by_id("c2");
-        let c3 = world.find_by_id("c3");
+        world.spawn(element_data!(id = "root_2"));
+        world.spawn(element_data!(id = "root_3"));
 
-        let mut roots_state = SystemState::<TreeRoots>::new(world);
-        let mut iterators_state = SystemState::<TreeIterators>::new(world);
+        assert_hierarchy(world);
+    }
 
-        let roots = roots_state.get(world).unwrap();
-        let it = iterators_state.get(world).unwrap();
+    #[cfg(feature = "ghost_elements")]
+    #[test]
+    fn ghost_elements() {
+        let mut world = World::new();
 
-        assert!(roots.contains(root));
-        assert!(!roots.contains(parent));
-        assert!(!roots.contains(c1));
-        assert!(!roots.contains(c2));
-        assert!(!roots.contains(c3));
+        world.spawn((
+            element_data!(id = "root"),
+            children![(
+                element_data!(id = "parent"),
+                children![
+                    (element_data!(<div id="c1" />),),
+                    (GhostElement,),
+                    (GhostElement, children![(element_data!(<div id="c2" />),)]),
+                    (element_data!(<div id="c3" />),),
+                ],
+            ),],
+        ));
 
-        assert_eq!(it.iter_children(root).collect::<Vec<_>>(), &[parent]);
-        assert_eq!(it.iter_children(parent).collect::<Vec<_>>(), &[c1, c2, c3]);
-        assert_eq!(it.iter_children(c1).collect::<Vec<_>>(), &[]);
-        assert_eq!(it.iter_ancestors(c1).collect::<Vec<_>>(), &[parent, root]);
-        assert_eq!(
-            it.iter_descendants(root).collect::<Vec<_>>(),
-            &[parent, c1, c2, c3]
-        );
-        assert_eq!(it.next_sibling(parent), None);
-        assert_eq!(it.next_sibling(c1), Some(c2));
-        assert_eq!(it.next_sibling(c2), Some(c3));
-        assert_eq!(it.next_sibling(c3), None);
-        assert_eq!(it.prev_sibling(c1), None);
-        assert_eq!(it.prev_sibling(c2), Some(c1));
-        assert_eq!(it.prev_sibling(c3), Some(c2));
-        assert_eq!(it.iter_siblings(c1).collect::<Vec<_>>(), &[c1, c2, c3]);
-        assert_eq!(it.iter_next_siblings(c1).collect::<Vec<_>>(), &[c2, c3]);
-        assert_eq!(it.iter_prev_siblings(c1).collect::<Vec<_>>(), &[]);
-        assert_eq!(it.iter_next_siblings(c2).collect::<Vec<_>>(), &[c3]);
-        assert_eq!(it.iter_prev_siblings(c2).collect::<Vec<_>>(), &[c1]);
-        assert_eq!(it.iter_next_siblings(c3).collect::<Vec<_>>(), &[]);
-        assert_eq!(it.iter_prev_siblings(c3).collect::<Vec<_>>(), &[c1, c2]);
+        world.spawn((
+            GhostElement,
+            children![
+                (element_data!(id = "root_2"),),
+                (element_data!(id = "root_3"),)
+            ],
+        ));
+
+        assert_hierarchy(&mut world);
     }
 }

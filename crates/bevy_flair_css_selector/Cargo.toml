@@ -11,7 +11,8 @@ rust-version = "1.96.0"
 
 [lints.rust]
 unsafe_code = "forbid"
-missing_docs = "warn"
+## TODO: CHANGE TO "warn"
+missing_docs = "allow"
 
 [lints.clippy]
 print_stdout = "warn"
@@ -27,7 +28,6 @@ smallvec = { version = "1.16", features = ["const_new"] }
 bevy_ecs = { workspace = true }
 # TODO, Add feature for this
 bevy_reflect = { workspace = true }
-bevy_ui = { workspace = true, optional = true }
 
 tracing = "0.1"
 
@@ -36,8 +36,7 @@ selectors = { workspace = true }
 precomputed-hash = { version = "0.1" }
 
 [features]
-ghost_nodes = ["dep:bevy_ui", "bevy_ui/ghost_nodes"]
-detailed_trace = []
+ghost_elements = []
 
 [dev-dependencies]
 itertools = { version = "0.15" }

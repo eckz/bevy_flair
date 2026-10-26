@@ -1,5 +1,5 @@
-use crate::components::ElementData;
-use crate::tree_iterator::TreeIterators;
+use crate::element_data::ElementData;
+use crate::tree_iterator::ElementTreeIterators;
 use bevy_ecs::entity::{Entity, EntityHashMap};
 use bevy_ecs::prelude::Query;
 use bevy_ecs::system::SystemParam;
@@ -8,7 +8,7 @@ use selectors::bloom::{BLOOM_HASH_MASK, BloomFilter};
 #[derive(SystemParam)]
 pub(crate) struct AncestorsBloomFilterBuilder<'w, 's> {
     element_query: Query<'w, 's, &'static ElementData>,
-    children: TreeIterators<'w, 's>,
+    children: ElementTreeIterators<'w, 's>,
 }
 
 impl AncestorsBloomFilterBuilder<'_, '_> {

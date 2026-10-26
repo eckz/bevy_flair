@@ -241,8 +241,8 @@ pub fn invalidate_entities_from_dependency<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::components::ElementData;
     use crate::context::SelectorMatchingCaches;
+    use crate::element_data::ElementData;
     use crate::element_impl::ElementRefBuilder;
     use crate::invalidation::{ElementChanges, InvalidationMap};
     use crate::selector::CssSelector;

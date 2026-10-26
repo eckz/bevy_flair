@@ -1,4 +1,4 @@
-use crate::components::ElementData;
+use crate::element_data::ElementData;
 use crate::selector::CssSelector;
 use crate::types::CssString;
 use rustc_hash::FxHashMap;
@@ -31,7 +31,7 @@ impl CssSelectorWithOpaqueId {
 /// Buckets selectors by rightmost class/id/tag so matching only tests selectors that could
 /// plausibly match a given element, instead of every selector in the style sheet.
 #[derive(Debug, Clone, Default)]
-pub(super) struct SelectorBuckets {
+pub struct SelectorBuckets {
     universal: Vec<CssSelectorWithOpaqueId>,
     is_root: Vec<CssSelectorWithOpaqueId>,
     by_id: FxHashMap<SmolStr, Vec<CssSelectorWithOpaqueId>>,
