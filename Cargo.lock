@@ -1031,7 +1031,6 @@ version = "0.9.0"
 dependencies = [
  "bevy_ecs",
  "bevy_reflect",
- "bevy_ui",
  "bitflags 2.13.2",
  "cssparser",
  "itertools 0.15.0",

@@ -21,11 +21,6 @@ struct Collector<'a> {
     ctx: CollectorContext,
     states: PseudoStateFlags,
 }
-fn contains_nth_of(selector: &Selector<CssSelectorImpl>, offset: usize) -> bool {
-    selector
-        .iter_from(offset)
-        .any(|c| matches!(c, Component::NthOf(_)))
-}
 
 impl Collector<'_> {
     fn dep(&self) -> Dependency {

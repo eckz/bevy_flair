@@ -43,7 +43,7 @@ impl<'a> ParsedLayer<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LayersHierarchy {
+pub struct LayersHierarchy {
     inner: Vec<Arc<str>>,
 }
 

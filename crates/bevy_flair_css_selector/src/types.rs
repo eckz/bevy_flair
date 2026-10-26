@@ -25,6 +25,7 @@ impl CssString {
         Self(SmolStr::new(s), hash_32(s))
     }
 
+    #[cfg(test)]
     pub fn new_static(s: &'static str) -> Self {
         Self(SmolStr::new_static(s), hash_32(s))
     }

@@ -48,7 +48,7 @@ where
 ///
 /// Types implementing this trait can provide information about color scheme,
 /// screen resolution, viewport dimensions, and aspect ratio.
-pub(crate) trait MediaFeaturesProvider {
+pub trait MediaFeaturesProvider {
     /// Returns the current color scheme.
     fn get_color_scheme(&self) -> Option<ColorScheme>;
 

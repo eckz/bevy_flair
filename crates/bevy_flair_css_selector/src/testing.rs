@@ -1,4 +1,4 @@
-use crate::components::{ElementData, ElementDataSnapshot};
+use crate::element_data::{ElementData, ElementDataSnapshot};
 use crate::media_selector::{ColorScheme, MediaFeaturesProvider};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::name::Name;
@@ -179,14 +179,14 @@ macro_rules! element_data {
         ));
     };
     (< $type_name:ident $($rest:tt)*) => {{
-        let mut entity = crate::components::ElementData::default();
+        let mut entity = crate::element_data::ElementData::default();
         entity.type_name = Some(crate::types::CssString::new_static(stringify!($type_name)));
         element_data!(@attrs (&mut entity) $($rest)*);
         entity
     }};
     ($($rest:tt)*) => {{
         #[allow(unused_mut)]
-        let mut element = crate::components::ElementData::default();
+        let mut element = crate::element_data::ElementData::default();
         element_data!(@attrs (&mut element) $($rest)*);
         element
     }};

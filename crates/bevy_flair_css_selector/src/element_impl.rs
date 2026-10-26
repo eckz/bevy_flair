@@ -2,11 +2,12 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 use std::assert_matches;
 
-use crate::components::{ElementData, ElementDataSnapshot, ElementFlags};
+use crate::element_data::{ElementData, ElementDataSnapshot};
 
+use crate::element_flags::ElementFlags;
 use crate::pseudo_state::InternalPseudoStateSelector;
 use crate::selector::CssSelectorImpl;
-use crate::tree_iterator::TreeIterators;
+use crate::tree_iterator::ElementTreeIterators;
 use crate::types::{CssNever, CssString};
 use selectors::attr::CaseSensitivity;
 use selectors::bloom::BLOOM_HASH_MASK;
@@ -23,11 +24,12 @@ pub(crate) trait ElementRefType:
 impl<T> ElementRefType for T where T: sealed::ElementRefTypeSealed + fmt::Debug + Send + 'static {}
 
 mod sealed {
-    use crate::components::{ElementData, ElementDataSnapshot, ElementFlags};
+    use crate::element_data::{ElementData, ElementDataSnapshot};
+    use crate::element_flags::ElementFlags;
     use crate::element_impl::ElementRefBuilder;
     use bevy_ecs::entity::Entity;
 
-    pub(super) trait ElementRefTypeSealed {
+    pub(crate) trait ElementRefTypeSealed {
         type DataRef<'a>: Copy + std::fmt::Debug;
 
         fn get_element_data<'a>(data_ref: &Self::DataRef<'a>) -> &'a ElementData;
@@ -338,7 +340,7 @@ where
 pub struct ElementRefBuilder<'w, 's> {
     element_and_flags_query: Query<'w, 's, (&'static ElementData, &'static ElementFlags)>,
     snapshot_query: Query<'w, 's, &'static ElementDataSnapshot>,
-    pub(crate) iterators: TreeIterators<'w, 's>,
+    pub(crate) iterators: ElementTreeIterators<'w, 's>,
 }
 
 impl fmt::Debug for ElementRefBuilder<'_, '_> {

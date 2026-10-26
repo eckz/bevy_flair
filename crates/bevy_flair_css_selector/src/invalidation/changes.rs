@@ -1,4 +1,4 @@
-use crate::components::ElementData;
+use crate::element_data::ElementData;
 use crate::pseudo_state::PseudoStateFlags;
 use smallvec::SmallVec;
 
@@ -12,7 +12,7 @@ pub struct ElementChanges<'a> {
 }
 
 impl<'a> ElementChanges<'a> {
-    pub(crate) fn diff(then: &'a ElementData, now: &'a ElementData) -> Self {
+    pub fn diff(then: &'a ElementData, now: &'a ElementData) -> Self {
         let mut c = Self::default();
 
         // classes: symmetric difference
@@ -94,6 +94,7 @@ mod tests {
         assert!(changes(&sample(), &sample()).is_empty());
     }
 
+    #[test]
     fn changed_id() {
         let then = element_data!(<div id = "old" />);
         let now = element_data!(<div id = "new" />);
