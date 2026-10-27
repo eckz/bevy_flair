@@ -1,3 +1,5 @@
+//! Selector Matching machinery. Main helper is `all_selector_matches` and returned in the [`MatchedSelector`].
+
 use crate::bloom_filters::AncestorsBloomFilterBuilder;
 use crate::bucket::{OpaqueId, SelectorBuckets};
 use crate::context::SelectorMatchingCaches;
@@ -7,6 +9,7 @@ use crate::media_selector::MediaFeaturesProvider;
 use selectors::matching::matches_selector;
 use std::sync::Arc;
 
+/// A selector that matches an element, along with metadata used to determine cascade order.
 pub struct MatchedSelector {
     /// Layer defined for the selector, empty for selectors without layers.
     pub layer: Arc<str>,
@@ -24,6 +27,8 @@ pub struct MatchedSelector {
 }
 
 impl MatchedSelector {
+    /// Compares two matched selectors according to layer order, specificity, scope proximity,
+    /// input group order, and source order.
     pub fn compare(a: &Self, b: &Self, layers_hierarchy: &LayersHierarchy) -> std::cmp::Ordering {
         layers_hierarchy
             .cmp_layers(&a.layer, &b.layer)
@@ -34,13 +39,18 @@ impl MatchedSelector {
     }
 }
 
+/// A group of selectors buckets and their associated layer hierarchy.
+///
+/// Each group might represent a completely independent stylesheet
 pub struct MatchGroup<'a> {
-    // TODO?
-    // pub file_name: &'a str,
+    /// Selectors that are part of this group
     pub selectors: &'a SelectorBuckets,
+    /// Layers hierarchy of this group
     pub layers_hierarchy: &'a LayersHierarchy,
 }
 
+/// Finds all selectors that match an element across the provided groups and sorts them
+/// according to cascade order.
 pub fn all_selector_matches<M: MediaFeaturesProvider>(
     element: &ElementDataRef,
     media_features_provider: &M,
@@ -60,7 +70,7 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
             }
 
             let hashes = css_selector.ancestor_hashes();
-            let matches = matches_selector(&css_selector.selector, 0, hashes, element, &mut ctx);
+            let matches = matches_selector(&css_selector.selector, 0, hashes, &element.0, &mut ctx);
 
             if matches {
                 result.push(MatchedSelector {

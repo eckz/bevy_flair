@@ -1,7 +1,8 @@
 #[cfg(not(miri))]
 macro_rules! css_selector {
     ($selector:literal) => {
-        crate::css_selector::CssSelector::parse_single($selector).expect("Invalid css_selector")
+        bevy_flair_css_selector::CssSelector::parse_single($selector, u32::MAX)
+            .expect("Invalid css_selector")
     };
 }
 

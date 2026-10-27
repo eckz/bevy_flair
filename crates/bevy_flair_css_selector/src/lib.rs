@@ -1,3 +1,8 @@
+//! # Bevy Flair Css Selector
+//!
+//! This crate contains all machinery required to do selector matching and invalidation in bevy.
+//! It's generic enough that it in theory could be used outside of Bevy Flair.
+
 mod bloom_filters;
 mod bucket;
 mod context;
@@ -23,10 +28,13 @@ pub use ghost_element::GhostElement;
 
 pub use layers::*;
 
+pub use bloom_filters::*;
 pub use bucket::*;
+pub use context::*;
 pub use element_data::*;
 pub use element_flags::*;
 pub use element_impl::*;
 pub use pseudo_state::*;
 pub use selector::CssSelector;
 pub use tree_iterator::*;
+pub use types::CssString;

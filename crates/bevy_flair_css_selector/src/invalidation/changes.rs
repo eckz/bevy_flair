@@ -2,16 +2,21 @@ use crate::element_data::ElementData;
 use crate::pseudo_state::PseudoStateFlags;
 use smallvec::SmallVec;
 
-/// What differs between the snapshot ("then") and the current data ("now").
-#[derive(Default)]
+/// What differs between two elements, generally one of them is a snapshot.
+#[derive(Debug, Default)]
 pub struct ElementChanges<'a> {
-    pub classes: SmallVec<[&'a str; 4]>, // added or removed
-    pub ids: SmallVec<[&'a str; 2]>,     // old and/or new id
-    pub attrs: SmallVec<[&'a str; 4]>,   // added, removed or value changed
-    pub state: PseudoStateFlags,         // bits that flipped
+    /// Classes added or removed
+    pub classes: SmallVec<[&'a str; 4]>,
+    /// Ids added or removed
+    pub ids: SmallVec<[&'a str; 2]>,
+    /// Attributes added, removed or their values changes
+    pub attrs: SmallVec<[&'a str; 2]>,
+    /// Pseudo flags where the bits have flipped
+    pub state: PseudoStateFlags,
 }
 
 impl<'a> ElementChanges<'a> {
+    /// Returns the difference between two different elements
     pub fn diff(then: &'a ElementData, now: &'a ElementData) -> Self {
         let mut c = Self::default();
 
@@ -61,7 +66,7 @@ impl<'a> ElementChanges<'a> {
         c
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.classes.is_empty()
             && self.ids.is_empty()
             && self.attrs.is_empty()

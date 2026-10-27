@@ -1,8 +1,11 @@
 use crate::context::SelectorMatchingCaches;
-use crate::element_impl::{ElementDataRef, ElementDataSnapshotRef, ElementRefBuilder};
+use crate::element_impl::{
+    ElementDataRef, ElementDataSnapshotRef, ElementRefBuilder, InternalElementRef,
+};
 use crate::invalidation::Dependency;
 use crate::invalidation::map::CombinatorKind;
 use crate::selector::CssSelectorImpl;
+use crate::{ElementData, ElementDataSnapshot};
 use bevy_ecs::entity::{Entity, EntityHashSet};
 use selectors::kleene_value::KleeneValue;
 use selectors::matching::{matches_selector, matches_selector_kleene};
@@ -12,8 +15,8 @@ use smallvec::SmallVec;
 fn compare_selector_with_snapshot(
     selector: &Selector<CssSelectorImpl>,
     offset: usize,
-    element: &ElementDataRef,
-    snapshot_element: &ElementDataSnapshotRef,
+    element: &InternalElementRef<ElementData>,
+    snapshot_element: &InternalElementRef<ElementDataSnapshot>,
     caches: &mut SelectorMatchingCaches,
 ) -> (KleeneValue, KleeneValue) {
     let mut ctx = caches.create_matching_context_for_invalidation();
@@ -38,10 +41,10 @@ fn right_offset(sel: &Selector<CssSelectorImpl>, offset: usize) -> usize {
 
 fn invalidation_candidates<'a>(
     entity: Entity,
-    element_param: &'a ElementRefBuilder,
+    ref_builder: &'a ElementRefBuilder,
     kind: CombinatorKind,
 ) -> impl Iterator<Item = (ElementDataRef<'a>, ElementDataSnapshotRef<'a>)> {
-    let iter = &element_param.iterators;
+    let iter = &ref_builder.iterators;
 
     let candidates: SmallVec<[Entity; 16]> = match kind {
         CombinatorKind::Children => iter.iter_children(entity).collect(),
@@ -66,8 +69,8 @@ fn invalidation_candidates<'a>(
 
     candidates.into_iter().filter_map(move |candidate| {
         Some((
-            element_param.new_data_ref(candidate)?,
-            element_param.new_snapshot_ref(candidate)?,
+            ref_builder.new_data_ref(candidate)?,
+            ref_builder.new_snapshot_ref(candidate)?,
         ))
     })
 }
@@ -82,21 +85,23 @@ fn kleene_may_be_different(a: KleeneValue, b: KleeneValue) -> bool {
     }
 }
 
-pub fn invalidate_entities_from_dependency<'a>(
+/// Finds and marks entities whose selector matches may have changed due to a [`Dependency`] on an `entity`.
+pub fn mark_dirty_from_dependency<'a>(
     dep: &Dependency,
     entity: Entity,
-    param: &ElementRefBuilder,
+    ref_builder: &ElementRefBuilder,
     caches: &mut SelectorMatchingCaches,
     mark_dirty: &mut EntityHashSet,
 ) {
     use selectors::{Element, OpaqueElement};
-    type WorkQueue<'d, 'a> = SmallVec<[(&'d Dependency, usize, ElementDataRef<'a>); 8]>;
+    type El<'a> = InternalElementRef<'a, ElementData>;
+    type WorkQueue<'d, 'a> = SmallVec<[(&'d Dependency, usize, El<'a>); 8]>;
 
     /// Starts processing `dep` for an element whose features for `dep` may have changed.
     fn start_from<'d, 'a>(
         dep: &'d Dependency,
-        element: ElementDataRef<'a>,
-        param: &'a ElementRefBuilder,
+        element: El<'a>,
+        ref_builder: &'a ElementRefBuilder,
         caches: &mut SelectorMatchingCaches,
         work: &mut WorkQueue<'d, 'a>,
     ) {
@@ -107,11 +112,12 @@ pub fn invalidate_entities_from_dependency<'a>(
                 .as_deref()
                 .expect(":has dependency must link to its anchor");
 
-            let element_snapshot = param
+            let element_snapshot = ref_builder
                 .new_snapshot_ref(entity)
                 .expect("Missing element snapshot");
 
-            for (anchor, anchor_snapshot) in invalidation_candidates(entity, param, dep.kind) {
+            for (anchor, anchor_snapshot) in invalidation_candidates(entity, ref_builder, dep.kind)
+            {
                 if !anchor_may_match(&anchor, outer) {
                     continue;
                 }
@@ -120,50 +126,55 @@ pub fn invalidate_entities_from_dependency<'a>(
                 let then = matches_relative(
                     &dep.selector,
                     dep.offset,
-                    &element_snapshot,
-                    anchor_snapshot.opaque(),
+                    &element_snapshot.0,
+                    anchor_snapshot.0.opaque(),
                     caches,
                 );
-                let now =
-                    matches_relative(&dep.selector, dep.offset, &element, anchor.opaque(), caches);
+                let now = matches_relative(
+                    &dep.selector,
+                    dep.offset,
+                    &element,
+                    anchor.0.opaque(),
+                    caches,
+                );
 
                 if then != now {
                     // The anchor's `:has()` may have flipped. Diffing `outer` would
                     // mean evaluating `:has()`, so propagate without diffing.
-                    work.push((outer, outer.offset, anchor));
+                    work.push((outer, outer.offset, anchor.0));
                 }
             }
         } else if dep.contains_nth_of
             && let Some(parent) = element.parent_element()
         {
-            for child in param.iterators.iter_children(parent.entity()) {
-                let Some(child_el) = param.new_data_ref(child) else {
+            for child in ref_builder.iterators.iter_children(parent.entity()) {
+                let Some(child_el) = ref_builder.new_data_ref(child) else {
                     continue;
                 };
-                let child_snapshot = param
+                let child_snapshot = ref_builder
                     .new_snapshot_ref(child)
                     .expect("Missing child snapshot");
                 let (then, now) = compare_selector_with_snapshot(
                     &dep.selector,
                     dep.offset,
-                    &child_el,
-                    &child_snapshot,
+                    &child_el.0,
+                    &child_snapshot.0,
                     caches,
                 );
 
                 if kleene_may_be_different(then, now) {
-                    work.push((dep, dep.offset, child_el));
+                    work.push((dep, dep.offset, child_el.0));
                 }
             }
         } else {
-            let snapshot = param
+            let snapshot = ref_builder
                 .new_snapshot_ref(entity)
                 .expect("Missing element snapshot");
             let (then, now) = compare_selector_with_snapshot(
                 &dep.selector,
                 dep.offset,
                 &element,
-                &snapshot,
+                &snapshot.0,
                 caches,
             );
 
@@ -177,6 +188,7 @@ pub fn invalidate_entities_from_dependency<'a>(
     /// If the anchor itself changed this frame, its own dependencies cover it.
     fn anchor_may_match(anchor: &ElementDataRef, outer: &Dependency) -> bool {
         use selectors::attr::CaseSensitivity::CaseSensitive;
+        let anchor = &anchor.0;
         outer.selector.iter_from(outer.offset).all(|c| match c {
             Component::Class(cls) => anchor.has_class(cls, CaseSensitive),
             Component::ID(id) => anchor.has_id(id, CaseSensitive),
@@ -199,11 +211,11 @@ pub fn invalidate_entities_from_dependency<'a>(
 
     let mut work: WorkQueue = WorkQueue::new();
 
-    let Some(element_to_start_from) = param.new_data_ref(entity) else {
+    let Some(element_to_start_from) = ref_builder.new_data_ref(entity) else {
         return;
     };
 
-    start_from(dep, element_to_start_from, param, caches, &mut work);
+    start_from(dep, element_to_start_from.0, ref_builder, caches, &mut work);
 
     while let Some((dep, offset, el)) = work.pop() {
         if offset == 0 {
@@ -212,7 +224,7 @@ pub fn invalidate_entities_from_dependency<'a>(
                     mark_dirty.insert(el.entity());
                 }
                 Some(next) if next.kind.is_relative() => {
-                    start_from(next, el, param, caches, &mut work)
+                    start_from(next, el, ref_builder, caches, &mut work)
                 }
                 Some(next) => work.push((next, next.offset, el)),
             }
@@ -222,18 +234,18 @@ pub fn invalidate_entities_from_dependency<'a>(
         let next_offset = right_offset(&dep.selector, offset);
         for (candidate, candidate_snapshot) in invalidation_candidates(
             el.entity(),
-            param,
+            ref_builder,
             CombinatorKind::from_selector_at(&dep.selector, offset),
         ) {
             let (then, now) = compare_selector_with_snapshot(
                 &dep.selector,
                 next_offset,
-                &candidate,
-                &candidate_snapshot,
+                &candidate.0,
+                &candidate_snapshot.0,
                 caches,
             );
             if then.to_bool(true) || now.to_bool(true) {
-                work.push((dep, next_offset, candidate));
+                work.push((dep, next_offset, candidate.0));
             }
         }
     }
@@ -277,7 +289,7 @@ mod tests {
             let dependencies = invalidation_map.dependencies_for_change(&changes);
 
             for dep in dependencies {
-                super::invalidate_entities_from_dependency(
+                super::mark_dirty_from_dependency(
                     dep,
                     entity,
                     &element_ref_builder,
@@ -295,7 +307,7 @@ mod tests {
 
     fn build_map(css: impl IntoIterator<Item = &'static str>) -> InvalidationMap {
         let selectors: Vec<_> = css.into_iter().map(selector).collect();
-        InvalidationMap::build(&selectors)
+        InvalidationMap::build(selectors.iter())
     }
 
     fn setup_world(css: impl IntoIterator<Item = &'static str>) -> World {

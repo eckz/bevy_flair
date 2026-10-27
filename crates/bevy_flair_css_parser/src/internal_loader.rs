@@ -7,8 +7,8 @@ use crate::{
 };
 use bevy_asset::{AssetId, AssetPath, Handle};
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry};
+use bevy_flair_css_selector::CssSelector;
 use bevy_flair_style::animations::{AnimationKeyframes, AnimationProperty, AnimationPropertyId};
-use bevy_flair_style::css_selector::CssSelector;
 use bevy_flair_style::{
     BlockBuilder, StyleBlock, StyleBuilderProperty, StyleSheet, StyleSheetBuilder,
 };

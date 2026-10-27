@@ -65,7 +65,7 @@ impl Plugin for FlairCssParserPlugin {
             // We need add bevy_asset::handle_internal_asset_events to properly
             (parse_inline_style, bevy_asset::handle_internal_asset_events)
                 .chain()
-                .in_set(StyleSystems::SetStyleData),
+                .in_set(StyleSystems::SetElementData),
         );
     }
 

@@ -5,20 +5,21 @@ use bevy_ecs::prelude::Query;
 use bevy_ecs::system::SystemParam;
 use selectors::bloom::{BLOOM_HASH_MASK, BloomFilter};
 
+/// Helper use to build [`BloomFilter`] from the tree hierarchy
 #[derive(SystemParam)]
-pub(crate) struct AncestorsBloomFilterBuilder<'w, 's> {
+pub struct AncestorsBloomFilterBuilder<'w, 's> {
     element_query: Query<'w, 's, &'static ElementData>,
-    children: ElementTreeIterators<'w, 's>,
+    iterators: ElementTreeIterators<'w, 's>,
 }
 
 impl AncestorsBloomFilterBuilder<'_, '_> {
+    /// Builds a [`BloomFilter`] from the hierarchy of the entity provided.
     pub fn build_ancestors_bloom_filter(&self, entity: Entity) -> BloomFilter {
         let mut bf = BloomFilter::new();
-        for ancestor in self.children.iter_ancestors(entity) {
-            if let Ok(data) = self.element_query.get(ancestor) {
-                for h in data.unique_hashes() {
-                    bf.insert_hash(h & BLOOM_HASH_MASK);
-                }
+        let ancestors = self.iterators.iter_ancestors(entity);
+        for data in self.element_query.iter_many(ancestors).matched() {
+            for h in data.unique_hashes() {
+                bf.insert_hash(h & BLOOM_HASH_MASK);
             }
         }
         bf
@@ -31,7 +32,7 @@ pub(crate) struct AncestorsBloomFilterCache {
 }
 
 impl AncestorsBloomFilterCache {
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.cache.clear();
     }
 

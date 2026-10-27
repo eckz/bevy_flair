@@ -3,12 +3,12 @@ use crate::components::{
     EffectiveStyleSheet, PropertyIdDebugHelperParam, StaticPropertyMaps, StyleActiveBlocks,
     StyleMarkers, StyleProperties, StylePropertyValuesCopy, StyleVars,
 };
-use crate::custom_iterators::StyledChildren;
 use crate::{GlobalChangeDetection, StyleBlock, StyleResolver, StyleSheet, VarResolver, VarTokens};
 use bevy_asset::Assets;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 use bevy_flair_core::{CssPropertyRegistry, PropertyRegistry, PropertyValue};
+use bevy_flair_css_selector::ElementTreeIterators;
 use itertools::izip;
 use rustc_hash::FxHashSet;
 use std::iter;
@@ -17,13 +17,13 @@ use tracing::{debug, trace, warn};
 
 #[derive(SystemParam)]
 pub(crate) struct VarResolverParam<'w, 's> {
-    styled_children: StyledChildren<'w, 's>,
+    iterators: ElementTreeIterators<'w, 's>,
     vars_query: Query<'w, 's, &'static StyleVars>,
 }
 
 impl<'w, 's> VarResolverParam<'w, 's> {
     fn iter_self_and_ancestors(&self, entity: Entity) -> impl Iterator<Item = Entity> {
-        iter::once(entity).chain(self.styled_children.iter_ancestors(entity))
+        iter::once(entity).chain(self.iterators.iter_ancestors(entity))
     }
 
     fn get_all_names(&self, entity: Entity) -> FxHashSet<Arc<str>> {
@@ -68,12 +68,13 @@ impl VarResolver for EntityVarResolver<'_, '_, '_> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_property_values(
     style_blocks: Res<Assets<StyleBlock>>,
-    styled_children: StyledChildren,
+    iterators: ElementTreeIterators,
     var_resolver: VarResolverParam,
     mut queries: ParamSet<(
         Query<(
             NameOrEntity,
             &StyleActiveBlocks,
+            Ref<EffectiveStyleSheet>,
             &mut StyleMarkers,
             &mut StyleProperties,
             &mut StylePropertyValuesCopy,
@@ -97,6 +98,7 @@ pub(crate) fn resolve_property_values(
          (
             name_or_entity,
             active_blocks,
+            effective_style_sheet,
             mut marker,
             mut properties,
             mut property_values_copy,
@@ -133,10 +135,7 @@ pub(crate) fn resolve_property_values(
 
             if properties.property_values.is_empty() {
                 for (property_id, value) in properties.pending_property_values.iter() {
-                    if matches!(
-                        value,
-                        PropertyValue::Inherit
-                    ) {
+                    if matches!(value, PropertyValue::Inherit) {
                         properties_that_inherit.insert(property_id);
                     }
                     property_values_changed_this_frame.insert(property_id);
@@ -158,7 +157,9 @@ pub(crate) fn resolve_property_values(
                     property_values_changed_this_frame.insert(property_id);
                 });
 
-                if changed_property_ids.any(|id| properties_that_inherit.contains(id)) {
+                if !effective_style_sheet.is_changed()
+                    && changed_property_ids.any(|id| properties_that_inherit.contains(id))
+                {
                     to_mark_compute_values.push(name_or_entity.entity);
                 }
             }
@@ -177,7 +178,7 @@ pub(crate) fn resolve_property_values(
     for to_mark in to_mark_compute_values_parallel.iter_mut() {
         for entity in to_mark
             .drain(..)
-            .flat_map(|entity| styled_children.iter_descendants(entity))
+            .flat_map(|entity| iterators.iter_descendants(entity))
         {
             if let Ok(mut mark) = markers_query.get_mut(entity) {
                 mark.set_needs_compute_property_values();

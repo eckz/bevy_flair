@@ -12,15 +12,16 @@ use std::fmt;
 #[derive(Debug, Clone, Default, PartialEq, Component)]
 #[require(ElementFlags, ElementDataSnapshot)]
 pub struct ElementData {
-    pub(crate) is_root: bool,
-    pub(crate) id: Option<CssString>,
-    pub(crate) classes: SmallVec<[CssString; 1]>,
-    pub(crate) attributes: FxHashMap<SmolStr, CssString>,
-    pub(crate) type_name: Option<CssString>,
-    pub(crate) pseudo_state: PseudoStateFlags,
+    pub is_root: bool,
+    pub id: Option<CssString>,
+    pub classes: SmallVec<[CssString; 1]>,
+    pub attributes: FxHashMap<SmolStr, CssString>,
+    pub type_name: Option<CssString>,
+    pub pseudo_state: PseudoStateFlags,
 }
 
 impl ElementData {
+    /// Creates an empty `ElementData`.
     pub const fn new() -> Self {
         Self {
             is_root: false,
@@ -102,12 +103,21 @@ impl fmt::Display for ElementData {
     }
 }
 
+/// Component that stores a copy of [`ElementData`].
+/// This is used to detect changes to an element,
+/// and to verify if a selector that was matching in the past, matches nows, or the other way around.
 #[derive(Debug, Default, Component)]
 pub struct ElementDataSnapshot(pub(crate) ElementData);
 
 impl ElementDataSnapshot {
+    /// Copy data from the original `ElementData`.
+    /// Call this when no more changes need to be detected for an entity.
     pub fn take_snapshot_from(&mut self, data: &ElementData) {
         self.0.clone_from(data);
+    }
+
+    pub fn snapshot_data(&self) -> &ElementData {
+        &self.0
     }
 }
 
