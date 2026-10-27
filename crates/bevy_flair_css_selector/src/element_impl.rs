@@ -1,6 +1,5 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
-use std::assert_matches;
 
 use crate::element_data::{ElementData, ElementDataSnapshot};
 
@@ -16,10 +15,8 @@ use selectors::{Element, OpaqueElement, SelectorImpl};
 use std::fmt;
 use tracing::trace;
 
-pub(crate) trait ElementRefType:
-    sealed::ElementRefTypeSealed + fmt::Debug + Send + 'static
-{
-}
+#[doc(hidden)]
+pub trait ElementRefType: sealed::ElementRefTypeSealed + fmt::Debug + Send + 'static {}
 
 impl<T> ElementRefType for T where T: sealed::ElementRefTypeSealed + fmt::Debug + Send + 'static {}
 
@@ -29,7 +26,7 @@ mod sealed {
     use crate::element_impl::ElementRefBuilder;
     use bevy_ecs::entity::Entity;
 
-    pub(crate) trait ElementRefTypeSealed {
+    pub trait ElementRefTypeSealed {
         type DataRef<'a>: Copy + std::fmt::Debug;
 
         fn get_element_data<'a>(data_ref: &Self::DataRef<'a>) -> &'a ElementData;
@@ -81,29 +78,45 @@ mod sealed {
     }
 }
 
-pub type ElementDataRef<'a> = ElementRef<'a, ElementData>;
-pub type ElementDataSnapshotRef<'a> = ElementRef<'a, ElementDataSnapshot>;
-
-// TODO: to make this public need to have another struct
-
 /// Reference to an entity that allows selector matching with tree transversal.
 #[derive(Debug)]
-pub(crate) struct ElementRef<'a, T: ElementRefType> {
+pub struct ElementRef<'a, T: ElementRefType>(pub(crate) InternalElementRef<'a, T>);
+
+impl<'a, T: ElementRefType> ElementRef<'a, T> {
+    /// Returns the current entity of the reference
+    pub fn entity(&self) -> Entity {
+        self.0.entity
+    }
+
+    /// Returns the data point by this reference
+    pub fn element_data(&self) -> &ElementData {
+        T::get_element_data(&self.0.data_ref)
+    }
+}
+
+/// Type used to navigate over `ElementData`s on the hierarchy.
+pub type ElementDataRef<'a> = ElementRef<'a, ElementData>;
+
+/// Type used to navigate over `ElementDataSnapshot`s on the hierarchy.
+pub type ElementDataSnapshotRef<'a> = ElementRef<'a, ElementDataSnapshot>;
+
+#[derive(Debug)]
+pub(crate) struct InternalElementRef<'a, T: ElementRefType> {
     entity: Entity,
     data_ref: <T as sealed::ElementRefTypeSealed>::DataRef<'a>,
     param: &'a ElementRefBuilder<'a, 'a>,
 }
 
-impl<T: ElementRefType> Clone for ElementRef<'_, T> {
+impl<T: ElementRefType> Clone for InternalElementRef<'_, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T: ElementRefType> Copy for ElementRef<'_, T> {}
+impl<T: ElementRefType> Copy for InternalElementRef<'_, T> {}
 
-impl<'a, T: ElementRefType> ElementRef<'a, T> {
-    pub fn new(entity: Entity, param: &'a ElementRefBuilder<'a, 'a>) -> Option<Self> {
+impl<'a, T: ElementRefType> InternalElementRef<'a, T> {
+    pub(crate) fn new(entity: Entity, param: &'a ElementRefBuilder<'a, 'a>) -> Option<Self> {
         let data_ref = T::get_data_ref(entity, param)?;
         Some(Self {
             entity,
@@ -122,22 +135,22 @@ impl<'a, T: ElementRefType> ElementRef<'a, T> {
         })
     }
 
-    pub fn entity(&self) -> Entity {
+    pub(crate) fn entity(&self) -> Entity {
         self.entity
     }
 
-    pub fn element_data(&self) -> &ElementData {
+    pub(crate) fn element_data(&self) -> &ElementData {
         T::get_element_data(&self.data_ref)
     }
 }
 
-impl<'a> ElementRef<'a, ElementData> {
+impl<'a> InternalElementRef<'a, ElementData> {
     pub fn element_flags(&self) -> &'a ElementFlags {
         self.data_ref.1
     }
 }
 
-impl<'a, T> Element for ElementRef<'a, T>
+impl<'a, T> Element for InternalElementRef<'a, T>
 where
     T: ElementRefType,
 {
@@ -284,7 +297,7 @@ where
     fn is_empty(&self) -> bool {
         self.param
             .iterators
-            .iter_children(self.entity())
+            .iter_children(self.entity)
             .next()
             .is_none()
     }
@@ -294,14 +307,16 @@ where
     }
 
     fn apply_selector_flags(&self, selector_flags: selectors::matching::ElementSelectorFlags) {
-        assert_matches!(
+        #[cfg(test)]
+        std::assert_matches!(
             selector_flags.bits().count_ones(),
             1..=2,
             "Expecting selectors flags to be just one or two"
         );
 
         let apply_to_element =
-            |element: ElementRef<T>, selector_flags: selectors::matching::ElementSelectorFlags| {
+            |element: InternalElementRef<T>,
+             selector_flags: selectors::matching::ElementSelectorFlags| {
                 if let Some(element_flags) = T::get_element_flags(&element.data_ref) {
                     trace!(
                         "[{}] Applying flags: {:?}",
@@ -350,20 +365,13 @@ impl fmt::Debug for ElementRefBuilder<'_, '_> {
 }
 
 impl ElementRefBuilder<'_, '_> {
-    // TODO: Option!
+    /// Creates a reference to the specified entity. `None` if the entity doesn't have element data associated.
     pub fn new_data_ref(&self, entity: Entity) -> Option<ElementRef<'_, ElementData>> {
-        ElementRef::new(entity, self)
-        // TODO: REMOVE
-        //.unwrap_or_else(|| panic!("Entity {entity:?} does not have ElementData"))
+        Some(ElementRef(InternalElementRef::new(entity, self)?))
     }
 
-    // TODO: Option!
-    pub(crate) fn new_snapshot_ref(
-        &self,
-        entity: Entity,
-    ) -> Option<ElementRef<'_, ElementDataSnapshot>> {
-        ElementRef::new(entity, self)
-        // TODO: REMOVE
-        // .unwrap_or_else(|| panic!("Entity {entity:?} does not have ElementDataSnapshot"))
+    /// Creates a snapshot reference to the specified entity. `None` if the entity doesn't have snapshot element data associated.
+    pub fn new_snapshot_ref(&self, entity: Entity) -> Option<ElementRef<'_, ElementDataSnapshot>> {
+        Some(ElementRef(InternalElementRef::new(entity, self)?))
     }
 }

@@ -1,22 +1,26 @@
 use crate::components::{
-    DependsOnMediaFeaturesFlags, EffectiveStyleSheet, RawInlineStyle, StyleActiveBlocks,
-    StyleFlags, StyleMarkers, StyleVars, WindowMediaFeatures,
+    EffectiveStyleSheet, RawInlineStyle, StyleActiveBlocks, StyleMarkers, StyleVars,
+    WindowMediaFeatures,
 };
-use crate::custom_iterators::StyledChildren;
-use crate::media_selector::MediaFeaturesProvider;
-use crate::{ColorScheme, StyleBlock, StyleResolver, StyleSheet, css_selector};
+
+use crate::{StyleBlock, StyleResolver, StyleSheet};
 use bevy_asset::{AssetServer, Assets};
 use bevy_camera::{NormalizedRenderTarget, RenderTarget};
 use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
+use bevy_flair_css_selector::media_selector::{ColorScheme, MediaFeaturesProvider};
+use bevy_flair_css_selector::{
+    AncestorsBloomFilterBuilder, DependsOnMediaFeaturesFlags, ElementFlags, ElementRefBuilder,
+    ElementTreeIterators, SelectorMatchingCaches,
+};
 use bevy_ui::{ComputedUiRenderTargetInfo, ComputedUiTargetCamera};
 use bevy_window::PrimaryWindow;
 use tracing::{debug, trace, warn};
 
 #[derive(SystemParam)]
 pub(crate) struct MediaFeaturesParam<'w, 's> {
-    flags_query: Query<'w, 's, &'static StyleFlags>,
+    flags_query: Query<'w, 's, &'static ElementFlags>,
     cameras_query: Query<'w, 's, &'static RenderTarget>,
     window_media_features_query: Query<'w, 's, &'static WindowMediaFeatures>,
     primary_window: Option<Single<'w, 's, Entity, With<PrimaryWindow>>>,
@@ -131,16 +135,23 @@ pub(crate) fn calculate_styles_and_set_vars(
         )>,
         Query<&mut StyleMarkers>,
     )>,
-    element_ref_system_param: css_selector::ElementRefSystemParam,
-    styled_children: StyledChildren,
+    ref_builder: ElementRefBuilder,
+    bloom_filter_builder: AncestorsBloomFilterBuilder,
+    iterators: ElementTreeIterators,
     media_features_param: MediaFeaturesParam,
     mut to_mark_parallel: Local<bevy_utils::Parallel<ToMark>>,
+    mut caches: Local<bevy_utils::Parallel<SelectorMatchingCaches>>,
 ) {
     let mut styled_entities_query = param_set.p0();
 
     styled_entities_query.par_iter_mut().for_each_init(
-        || to_mark_parallel.borrow_local_mut(),
-        |to_mark,
+        || {
+            (
+                to_mark_parallel.borrow_local_mut(),
+                caches.borrow_local_mut(),
+            )
+        },
+        |(to_mark, caches),
          (
             name_or_entity,
             effective_style_sheet,
@@ -185,14 +196,20 @@ pub(crate) fn calculate_styles_and_set_vars(
             debug!("Calculating style on '{name_or_entity}'");
             to_mark.clear_style_recalculation.insert(entity);
 
-            let element_ref = css_selector::ElementRef::new(entity, &element_ref_system_param);
+            let Some(element_ref) = ref_builder.new_data_ref(entity) else {
+                return;
+            };
             let media_provider = media_features_param.get_media_features_provider(
                 entity,
                 maybe_computed_ui_target_camera,
                 maybe_computed_ui_render_target_info,
             );
-            let mut new_blocks =
-                style_sheet.get_matching_block_ids_for_element(&element_ref, &media_provider);
+            let mut new_blocks = style_sheet.get_matching_block_ids_for_element(
+                &element_ref,
+                &media_provider,
+                caches,
+                &bloom_filter_builder,
+            );
 
             if let Some(inline_style) = maybe_inline_style {
                 new_blocks.push(inline_style.style_block_id());
@@ -216,6 +233,10 @@ pub(crate) fn calculate_styles_and_set_vars(
         },
     );
 
+    for cache in caches.iter_mut() {
+        cache.clear();
+    }
+
     let mut marker_query = param_set.p1();
 
     for to_mark in to_mark_parallel.iter_mut() {
@@ -229,7 +250,7 @@ pub(crate) fn calculate_styles_and_set_vars(
         let all_descendants = to_mark
             .mark_descendants_resolve_property_values
             .drain(..)
-            .flat_map(|entity| styled_children.iter_descendants(entity));
+            .flat_map(|entity| iterators.iter_descendants(entity));
 
         // We cannot use a normal iterator because `all_descendants` is not unique
         let mut all_descendants_iter = marker_query.iter_many_mut(all_descendants);

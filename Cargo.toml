@@ -39,6 +39,7 @@ bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.9.0" }
 bevy_flair_core_macros = { path = "crates/bevy_flair_core_macros", version = "0.9.0" }
 bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.9.0" }
 bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.9.0" }
+bevy_flair_css_selector = { path = "crates/bevy_flair_css_selector", version = "0.9.0" }
 
 cssparser = { version = "0.38" }
 cssparser-color = { version = "0.6" }
@@ -51,6 +52,7 @@ bevy_ecs = { workspace = true }
 bevy_flair_core = { workspace = true }
 bevy_flair_style = { workspace = true }
 bevy_flair_css_parser = { workspace = true }
+bevy_flair_css_selector = { workspace = true }
 
 [features]
 default = []

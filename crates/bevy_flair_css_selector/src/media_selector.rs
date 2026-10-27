@@ -1,3 +1,5 @@
+//! Media selector machinery.
+
 use bevy_reflect::prelude::*;
 use cssparser::ToCss;
 use std::fmt;
@@ -13,7 +15,6 @@ pub enum ColorScheme {
     #[default]
     /// Use the light variant.
     Light,
-
     /// Use the dark variant.
     Dark,
 }
@@ -100,17 +101,6 @@ impl MediaSelector {
             MediaSelector::Resolution(selector) => selector.matches(provider.get_resolution()?),
         })
     }
-
-    /// Returns the CSS-style property name for this selector (for logging/debugging).
-    fn property_name(&self) -> &'static str {
-        match self {
-            MediaSelector::ColorScheme(_) => "prefers-color-scheme",
-            MediaSelector::ViewportWidth(_) => "width",
-            MediaSelector::ViewportHeight(_) => "height",
-            MediaSelector::AspectRatio(_) => "aspect-ratio",
-            MediaSelector::Resolution(_) => "resolution",
-        }
-    }
 }
 
 /// Represents a collection of media selectors, typically used in media queries.
@@ -172,8 +162,8 @@ impl MediaSelectors {
         self.iter().all(|selector| {
             selector.matches(provider).unwrap_or_else(|| {
                 warn!(
-                    "Media selector for '{}' cannot be matched because the property cannot be resolved",
-                    selector.property_name()
+                    "Media selector '{}' cannot be matched because the property cannot be resolved",
+                    self.to_css_string()
                 );
                 false
             })
@@ -257,4 +247,179 @@ mod tests {
         assert_eq!(MediaSelectors::default().to_string(), "@media all");
         assert_eq!(ms.to_string(), "@media (prefers-color-scheme: dark)");
     }
+
+    // TODO: ADAPT THIS TEST!
+    // #[test]
+    // fn test_media_selectors() {
+    //     let mut builder = StyleSheetBuilder::new();
+    //
+    //     let any_selector = css_selector!("*");
+    //
+    //     let block_dark = builder
+    //         .new_ruleset()
+    //         .with_css_selector(
+    //             any_selector
+    //                 .clone()
+    //                 .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Dark)),
+    //         )
+    //         .with_property(StyleBuilderProperty::new(
+    //             TEST_PROPERTY,
+    //             ReflectValue::Float(0f32),
+    //         ))
+    //         .block_id();
+    //
+    //     let block_light = builder
+    //         .new_ruleset()
+    //         .with_css_selector(
+    //             any_selector
+    //                 .clone()
+    //                 .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Light)),
+    //         )
+    //         .with_property(StyleBuilderProperty::new(
+    //             TEST_PROPERTY,
+    //             ReflectValue::Float(1f32),
+    //         ))
+    //         .block_id();
+    //
+    //     let block_min_width_500 = builder
+    //         .new_ruleset()
+    //         .with_css_selector(any_selector.clone().with_media_selectors([
+    //             MediaSelector::ColorScheme(ColorScheme::Light),
+    //             MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
+    //         ]))
+    //         .with_property(StyleBuilderProperty::new(
+    //             TEST_PROPERTY,
+    //             ReflectValue::Float(2f32),
+    //         ))
+    //         .block_id();
+    //
+    //     let block_width_exact_600 = builder
+    //         .new_ruleset()
+    //         .with_css_selector(any_selector.clone().with_media_selectors([
+    //             MediaSelector::ColorScheme(ColorScheme::Light),
+    //             MediaSelector::ViewportWidth(MediaRangeSelector::Exact(600)),
+    //         ]))
+    //         .with_property(StyleBuilderProperty::new(
+    //             TEST_PROPERTY,
+    //             ReflectValue::Float(3f32),
+    //         ))
+    //         .block_id();
+    //
+    //     let block_aspect_ratio_ge_1 = builder
+    //         .new_ruleset()
+    //         .with_css_selector(any_selector.clone().with_media_selectors(
+    //             MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(1.0)),
+    //         ))
+    //         .with_property(StyleBuilderProperty::new(
+    //             TEST_PROPERTY,
+    //             ReflectValue::Float(3f32),
+    //         ))
+    //         .block_id();
+    //
+    //     let block_aspect_ratio_le_1 = builder
+    //         .new_ruleset()
+    //         .with_css_selector(any_selector.clone().with_media_selectors(
+    //             MediaSelector::AspectRatio(MediaRangeSelector::LessOrEqual(1.0)),
+    //         ))
+    //         .with_property(StyleBuilderProperty::new(
+    //             TEST_PROPERTY,
+    //             ReflectValue::Float(3f32),
+    //         ))
+    //         .block_id();
+    //
+    //     let mut style_blocks = Assets::<StyleBlock>::default();
+    //
+    //     let mut custom_loader = TestAssetLoader(&mut style_blocks);
+    //
+    //     let style_sheet = builder
+    //         .build(
+    //             &EMPTY_TYPE_REGISTRY,
+    //             &PROPERTY_REGISTRY,
+    //             StyleAssetLoader::custom(&mut custom_loader),
+    //         )
+    //         .unwrap();
+    //
+    //     let [
+    //     block_dark,
+    //     block_light,
+    //     block_min_width_500,
+    //     block_width_exact_600,
+    //     block_aspect_ratio_ge_1,
+    //     block_aspect_ratio_le_1,
+    //     ] = translate_ids(
+    //         &style_blocks,
+    //         [
+    //             block_dark,
+    //             block_light,
+    //             block_min_width_500,
+    //             block_width_exact_600,
+    //             block_aspect_ratio_ge_1,
+    //             block_aspect_ratio_le_1,
+    //         ],
+    //     );
+    //
+    //     let dark_media = TestMediaProvider {
+    //         scheme: Some(ColorScheme::Dark),
+    //         ..Default::default()
+    //     };
+    //
+    //     assert_eq!(
+    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media),
+    //         vec![block_dark]
+    //     );
+    //
+    //     let light_media = TestMediaProvider {
+    //         scheme: Some(ColorScheme::Light),
+    //         ..Default::default()
+    //     };
+    //
+    //     assert_eq!(
+    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media),
+    //         vec![block_light]
+    //     );
+    //
+    //     let light_500_media = TestMediaProvider {
+    //         scheme: Some(ColorScheme::Light),
+    //         width: Some(500),
+    //         ..Default::default()
+    //     };
+    //
+    //     assert_eq!(
+    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media),
+    //         vec![block_light, block_min_width_500]
+    //     );
+    //
+    //     let light_600_media = TestMediaProvider {
+    //         scheme: Some(ColorScheme::Light),
+    //         width: Some(600),
+    //         ..Default::default()
+    //     };
+    //
+    //     assert_eq!(
+    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media),
+    //         vec![block_light, block_min_width_500, block_width_exact_600]
+    //     );
+    //
+    //     let resolution_800x600 = TestMediaProvider {
+    //         width: Some(800),
+    //         height: Some(600),
+    //         ..Default::default()
+    //     };
+    //
+    //     assert_eq!(
+    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_800x600),
+    //         vec![block_aspect_ratio_ge_1]
+    //     );
+    //
+    //     let resolution_600x800 = TestMediaProvider {
+    //         width: Some(600),
+    //         height: Some(800),
+    //         ..Default::default()
+    //     };
+    //
+    //     assert_eq!(
+    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_600x800),
+    //         vec![block_aspect_ratio_le_1]
+    //     );
+    // }
 }

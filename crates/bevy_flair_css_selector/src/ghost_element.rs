@@ -4,22 +4,24 @@ use bevy_ecs::system::SystemParam;
 use bevy_reflect::prelude::*;
 use smallvec::SmallVec;
 
+/// Marker component for an entity that acts as a ghost element in the hierarchy.
+/// The element will be ignored as it doesn't exist, and it's children will act as if they are at the GhostElement position.
 #[derive(Component, Debug, Copy, Clone, Default, Reflect)]
 #[reflect(Component, Default, Debug, Clone)]
 pub struct GhostElement;
 
-/// System param that allows iteration of all UI element nodes.
+/// System param that allows iteration of all elements, taking GhostElements into account.
 ///
 /// A UI element node is either a [`ElementData`] without a [`ChildOf`], or with only [`GhostElement`] ancestors.
 #[derive(SystemParam)]
-pub(crate) struct GhostElementsRoots<'w, 's> {
+pub(crate) struct GhostElementRoots<'w, 's> {
     root_element_query: Query<'w, 's, Entity, (With<ElementData>, Without<ChildOf>)>,
     element_ghost_element_query: Query<'w, 's, Entity, (With<GhostElement>, Without<ChildOf>)>,
     all_elements_query: Query<'w, 's, Entity, With<ElementData>>,
     ui_children: GhostElementChildren<'w, 's>,
 }
 
-impl<'w, 's> GhostElementsRoots<'w, 's> {
+impl<'w, 's> GhostElementRoots<'w, 's> {
     pub(crate) fn iter_roots(&'s self) -> impl Iterator<Item = Entity> + 's {
         self.root_element_query
             .iter()

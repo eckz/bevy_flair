@@ -5,17 +5,18 @@ use crate::animations::{
 use crate::{DynamicParseVarTokens, StyleBlock, VarName, VarTokens, style_sheet::StyleSheet};
 
 use crate::asset_loader::StyleAssetLoader;
-use crate::css_selector::CssSelector;
-use crate::layers::LayersHierarchy;
 use crate::placeholder::{
     ResolvePlaceholderContext, is_placeholder_value, try_resolve_placeholder,
 };
 use crate::style_block::StyleProperty;
-use bevy_asset::{AssetId, AssetPath, Handle, ParseAssetPathError};
+use bevy_asset::{AssetId, AssetIndex, AssetPath, Handle, ParseAssetPathError};
 use bevy_flair_core::*;
+use bevy_flair_css_selector::invalidation::InvalidationMap;
+use bevy_flair_css_selector::{CssSelector, LayersHierarchy, OpaqueId, SelectorBuckets};
 use bevy_reflect::{FromReflect, TypeRegistry};
 use bevy_text::FontSource;
 use rustc_hash::FxHashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::{fmt::Debug, mem};
 use thiserror::Error;
@@ -413,7 +414,7 @@ pub struct StyleSheetBuilder {
 
     // Only useful for embedding other StyleSheet's
     embedded_block_handles: Vec<Handle<StyleBlock>>,
-    embedded_css_selectors_to_blocks: Vec<(CssSelector, AssetId<StyleBlock>)>,
+    embedded_css_selectors_to_blocks: Vec<(CssSelector, OpaqueId)>,
 }
 
 impl StyleSheetBuilder {
@@ -459,19 +460,45 @@ impl StyleSheetBuilder {
                 .map(|old_handle| style_block_mapping.get(&old_handle.id()).unwrap().clone()),
         );
 
+        fn opaque_id_to_asset_id(opaque_id: OpaqueId) -> AssetId<StyleBlock> {
+            let index = AssetIndex::from_bits(opaque_id);
+            AssetId::Index {
+                index,
+                marker: PhantomData,
+            }
+        }
+
+        fn asset_id_to_opaque_id(asset_id: AssetId<StyleBlock>) -> OpaqueId {
+            match asset_id {
+                AssetId::Index { index, .. } => index.to_bits(),
+                AssetId::Uuid { .. } => {
+                    unreachable!("AssetId::Uuid")
+                }
+            }
+        }
+
         let other_css_selectors_to_blocks =
             other
-                .css_selectors_to_blocks
+                .selector_buckets
                 .into_iter()
                 .map(|(selector, old_id)| {
                     let selector = selector.with_layer_prefixed(layer.as_deref());
                     self.layers_hierarchy.define_layer(&selector.layer);
 
-                    (selector, style_block_mapping.get(&old_id).unwrap().id())
+                    (
+                        selector,
+                        asset_id_to_opaque_id(
+                            style_block_mapping
+                                .get(&opaque_id_to_asset_id(old_id))
+                                .unwrap()
+                                .id(),
+                        ),
+                    )
                 });
 
         self.embedded_css_selectors_to_blocks
             .extend(other_css_selectors_to_blocks);
+
         self.animation_keyframes
             .extend(other.animation_keyframes.into_values());
 
@@ -736,20 +763,27 @@ impl StyleSheetBuilder {
 
         let layers_hierarchy = self.layers_hierarchy;
 
-        let mut css_selectors_to_blocks = self
+        let opaque_id_from_builder_block_id = |id: StyleSheetBuilderBlockId| -> u64 {
+            let asset_id = handles_by_id.get(&id).unwrap().id();
+            match asset_id {
+                AssetId::Index { index, .. } => index.to_bits(),
+                AssetId::Uuid { .. } => {
+                    unreachable!("AssetId::Uuid")
+                }
+            }
+        };
+
+        let selectors = self
             .css_selectors_to_blocks
             .into_iter()
-            .map(|(selector, id)| (selector, handles_by_id.get(&id).unwrap().id()))
+            .map(|(selector, id)| (selector, opaque_id_from_builder_block_id(id)))
+            // TODO:!!
             .chain(self.embedded_css_selectors_to_blocks)
             .collect::<Vec<_>>();
 
-        // These sort puts more specific or priority rules at the end.
-        // It's important to use the stable sort, because we want to keep the order for equal elements
-        css_selectors_to_blocks.sort_by(|(a, _), (b, _)| {
-            layers_hierarchy
-                .cmp_layers(&a.layer, &b.layer)
-                .then_with(|| a.specificity().cmp(&b.specificity()))
-        });
+        let invalidation_map =
+            InvalidationMap::build(selectors.iter().map(|(selector, _)| selector));
+        let selector_buckets = SelectorBuckets::build(selectors);
 
         let animation_keyframes = self
             .animation_keyframes
@@ -767,7 +801,9 @@ impl StyleSheetBuilder {
             resolved_font_faces,
             block_handles,
             animation_keyframes,
-            css_selectors_to_blocks,
+            layers_hierarchy,
+            selector_buckets,
+            invalidation_map,
         })
     }
 }

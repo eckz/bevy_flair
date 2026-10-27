@@ -1,4 +1,5 @@
-use crate::element_impl::{ElementDataRef, ElementRefBuilder};
+use crate::ElementData;
+use crate::element_impl::{ElementDataRef, ElementRefBuilder, InternalElementRef};
 use bevy_ecs::entity::{Entity, EntityHashSet};
 use selectors::Element;
 use selectors::matching::ElementSelectorFlags;
@@ -9,12 +10,16 @@ pub enum StructuralChange {
     ChildrenRemoved,
 }
 
+/// Adds entities affected by a structural change to `mark_dirty`.
+///
+/// Uses selector flags on `parent` and the change details to identify elements whose selector matches may have changed.
 pub fn mark_dirty_from_structural_change(
     parent: ElementDataRef,
     ref_builder: &ElementRefBuilder,
     change: StructuralChange,
-    out: &mut EntityHashSet,
+    mark_dirty: &mut EntityHashSet,
 ) {
+    let parent = parent.0;
     let flags = parent.element_flags().css_selector_flags.load();
     let entity = parent.entity();
     let iterators = &ref_builder.iterators;
@@ -27,7 +32,7 @@ pub fn mark_dirty_from_structural_change(
             StructuralChange::ChildrenRemoved => false,
         };
         if was_empty != now_empty {
-            out.insert(entity);
+            mark_dirty.insert(entity);
         }
     }
 
@@ -41,14 +46,14 @@ pub fn mark_dirty_from_structural_change(
         // :last-of-type, :nth-last-of-type, or :only-of-type.
         // HAS_SLOW_SELECTOR* was set by the presence of :nth (But not of).
         for s in iterators.iter_children(entity) {
-            out.insert(s);
+            mark_dirty.insert(s);
         }
     } else if flags.contains(ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS) {
         // When a child is added or removed from the parent, any later
         // children must be restyled, because they may match :nth-child,
         // :first-of-type, or :nth-of-type.
         for s in iterators.iter_children(entity) {
-            out.insert(s);
+            mark_dirty.insert(s);
         }
     }
 
@@ -58,9 +63,8 @@ pub fn mark_dirty_from_structural_change(
         // :last-child, or :only-child.
         match change {
             StructuralChange::ChildrenChanged { was_empty } if !was_empty => {
-                // TODO: We should only need to do first, second, before_last and last children
                 for s in iterators.iter_children(entity) {
-                    out.insert(s);
+                    mark_dirty.insert(s);
                 }
             }
             _ => {}
@@ -71,10 +75,10 @@ pub fn mark_dirty_from_structural_change(
         .union(ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR_NON_SUBJECT);
 
     fn look_for_anchor<'a>(
-        element: ElementDataRef,
+        element: InternalElementRef<ElementData>,
         flags: ElementSelectorFlags,
         ref_builder: &'a ElementRefBuilder,
-    ) -> Option<(ElementDataRef<'a>, ElementSelectorFlags)> {
+    ) -> Option<(InternalElementRef<'a, ElementData>, ElementSelectorFlags)> {
         let entity = element.entity();
         let searches_ancestors =
             flags.contains(ElementSelectorFlags::RELATIVE_SELECTOR_SEARCH_DIRECTION_ANCESTOR);
@@ -82,7 +86,7 @@ pub fn mark_dirty_from_structural_change(
             flags.contains(ElementSelectorFlags::RELATIVE_SELECTOR_SEARCH_DIRECTION_SIBLING);
 
         let find_anchor_element = |entity: Entity| {
-            let element_ref = ref_builder.new_data_ref(entity)?;
+            let element_ref = ref_builder.new_data_ref(entity)?.0;
             let flags = element_ref.element_flags().css_selector_flags.load();
             flags
                 .intersects(ANCHOR_FLAGS)
@@ -106,19 +110,16 @@ pub fn mark_dirty_from_structural_change(
     }
 
     if flags.intersects(ElementSelectorFlags::RELATIVE_SELECTOR_SEARCH_DIRECTION_ANCESTOR_SIBLING) {
-        println!("Let's goooooooooooooooooooooooooooo");
-
         let Some((anchor, anchor_flags)) = look_for_anchor(parent, flags, ref_builder) else {
-            println!("NO ANCHOR FOUND!");
             return;
         };
 
         if anchor_flags.contains(ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR) {
-            out.insert(anchor.entity());
+            mark_dirty.insert(anchor.entity());
         } else if anchor_flags.contains(ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR_NON_SUBJECT)
         {
             // This is a little bit extreme, but I don't see any other way
-            out.extend(iterators.iter_descendants(anchor.entity()));
+            mark_dirty.extend(iterators.iter_descendants(anchor.entity()));
         } else {
             unreachable!()
         }

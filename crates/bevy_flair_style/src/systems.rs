@@ -3,15 +3,13 @@ mod calculate_styles;
 mod resolve_property_values;
 
 use crate::components::*;
-use crate::{GlobalChangeDetection, NodePseudoState, StyleBlock, StyleSheet};
+use crate::{GlobalChangeDetection, StyleBlock, StyleSheet};
 use bevy_ecs::entity::hash_set::EntityHashSet;
-use std::cmp::Ordering;
 
 use bevy_asset::prelude::*;
 use bevy_ecs::prelude::*;
 
 use crate::asset_loader::StyleAssetLoader;
-use crate::custom_iterators::{StyledChildren, StyledRoots};
 use crate::placeholder::{
     ResolvePlaceholderContext, is_placeholder_value, try_resolve_placeholder,
 };
@@ -23,12 +21,18 @@ use bevy_picking::hover::Hovered;
 use bevy_text::{FontSize, TextFont};
 use bevy_time::Time;
 use bevy_ui::prelude::*;
-use bevy_utils::once;
 use bevy_window::{PrimaryWindow, RequestRedraw, Window, WindowEvent};
 use rustc_hash::FxHashSet;
 use tracing::{debug, trace, warn};
 
 pub(crate) use apply_computed_values::*;
+use bevy_flair_css_selector::invalidation::{
+    ElementChanges, StructuralChange, mark_dirty_from_dependency, mark_dirty_from_structural_change,
+};
+use bevy_flair_css_selector::{
+    DependsOnMediaFeaturesFlags, ElementData, ElementDataSnapshot, ElementFlags, ElementRefBuilder,
+    ElementTreeIterators, ElementTreeRoots, PseudoStateFlags, SelectorMatchingCaches,
+};
 pub(crate) use calculate_styles::*;
 pub(crate) use resolve_property_values::*;
 
@@ -87,67 +91,28 @@ pub(crate) fn reset_properties(
     }
 }
 
-pub(crate) fn sort_pseudo_elements(
-    mut children_changed_query: Query<
-        &mut Children,
-        (With<PseudoElementsSupport>, Changed<Children>),
-    >,
-    pseudo_element_query: Query<&PseudoElement>,
-) {
-    for mut children in &mut children_changed_query {
-        let before_entity = children.iter().find(|child| {
-            pseudo_element_query
-                .get(*child)
-                .is_ok_and(|pe| *pe == PseudoElement::Before)
-        });
-
-        let after_entity = children.iter().find(|child| {
-            pseudo_element_query
-                .get(*child)
-                .is_ok_and(|pe| *pe == PseudoElement::After)
-        });
-
-        if before_entity.is_none() && after_entity.is_none() {
-            once!(warn!(
-                "PseudoElementsSupport entity without PseudoElement children"
-            ));
-            continue;
-        }
-
-        children.sort_by(|a, b| {
-            if before_entity == Some(*a) || after_entity == Some(*b) {
-                Ordering::Less
-            } else if before_entity == Some(*b) || after_entity == Some(*a) {
-                Ordering::Greater
-            } else {
-                Ordering::Equal
-            }
-        })
-    }
-}
-
 pub(crate) fn calculate_effective_style_sheet(
     changed_style_sheets_query: Query<Entity, Changed<Styled>>,
     changed_child_of_query: Query<Entity, (Changed<ChildOf>, With<Styled>)>,
-    mut style_data_query: Query<(
+    mut element_data_query: Query<(
         NameOrEntity,
         &Styled,
         &mut EffectiveStyleSheet,
-        &mut StyleFlags,
+        &mut ElementFlags,
         &mut StyleMarkers,
     )>,
     styled_query: Query<&Styled>,
-    styled_children: StyledChildren,
+    iterators: ElementTreeIterators,
 ) {
     let mut set_effective_style_sheet = |entity| {
         let Ok((name_or_entity, style_sheet, mut effective_style_sheet, mut flags, mut marker)) =
-            style_data_query.get_mut(entity)
+            element_data_query.get_mut(entity)
         else {
             return false;
         };
 
         let new_effective_style_sheet = match style_sheet {
-            Styled::Inherited => styled_children
+            Styled::Inherited => iterators
                 .iter_ancestors(name_or_entity.entity)
                 .find_map(|e| {
                     let style_sheet = styled_query.get(e).ok()?;
@@ -175,7 +140,7 @@ pub(crate) fn calculate_effective_style_sheet(
         let effective_change = effective_style_sheet.set_if_neq(new_effective_style_sheet);
         if effective_change {
             marker.reset();
-            flags.reset();
+            flags.clear();
         }
         effective_change
     };
@@ -192,7 +157,7 @@ pub(crate) fn calculate_effective_style_sheet(
 
     // For all modified entities, we need to recursively recalculate all descendants
     for entity in effective_style_sheet_changed {
-        for child in styled_children.iter_descendants(entity) {
+        for child in iterators.iter_descendants(entity) {
             set_effective_style_sheet(child);
         }
     }
@@ -236,61 +201,80 @@ pub(crate) fn compute_window_media_features(
 }
 
 pub(crate) fn calculate_is_root(
+    // `&mut ElementData` conflicts with `Added<ElementData>`
     mut param_set_queries: ParamSet<(
-        Query<(Entity, &mut StyleData)>,
-        Query<Entity, Or<(Added<StyleData>, Changed<ChildOf>)>>,
+        Query<(), Or<(Added<ElementData>, Changed<ChildOf>)>>,
+        Query<(Entity, &mut ElementData)>,
     )>,
-    styled_root_nodes: StyledRoots,
-    mut removed_parent: RemovedComponents<ChildOf>,
+    removed_child_of: RemovedComponents<ChildOf>,
+    root_nodes: ElementTreeRoots,
+    mut previous_roots: Local<Vec<Entity>>,
 ) {
-    let mut entities_to_recalculate = EntityHashSet::default();
-
-    let changed_style_data_query = param_set_queries.p1();
-
-    entities_to_recalculate.extend(&changed_style_data_query);
-    entities_to_recalculate.extend(removed_parent.read());
-
-    if entities_to_recalculate.is_empty() {
+    let any_structural_change = param_set_queries.p0();
+    if any_structural_change.is_empty() && removed_child_of.is_empty() {
         return;
     }
 
-    let mut style_data_query = param_set_queries.p0();
+    let mut new_roots: Vec<Entity> = root_nodes.iter_roots().collect();
+    new_roots.sort_unstable();
 
-    for (entity, mut data) in style_data_query
+    if new_roots == **previous_roots {
+        return;
+    }
+
+    let mut entities_to_recalculate = EntityHashSet::default();
+
+    entities_to_recalculate.extend(previous_roots.iter().copied());
+    entities_to_recalculate.extend(new_roots.iter().copied());
+
+    let mut element_data_query = param_set_queries.p1();
+
+    for (entity, mut data) in element_data_query
         .iter_many_unique_mut(entities_to_recalculate)
         .matched()
     {
-        data.is_root = styled_root_nodes.contains(entity);
+        data.is_root = new_roots.contains(&entity);
     }
+
+    *previous_roots = new_roots;
 }
 
 pub(crate) fn apply_classes(
-    mut classes_query: Query<(NameOrEntity, &ClassList, &mut StyleData), Changed<ClassList>>,
+    mut classes_query: Query<(NameOrEntity, &ClassList, &mut ElementData), Changed<ClassList>>,
 ) {
-    for (name, classes, mut style_data) in &mut classes_query {
+    for (name, classes, mut element_data) in &mut classes_query {
         debug!("{name}.className = '{classes}'");
-        style_data.classes.clone_from(&classes.0);
+        element_data.classes.clear();
+        element_data
+            .classes
+            .extend(classes.0.iter().map(|c| c.as_ref().into()));
     }
 }
 
 pub(crate) fn apply_attributes(
-    mut attributes_query: Query<(&AttributeList, &mut StyleData), Changed<AttributeList>>,
+    mut attributes_query: Query<(&AttributeList, &mut ElementData), Changed<AttributeList>>,
 ) {
-    for (attributes, mut style_data) in &mut attributes_query {
-        style_data.attributes.clone_from(&attributes.0);
+    for (attributes, mut element_data) in &mut attributes_query {
+        element_data.attributes.clear();
+        element_data.attributes.extend(
+            attributes
+                .0
+                .iter()
+                .map(|(k, v)| (k.as_ref().into(), v.as_ref().into())),
+        );
     }
 }
 
 pub(crate) fn track_name_changes(
     mut data_queries: ParamSet<(
-        Query<(&Name, &mut StyleData), Or<(Changed<Name>, Added<StyleData>)>>,
-        Query<&mut StyleData>,
+        Query<(&Name, &mut ElementData), Or<(Changed<Name>, Added<ElementData>)>>,
+        Query<&mut ElementData>,
     )>,
     mut name_removed: RemovedComponents<Name>,
 ) {
     let mut name_changed_query = data_queries.p0();
     for (name, mut data) in &mut name_changed_query {
-        data.id = Some(name.as_str().to_string().into());
+        data.id = Some(name.as_str().into());
     }
 
     let mut data_query = data_queries.p1();
@@ -305,7 +289,7 @@ pub(crate) fn track_name_changes(
 pub(crate) fn sync_input_focus(
     input_focus: Option<Res<InputFocus>>,
     input_focus_visible: Option<Res<InputFocusVisible>>,
-    mut data_query: Query<&mut StyleData>,
+    mut data_query: Query<&mut ElementData>,
     mut previous_focus: Local<Option<Entity>>,
 ) {
     let Some(input_focus) = input_focus else {
@@ -318,32 +302,35 @@ pub(crate) fn sync_input_focus(
 
     if !input_focus.is_changed() || input_focus.get() == *previous_focus {
         if input_focus_visible.is_some_and(|v| v.is_changed())
-            && let Some(mut style_data) = previous_focus.and_then(|e| data_query.get_mut(e).ok())
+            && let Some(mut element_data) = previous_focus.and_then(|e| data_query.get_mut(e).ok())
         {
-            style_data.get_pseudo_state_mut().focused_and_visible = focus_visible;
+            element_data
+                .pseudo_state
+                .set(PseudoStateFlags::FOCUSED_AND_VISIBLE, focus_visible);
         }
         return;
     }
 
-    if let Some(mut style_data) = previous_focus.and_then(|e| data_query.get_mut(e).ok()) {
-        let pseudo_state = style_data.get_pseudo_state_mut();
-        pseudo_state.focused = false;
-        pseudo_state.focused_and_visible = false;
+    if let Some(mut element_data) = previous_focus.and_then(|e| data_query.get_mut(e).ok()) {
+        element_data
+            .pseudo_state
+            .remove(PseudoStateFlags::FOCUSED | PseudoStateFlags::FOCUSED_AND_VISIBLE);
     }
 
-    if let Some(mut style_data) = input_focus.get().and_then(|e| data_query.get_mut(e).ok()) {
-        let pseudo_state = style_data.get_pseudo_state_mut();
-        pseudo_state.focused = true;
-        pseudo_state.focused_and_visible = focus_visible;
+    if let Some(mut element_data) = input_focus.get().and_then(|e| data_query.get_mut(e).ok()) {
+        element_data.pseudo_state.insert(PseudoStateFlags::FOCUSED);
+        element_data
+            .pseudo_state
+            .set(PseudoStateFlags::FOCUSED_AND_VISIBLE, focus_visible);
     }
 
     *previous_focus = input_focus.get();
 }
 
 pub(crate) fn sync_marker_component_system<C: Component>(
-    action: fn(&mut NodePseudoState, bool),
+    flags: PseudoStateFlags,
 ) -> impl FnMut(
-    Query<(Has<C>, &mut StyleData)>,
+    Query<(Has<C>, &mut ElementData)>,
     Query<Entity, Added<C>>,
     RemovedComponents<C>,
     Local<EntityHashSet>,
@@ -352,19 +339,22 @@ pub(crate) fn sync_marker_component_system<C: Component>(
         entities_changed.extend(added_query.iter());
         entities_changed.extend(removed_components.read());
 
-        for (value, mut node_style_data) in node_style_query
+        for (has_marker_component, mut element_data) in node_style_query
             .iter_many_unique_mut(entities_changed.drain())
             .matched()
         {
-            action(&mut node_style_data.pseudo_state, value);
+            element_data.pseudo_state.set(flags, has_marker_component);
         }
     }
 }
 
-pub(crate) fn sync_hovered(mut hovered_query: Query<(&Hovered, &mut StyleData), Changed<Hovered>>) {
-    for (hovered, mut data) in &mut hovered_query {
-        let pseudo_state = data.get_pseudo_state_mut();
-        pseudo_state.hovered = hovered.0;
+pub(crate) fn sync_hovered(
+    mut hovered_query: Query<(&Hovered, &mut ElementData), Changed<Hovered>>,
+) {
+    for (hovered, mut element_data) in &mut hovered_query {
+        element_data
+            .pseudo_state
+            .set(PseudoStateFlags::HOVERED, hovered.0);
     }
 }
 
@@ -374,11 +364,11 @@ pub(crate) fn clear_global_change_detection(
     global_change_detection.clear();
 }
 
-pub(crate) fn recalculate_style_on_window_media_features_changes(
+pub(crate) fn invalidate_on_window_media_features_changes(
     primary_window: Option<Single<Entity, With<PrimaryWindow>>>,
     cameras_query: Query<(Entity, &RenderTarget)>,
     window_media_features_changed: Query<Entity, Changed<WindowMediaFeatures>>,
-    mut markers_query: Query<(&StyleFlags, &ComputedUiTargetCamera, &mut StyleMarkers)>,
+    mut markers_query: Query<(&ElementFlags, &ComputedUiTargetCamera, &mut StyleMarkers)>,
 ) {
     let windows_changed = EntityHashSet::from_iter(window_media_features_changed.iter());
     if windows_changed.is_empty() {
@@ -410,9 +400,9 @@ pub(crate) fn recalculate_style_on_window_media_features_changes(
     }
 }
 
-pub(crate) fn recalculate_style_on_render_target_info_change(
+pub(crate) fn invalidate_on_render_target_info_change(
     mut compute_node_target_changed_query: Query<
-        (&StyleFlags, &mut StyleMarkers),
+        (&ElementFlags, &mut StyleMarkers),
         Changed<ComputedUiRenderTargetInfo>,
     >,
 ) {
@@ -426,30 +416,35 @@ pub(crate) fn recalculate_style_on_render_target_info_change(
     }
 }
 
-pub(crate) fn recalculate_style_on_changed_children(
-    children_changed_query: Query<Entity, Changed<Children>>,
-    flags_query: Query<&StyleFlags>,
+pub(crate) fn invalidate_elements_from_structural_changes(
+    structural_changes_query: Query<
+        (Entity, Ref<Children>),
+        (With<ElementData>, Changed<Children>),
+    >,
     mut markers_query: Query<&mut StyleMarkers>,
-    styled_children: StyledChildren,
-    mut to_be_marked: Local<EntityHashSet>,
     mut removed_children: RemovedComponents<Children>,
+    element_ref_builder: ElementRefBuilder,
+    mut to_be_marked: Local<EntityHashSet>,
 ) {
-    use selectors::matching::ElementSelectorFlags;
-
-    for entity in children_changed_query.iter().chain(removed_children.read()) {
-        let Ok(flags) = flags_query.get(entity) else {
-            continue;
+    for (entity, children) in structural_changes_query {
+        println!("Children of {entity:?} have changed");
+        let change = StructuralChange::ChildrenChanged {
+            was_empty: children.is_added(),
         };
 
-        if flags.css_selector_flags.intersects(
-            ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR
-                | ElementSelectorFlags::RELATIVE_SELECTOR_SEARCH_DIRECTION_ANCESTOR
-                | ElementSelectorFlags::HAS_EMPTY_SELECTOR,
-        ) {
-            to_be_marked.insert(entity);
-        }
+        let element = element_ref_builder.new_data_ref(entity).unwrap();
+        mark_dirty_from_structural_change(element, &element_ref_builder, change, &mut to_be_marked);
+    }
 
-        to_be_marked.extend(styled_children.iter_descendants(entity));
+    for entity in removed_children.read() {
+        if let Some(element) = element_ref_builder.new_data_ref(entity) {
+            mark_dirty_from_structural_change(
+                element,
+                &element_ref_builder,
+                StructuralChange::ChildrenRemoved,
+                &mut to_be_marked,
+            );
+        }
     }
 
     for entity in to_be_marked.drain() {
@@ -459,63 +454,65 @@ pub(crate) fn recalculate_style_on_changed_children(
     }
 }
 
-pub(crate) fn recalculate_style_on_related_entities_changes(
-    mut queries: ParamSet<(
-        Query<
-            (
-                Entity,
-                Ref<StyleData>,
-                Option<Ref<RawInlineStyle>>,
-                &StyleFlags,
-                &StyleMarkers,
-            ),
-            Or<(
-                Changed<StyleData>,
-                Changed<StyleMarkers>,
-                Changed<RawInlineStyle>,
-            )>,
-        >,
-        Query<&mut StyleMarkers>,
-    )>,
-    styled_children: StyledChildren,
-    mut to_be_marked: Local<EntityHashSet>,
+pub(crate) fn invalidate_elements_from_data_changes(
+    style_sheet: Res<Assets<StyleSheet>>,
+    changed_data_query: Query<
+        (
+            Entity,
+            &ElementData,
+            &ElementDataSnapshot,
+            Ref<EffectiveStyleSheet>,
+        ),
+        (Changed<ElementData>, With<ElementDataSnapshot>),
+    >,
+    mut markers_query: Query<&mut StyleMarkers>,
+    element_ref_builder: ElementRefBuilder,
+    mut dirty: Local<EntityHashSet>,
+    mut caches: Local<SelectorMatchingCaches>,
 ) {
-    let entities_changed_query = queries.p0();
+    caches.clear();
 
-    for (entity, style_data, inline_style, flags, marker) in &entities_changed_query {
-        let inline_style_changed = inline_style.is_some_and(|s| s.is_changed());
-        if !style_data.is_changed() && !marker.needs_calculate_style() && !inline_style_changed {
+    for (entity, now, then, effective_style_sheet) in &changed_data_query {
+        // If effective stylesheet was changed, it means that this part of the tree just got spawned,
+        // or the stylesheet has changed, in which case the whole tree will be recalculated.
+        if effective_style_sheet.is_changed() {
+            continue;
+        }
+        let Some(effective_style_sheet_id) = effective_style_sheet.id() else {
+            continue;
+        };
+        let Some(style_sheet) = style_sheet.get(effective_style_sheet_id) else {
+            continue;
+        };
+        let invalidation_map = &style_sheet.invalidation_map;
+
+        let changes = ElementChanges::diff(then.snapshot_data(), now);
+
+        if changes.is_empty() {
             continue;
         }
 
-        if style_data.is_changed() || inline_style_changed {
-            to_be_marked.insert(entity);
-        }
+        trace!("Changes on {entity:?}: {changes:?}");
+        let dependencies = invalidation_map.dependencies_for_change(&changes);
 
-        let flags = flags.recalculate_on_change_flags.load();
-
-        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_SIBLINGS) {
-            to_be_marked.extend(styled_children.iter_siblings(entity));
-        }
-        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
-            to_be_marked.extend(styled_children.iter_descendants(entity));
-        }
-        if flags.contains(RecalculateOnChangeFlags::RECALCULATE_ANCESTORS) {
-            to_be_marked.extend(styled_children.iter_ancestors(entity));
+        for dep in dependencies {
+            trace!("Dependency for {entity:?}: {dep:?}");
+            mark_dirty_from_dependency(dep, entity, &element_ref_builder, &mut caches, &mut dirty);
         }
     }
 
-    let mut markers_query = queries.p1();
-    for entity in to_be_marked.drain() {
-        if let Ok(mut marker) = markers_query.get_mut(entity) {
-            marker.recalculate_style();
-        }
+    if dirty.is_empty() {
+        return;
+    }
+
+    for mut marker in markers_query.iter_many_unique_mut(dirty.drain()).matched() {
+        marker.recalculate_style();
     }
 }
 
 pub(crate) fn reset_on_style_sheet_change(
     mut asset_msg_reader: MessageReader<AssetEvent<StyleSheet>>,
-    mut style_query: Query<(&EffectiveStyleSheet, &mut StyleFlags, &mut StyleMarkers)>,
+    mut style_query: Query<(&EffectiveStyleSheet, &mut ElementFlags, &mut StyleMarkers)>,
 ) {
     let mut modified_stylesheets = FxHashSet::default();
 
@@ -539,8 +536,16 @@ pub(crate) fn reset_on_style_sheet_change(
         }
 
         // TODO: Ideally we would need to reset / recalculate all descendants that might not have the same stylesheet
-        flags.reset();
+        flags.clear();
         marker.reset();
+    }
+}
+
+pub(crate) fn update_element_snapshots(
+    mut query: Query<(&ElementData, &mut ElementDataSnapshot), Changed<ElementData>>,
+) {
+    for (el, mut snapshot) in &mut query {
+        snapshot.take_snapshot_from(el);
     }
 }
 
@@ -580,7 +585,7 @@ pub(crate) fn set_animation_computed_values(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_property_values(
-    styled_children: StyledChildren,
+    iterators: ElementTreeIterators,
     property_values_copy_query: Query<&StylePropertyValuesCopy>,
     mut properties_query: Query<(NameOrEntity, &mut StyleProperties, &mut StyleMarkers)>,
     static_property_maps: Res<StaticPropertyMaps>,
@@ -619,7 +624,7 @@ pub(crate) fn compute_property_values(
             &static_property_maps,
             Some(&global_change_detection.property_values_changed_this_frame),
             || {
-                styled_children
+                iterators
                     .iter_ancestors(entity.entity)
                     .map(|ancestor| &property_values_copy_query.get(ancestor).unwrap().0)
             },
@@ -882,14 +887,14 @@ pub(crate) fn sync_em_size(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{PseudoElementsSupport, StaticPropertyMaps};
+    use crate::components::StaticPropertyMaps;
     use bevy_asset::uuid_handle;
     use bevy_ecs::message::MessageRegistry;
     use bevy_input_focus::FocusCause;
     use bevy_reflect::Reflect;
     use bevy_ui::Selected;
     use std::any::TypeId;
-    use std::assert_matches;
+
     use std::sync::{Arc, Mutex, PoisonError};
 
     #[test]
@@ -900,14 +905,14 @@ mod tests {
         schedule.add_systems(apply_classes);
 
         let entity = world
-            .spawn((ClassList::new("test"), StyleData::default()))
+            .spawn((ClassList::new("test"), ElementData::default()))
             .id();
 
         let was_data_changed_arc: Arc<Mutex<bool>> = Default::default();
 
         {
             let was_data_changed_arc_clone = Arc::clone(&was_data_changed_arc);
-            schedule.add_systems(move |query: Query<Ref<StyleData>>| {
+            schedule.add_systems(move |query: Query<Ref<ElementData>>| {
                 let changed = query.get(entity).unwrap().is_changed();
                 *was_data_changed_arc_clone
                     .lock()
@@ -923,8 +928,9 @@ mod tests {
 
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
-        assert_eq!(data.classes, vec!["test"]);
+        let data = world.entity(entity).get::<ElementData>().unwrap();
+
+        assert_eq!(&*data.classes, &["test"]);
 
         world
             .entity_mut(entity)
@@ -933,8 +939,8 @@ mod tests {
             .add("test");
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
-        assert_eq!(data.classes, vec!["test"]);
+        let data = world.entity(entity).get::<ElementData>().unwrap();
+        assert_eq!(&*data.classes, &["test"]);
 
         let mut class = world.entity_mut(entity).into_mut::<ClassList>().unwrap();
         class.add("test2");
@@ -942,8 +948,8 @@ mod tests {
         schedule.run(&mut world);
 
         assert!(is_data_changed());
-        let data = world.entity(entity).get::<StyleData>().unwrap();
-        assert_eq!(data.classes, vec!["test2"]);
+        let data = world.entity(entity).get::<ElementData>().unwrap();
+        assert_eq!(&*data.classes, &["test2"]);
 
         // No changes
         schedule.run(&mut world);
@@ -974,7 +980,7 @@ mod tests {
         let entity = world
             .spawn((
                 AttributeList::from_iter([("attr1", "value1")]),
-                StyleData::default(),
+                ElementData::default(),
             ))
             .id();
 
@@ -982,7 +988,7 @@ mod tests {
 
         {
             let was_data_changed_arc_clone = Arc::clone(&was_data_changed_arc);
-            schedule.add_systems(move |query: Query<Ref<StyleData>>| {
+            schedule.add_systems(move |query: Query<Ref<ElementData>>| {
                 let changed = query.get(entity).unwrap().is_changed();
                 *was_data_changed_arc_clone
                     .lock()
@@ -998,7 +1004,7 @@ mod tests {
 
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<ElementData>().unwrap();
         assert_eq!(data.attributes, map! {"attr1" => "value1"});
 
         world
@@ -1008,7 +1014,7 @@ mod tests {
             .set_attribute("attr2", "value2");
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<ElementData>().unwrap();
         assert_eq!(
             data.attributes,
             map! {"attr1" => "value1", "attr2" => "value2"}
@@ -1023,7 +1029,7 @@ mod tests {
         schedule.run(&mut world);
 
         assert!(is_data_changed());
-        let data = world.entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<ElementData>().unwrap();
         assert_eq!(
             data.attributes,
             map! {"attr2" => "value2", "attr3" => "value3"}
@@ -1044,39 +1050,41 @@ mod tests {
 
         schedule.add_systems(track_name_changes);
 
-        let entity = world.spawn((Name::new("Test"), StyleData::default())).id();
+        let entity = world
+            .spawn((Name::new("Test"), ElementData::default()))
+            .id();
 
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<ElementData>().unwrap();
         assert_eq!(data.id, Some("Test".into()));
 
         *world.entity_mut(entity).get_mut::<Name>().unwrap() = "TestChanged".into();
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<ElementData>().unwrap();
         assert_eq!(data.id, Some("TestChanged".into()));
 
         world.entity_mut(entity).remove::<Name>();
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<ElementData>().unwrap();
         assert_eq!(data.id, None);
 
-        let entity = world.spawn(StyleData::default()).id();
+        let entity = world.spawn(ElementData::default()).id();
 
         schedule.run(&mut world);
         world.entity_mut(entity).insert(Name::new("TestInserted"));
 
         schedule.run(&mut world);
 
-        let data = world.entity(entity).get::<StyleData>().unwrap();
+        let data = world.entity(entity).get::<ElementData>().unwrap();
         assert_eq!(data.id, Some("TestInserted".into()));
     }
 
     macro_rules! node_pseudo_state {
         ($world:ident, $entity:ident) => {
-            &$world.get::<StyleData>($entity).unwrap().pseudo_state
+            &$world.get::<ElementData>($entity).unwrap().pseudo_state
         };
     }
 
@@ -1088,33 +1096,33 @@ mod tests {
         let mut schedule = Schedule::default();
         schedule.add_systems(sync_input_focus);
 
-        let entity = world.spawn(StyleData::default()).id();
+        let entity = world.spawn(ElementData::default()).id();
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(!pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
+        assert!(!pseudo_state.contains(PseudoStateFlags::FOCUSED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::FOCUSED_AND_VISIBLE));
 
         world.insert_resource(InputFocus::from_entity(entity));
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
+        assert!(pseudo_state.contains(PseudoStateFlags::FOCUSED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::FOCUSED_AND_VISIBLE));
 
         world.insert_resource(InputFocusVisible(true));
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(pseudo_state.focused);
-        assert!(pseudo_state.focused_and_visible);
+        assert!(pseudo_state.contains(PseudoStateFlags::FOCUSED));
+        assert!(pseudo_state.contains(PseudoStateFlags::FOCUSED_AND_VISIBLE));
 
         world.resource_mut::<InputFocus>().clear();
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(!pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
+        assert!(!pseudo_state.contains(PseudoStateFlags::FOCUSED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::FOCUSED_AND_VISIBLE));
 
         world
             .resource_mut::<InputFocus>()
@@ -1123,8 +1131,8 @@ mod tests {
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(pseudo_state.focused);
-        assert!(!pseudo_state.focused_and_visible);
+        assert!(pseudo_state.contains(PseudoStateFlags::FOCUSED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::FOCUSED_AND_VISIBLE));
     }
 
     #[test]
@@ -1134,35 +1142,27 @@ mod tests {
 
         let mut schedule = Schedule::default();
         schedule.add_systems((
-            sync_marker_component_system::<Pressed>(|state, value| {
-                state.pressed = value;
-            }),
-            sync_marker_component_system::<InteractionDisabled>(|state, value| {
-                state.disabled = value;
-            }),
-            sync_marker_component_system::<Checked>(|state, value| {
-                state.checked = value;
-            }),
-            sync_marker_component_system::<Selected>(|state, value| {
-                state.checked = value;
-            }),
+            sync_marker_component_system::<Pressed>(PseudoStateFlags::PRESSED),
+            sync_marker_component_system::<InteractionDisabled>(PseudoStateFlags::DISABLED),
+            sync_marker_component_system::<Checked>(PseudoStateFlags::CHECKED),
+            sync_marker_component_system::<Selected>(PseudoStateFlags::CHECKED),
         ));
 
-        let entity = world.spawn(StyleData::default()).id();
+        let entity = world.spawn(ElementData::default()).id();
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(!pseudo_state.disabled);
-        assert!(!pseudo_state.checked);
-        assert!(!pseudo_state.pressed);
+        assert!(!pseudo_state.contains(PseudoStateFlags::DISABLED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::CHECKED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::PRESSED));
 
         world.entity_mut(entity).insert((Pressed, Checked));
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(!pseudo_state.disabled);
-        assert!(pseudo_state.checked);
-        assert!(pseudo_state.pressed);
+        assert!(!pseudo_state.contains(PseudoStateFlags::DISABLED));
+        assert!(pseudo_state.contains(PseudoStateFlags::CHECKED));
+        assert!(pseudo_state.contains(PseudoStateFlags::PRESSED));
 
         world
             .entity_mut(entity)
@@ -1171,9 +1171,9 @@ mod tests {
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(pseudo_state.disabled);
-        assert!(!pseudo_state.checked);
-        assert!(!pseudo_state.pressed);
+        assert!(pseudo_state.contains(PseudoStateFlags::DISABLED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::CHECKED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::PRESSED));
 
         world
             .entity_mut(entity)
@@ -1186,9 +1186,9 @@ mod tests {
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(pseudo_state.disabled);
-        assert!(!pseudo_state.checked);
-        assert!(pseudo_state.pressed);
+        assert!(pseudo_state.contains(PseudoStateFlags::DISABLED));
+        assert!(!pseudo_state.contains(PseudoStateFlags::CHECKED));
+        assert!(pseudo_state.contains(PseudoStateFlags::PRESSED));
     }
 
     #[test]
@@ -1199,97 +1199,23 @@ mod tests {
         let mut schedule = Schedule::default();
         schedule.add_systems(sync_hovered);
 
-        let entity = world.spawn(StyleData::default()).id();
+        let entity = world.spawn(ElementData::default()).id();
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(!pseudo_state.hovered);
+        assert!(!pseudo_state.contains(PseudoStateFlags::HOVERED));
 
         world.entity_mut(entity).insert(Hovered(true));
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(pseudo_state.hovered);
+        assert!(pseudo_state.contains(PseudoStateFlags::HOVERED));
 
         world.entity_mut(entity).insert(Hovered(false));
         schedule.run(&mut world);
 
         let pseudo_state = node_pseudo_state!(world, entity);
-        assert!(!pseudo_state.hovered);
-    }
-
-    #[test]
-    fn test_sort_pseudo_elements() {
-        let mut world = World::new();
-
-        world.register_required_components::<Node, StyleData>();
-
-        let mut schedule = Schedule::default();
-        schedule.add_systems(sort_pseudo_elements);
-
-        let mut query_state = world.query();
-
-        fn get_children<'a, const N: usize>(
-            world: &'a World,
-            root: Entity,
-            query_state: &mut QueryState<(Option<&PseudoElement>, NameOrEntity)>,
-        ) -> [(Option<PseudoElement>, &'a str); N] {
-            let children: Vec<Entity> = world
-                .entity(root)
-                .get::<Children>()
-                .expect("Children not found")
-                .iter()
-                .collect();
-
-            let query = query_state.query(world);
-            query
-                .get_many_inner(children.try_into().unwrap())
-                .unwrap()
-                .map(|(pe, name)| {
-                    (
-                        pe.copied(),
-                        name.name.as_ref().map(|n| n.as_str()).unwrap_or(""),
-                    )
-                })
-        }
-
-        let root = world
-            .spawn((
-                Node::default(),
-                PseudoElementsSupport,
-                children![(Node::default(), Name::new("Child1")),],
-            ))
-            .id();
-
-        schedule.run(&mut world);
-
-        let values: [_; 3] = get_children(&world, root, &mut query_state);
-
-        assert_matches!(
-            values.as_slice(),
-            [
-                (Some(PseudoElement::Before), _),
-                (None, "Child1"),
-                (Some(PseudoElement::After), _),
-            ]
-        );
-
-        // We insert a new child
-        world.spawn((Node::default(), Name::new("Child2"), ChildOf(root)));
-
-        schedule.run(&mut world);
-
-        let values: [_; 4] = get_children(&world, root, &mut query_state);
-
-        assert_matches!(
-            values.as_slice(),
-            [
-                (Some(PseudoElement::Before), _),
-                (None, "Child1"),
-                (None, "Child2"),
-                (Some(PseudoElement::After), _),
-            ]
-        );
+        assert!(!pseudo_state.contains(PseudoStateFlags::HOVERED));
     }
 
     #[derive(Component, ComponentProperties, Reflect, Default)]
@@ -1551,11 +1477,11 @@ mod tests {
         assert!(entity_need_reset(world, entity_4));
     }
 
-    macro_rules! style_data_is_root {
+    macro_rules! element_data_is_root {
         ($world:ident, $entity:ident) => {
             $world
-                .get::<StyleData>($entity)
-                .expect(&format!("No StyleData for {:?}", $entity))
+                .get::<ElementData>($entity)
+                .expect(&format!("No ElementData for {:?}", $entity))
                 .is_root
         };
     }
@@ -1563,6 +1489,9 @@ mod tests {
     #[test]
     fn test_calculate_is_root() {
         let mut world = World::new();
+
+        let mut schedule = Schedule::default();
+        schedule.add_systems(calculate_is_root);
 
         let node_root = world.spawn((Node::default(), Styled::Inherited)).id();
         let node_child = world
@@ -1574,30 +1503,30 @@ mod tests {
             .spawn((Styled::Inherited, ChildOf(non_node_root)))
             .id();
 
-        world.run_system_cached(calculate_is_root).unwrap();
+        schedule.run(&mut world);
 
-        assert!(style_data_is_root!(world, node_root));
-        assert!(!style_data_is_root!(world, node_child));
-        assert!(style_data_is_root!(world, non_node_root));
-        assert!(!style_data_is_root!(world, non_node_child));
+        assert!(element_data_is_root!(world, node_root));
+        assert!(!element_data_is_root!(world, node_child));
+        assert!(element_data_is_root!(world, non_node_root));
+        assert!(!element_data_is_root!(world, non_node_child));
 
         world.entity_mut(node_child).remove::<ChildOf>();
 
-        world.run_system_cached(calculate_is_root).unwrap();
+        schedule.run(&mut world);
 
-        assert!(style_data_is_root!(world, node_root));
-        assert!(style_data_is_root!(world, node_child));
+        assert!(element_data_is_root!(world, node_root));
+        assert!(element_data_is_root!(world, node_child));
 
         let new_non_node_root = world.spawn(Styled::Inherited).id();
         world
             .entity_mut(non_node_root)
             .insert(ChildOf(new_non_node_root));
 
-        world.run_system_cached(calculate_is_root).unwrap();
+        schedule.run(&mut world);
 
-        assert!(style_data_is_root!(world, new_non_node_root));
-        assert!(!style_data_is_root!(world, non_node_root));
-        assert!(!style_data_is_root!(world, non_node_child));
+        assert!(element_data_is_root!(world, new_non_node_root));
+        assert!(!element_data_is_root!(world, non_node_root));
+        assert!(!element_data_is_root!(world, non_node_child));
     }
 
     macro_rules! em_size {

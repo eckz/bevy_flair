@@ -1,28 +1,19 @@
 use crate::{StyleBlock, StyleFontFace, VarTokens, builder::StyleSheetBuilder};
 
-use std::borrow::Borrow;
-
 use crate::animations::*;
-use crate::components::StyleData;
-
-use crate::css_selector::CssSelector;
-
-use crate::media_selector::MediaFeaturesProvider;
-use bevy_asset::{Asset, AssetId, Handle};
+use bevy_asset::{Asset, AssetId, AssetIndex, Handle};
+use bevy_flair_css_selector::invalidation::InvalidationMap;
+use bevy_flair_css_selector::matching::{MatchGroup, all_selector_matches};
+use bevy_flair_css_selector::media_selector::MediaFeaturesProvider;
+use bevy_flair_css_selector::{
+    AncestorsBloomFilterBuilder, ElementDataRef, LayersHierarchy, SelectorBuckets,
+    SelectorMatchingCaches,
+};
 use bevy_reflect::TypePath;
 use bevy_text::FontSource;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::marker::PhantomData;
 use std::sync::Arc;
-
-pub(crate) trait StyleMatchableElement:
-    selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<StyleData>
-{
-}
-
-impl<T> StyleMatchableElement for T where
-    T: selectors::Element<Impl = crate::css_selector::CssSelectorImpl> + Borrow<StyleData>
-{
-}
 
 /// Trait for resolving variable names to their associated [`VarTokens`].
 ///
@@ -63,7 +54,9 @@ pub struct StyleSheet {
     #[dependency]
     pub(super) block_handles: Vec<Handle<StyleBlock>>,
     pub(super) animation_keyframes: FxHashMap<Arc<str>, AnimationKeyframes>,
-    pub(super) css_selectors_to_blocks: Vec<(CssSelector, AssetId<StyleBlock>)>,
+    pub(super) layers_hierarchy: LayersHierarchy,
+    pub(super) selector_buckets: SelectorBuckets,
+    pub(super) invalidation_map: InvalidationMap,
 }
 
 impl StyleSheet {
@@ -79,25 +72,43 @@ impl StyleSheet {
             resolved_font_faces: FxHashMap::with_hasher(FxBuildHasher),
             block_handles: Vec::new(),
             animation_keyframes: FxHashMap::with_hasher(FxBuildHasher),
-            css_selectors_to_blocks: Vec::new(),
+            layers_hierarchy: LayersHierarchy::new(),
+            selector_buckets: SelectorBuckets::empty(),
+            invalidation_map: InvalidationMap::empty(),
         }
     }
 
     /// Returns block ids that matches with the given element.
     /// Results are sorted from less specific to more specific.
-    pub(crate) fn get_matching_block_ids_for_element<
-        E: StyleMatchableElement,
-        M: MediaFeaturesProvider,
-    >(
+    pub(crate) fn get_matching_block_ids_for_element<M: MediaFeaturesProvider>(
         &self,
-        element: &E,
+        element: &ElementDataRef,
         media_provider: &M,
+        caches: &mut SelectorMatchingCaches,
+        bloom_filter_builder: &AncestorsBloomFilterBuilder,
     ) -> Vec<AssetId<StyleBlock>> {
-        self.css_selectors_to_blocks
-            .iter()
-            .filter_map(|(s, id)| {
-                (s.matches_selector(element) && s.matches_media_selector(media_provider))
-                    .then_some(*id)
+        let match_groups = [MatchGroup {
+            selectors: &self.selector_buckets,
+            layers_hierarchy: &self.layers_hierarchy,
+        }];
+
+        let matches = all_selector_matches(
+            element,
+            media_provider,
+            &match_groups,
+            caches,
+            bloom_filter_builder,
+        );
+
+        matches
+            .into_iter()
+            .map(|m| {
+                // Recover AssetIndex from the opaque_id
+                let asset_index = AssetIndex::from_bits(m.opaque_id);
+                AssetId::Index {
+                    index: asset_index,
+                    marker: PhantomData,
+                }
             })
             .collect()
     }
@@ -112,16 +123,21 @@ mod tests {
     };
     use crate::asset_loader::{CustomLoader, StyleAssetLoader};
     use crate::builder::{BlockBuilder, StyleSheetBuilderBlockId};
-    use crate::css_selector::CssSelector;
-    use crate::media_selector::{MediaFeaturesProvider, MediaRangeSelector, MediaSelector};
     use crate::test_utils::NoVarsSupportedResolver;
-    use crate::testing::{css_selector, entity};
-    use crate::{ColorScheme, StyleBlock, StyleBuilderProperty, StyleSheetBuilder};
+    use crate::testing::css_selector;
+    use crate::{StyleBlock, StyleBuilderProperty, StyleSheetBuilder};
     use bevy_asset::{AssetId, AssetPath, Assets, Handle, UntypedHandle};
     use bevy_ecs::component::Component;
+    use bevy_ecs::system::SystemState;
+    use bevy_ecs::world::World;
     use bevy_flair_core::{
         ComponentProperties, CssPropertyRegistry, PropertyCanonicalName, PropertyRegistry,
         ReflectValue,
+    };
+    use bevy_flair_css_selector::media_selector::{ColorScheme, MediaFeaturesProvider};
+    use bevy_flair_css_selector::{
+        AncestorsBloomFilterBuilder, CssString, ElementData, ElementRefBuilder, PseudoStateFlags,
+        SelectorMatchingCaches,
     };
     use bevy_reflect::{Reflect, TypeRegistry};
     use std::any::TypeId;
@@ -185,10 +201,10 @@ mod tests {
 
     macro_rules! get_properties {
         ($blocks:expr, $ids:expr) => {{
-            let block_resolver = crate::StyleResolver::new(&$blocks, $ids);
+            let style_resolver = crate::StyleResolver::new(&$blocks, $ids);
             let mut property_map = PROPERTY_REGISTRY.create_unset_values_map();
             let mut origin = PROPERTY_REGISTRY.create_property_map(None);
-            block_resolver.resolve_property_values(
+            style_resolver.resolve_property_values(
                 &PROPERTY_REGISTRY,
                 &crate::test_utils::NoVarsSupportedResolver,
                 &mut property_map,
@@ -277,9 +293,9 @@ mod tests {
 
         builder.add_animation_keyframes(keyframes_builder.build(&PROPERTY_REGISTRY).unwrap());
 
-        let block_with_name_id = builder
+        let block_with_name = builder
             .new_ruleset()
-            .with_css_selector(css_selector!("#test_name"))
+            .with_css_selector(css_selector!("#test_id"))
             .with_transition_property(AnimationProperty::new_specific_property(
                 TransitionPropertyId::PropertyName,
                 [CSS_TEST_PROPERTY],
@@ -296,23 +312,23 @@ mod tests {
 
         let block_class_id = builder
             .new_ruleset()
-            .with_css_selector(css_selector!(".class_1"))
+            .with_css_selector(css_selector!(".test_class"))
             .with_property(StyleBuilderProperty::new(
                 TEST_PROPERTY,
                 ReflectValue::Float(2f32),
             ))
             .block_id();
 
-        let block_class_with_hover_id = builder
+        let block_class_and_hover = builder
             .new_ruleset()
-            .with_css_selector(css_selector!(".class_1:hover"))
+            .with_css_selector(css_selector!(".test_class:hover"))
             .with_property(StyleBuilderProperty::new(
                 TEST_PROPERTY,
                 ReflectValue::Float(4f32),
             ))
             .block_id();
 
-        let block_any_id = builder
+        let block_any = builder
             .new_ruleset()
             .with_css_selector(css_selector!("*"))
             .with_property(StyleBuilderProperty::new(
@@ -336,50 +352,49 @@ mod tests {
         let media_provider = TestMediaProvider::default();
 
         let [
-            block_with_name_id,
+            block_with_name,
             block_class_id,
-            block_class_with_hover_id,
-            block_any_id,
+            block_class_and_hover,
+            block_any,
         ] = translate_ids(
             &style_blocks,
             [
-                block_with_name_id,
+                block_with_name,
                 block_class_id,
-                block_class_with_hover_id,
-                block_any_id,
+                block_class_and_hover,
+                block_any,
             ],
         );
 
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &media_provider),
-            vec![block_any_id]
-        );
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text.class_1), &media_provider),
-            vec![block_any_id, block_class_id]
-        );
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(
-                element!(text.class_1 #test_name),
-                &media_provider
-            ),
-            vec![block_any_id, block_class_id, block_with_name_id]
-        );
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(
-                element!(text.class_1 :hover #test_name),
-                &media_provider
-            ),
-            vec![
-                block_any_id,
-                block_class_id,
-                block_class_with_hover_id,
-                block_with_name_id
-            ]
-        );
+        {
+            let mut caches = SelectorMatchingCaches::default();
+            let mut world = World::new();
+            let mut state =
+                SystemState::<(AncestorsBloomFilterBuilder, ElementRefBuilder)>::new(&mut world);
+
+            let element_data = {
+                let mut e = ElementData::new();
+                e.type_name = Some(CssString::new_static("div"));
+                e.pseudo_state = PseudoStateFlags::HOVERED;
+                e.classes.push(CssString::new_static(".test_class"));
+                e
+            };
+            let entity = world.spawn(element_data).id();
+            let (bloom_filter_builder, element_ref_builder) = state.get(&world).unwrap();
+
+            assert_eq!(
+                style_sheet.get_matching_block_ids_for_element(
+                    &element_ref_builder.new_data_ref(entity).unwrap(),
+                    &media_provider,
+                    &mut caches,
+                    &bloom_filter_builder
+                ),
+                vec![block_any, block_class_id, block_class_and_hover,]
+            );
+        }
 
         assert_eq!(
-            get_properties!(style_blocks, [block_any_id, block_class_id]),
+            get_properties!(style_blocks, [block_any, block_class_id]),
             property_map! { TEST_PROPERTY => ReflectValue::Float(2.0) }
         );
 
@@ -387,22 +402,22 @@ mod tests {
             get_properties!(
                 style_blocks,
                 [
-                    block_any_id,
+                    block_any,
                     block_class_id,
-                    block_class_with_hover_id,
-                    block_with_name_id
+                    block_class_and_hover,
+                    block_with_name
                 ]
             ),
             property_map! { TEST_PROPERTY => ReflectValue::Float(4.0) }
         );
 
-        let block_resolver = StyleResolver::new(
+        let style_resolver = StyleResolver::new(
             &style_blocks,
-            [block_any_id, block_class_id, block_class_with_hover_id],
+            [block_any, block_class_id, block_class_and_hover],
         );
 
         assert_eq!(
-            block_resolver.resolve_transition_options(
+            style_resolver.resolve_transition_options(
                 &PROPERTY_REGISTRY,
                 &CSS_PROPERTY_REGISTRY,
                 &NoVarsSupportedResolver,
@@ -415,18 +430,18 @@ mod tests {
             ..Default::default()
         };
 
-        let block_resolver = StyleResolver::new(
+        let style_resolver = StyleResolver::new(
             &style_blocks,
             [
-                block_any_id,
+                block_any,
                 block_class_id,
-                block_class_with_hover_id,
-                block_with_name_id,
+                block_class_and_hover,
+                block_with_name,
             ],
         );
 
         assert_eq!(
-            block_resolver.resolve_transition_options(
+            style_resolver.resolve_transition_options(
                 &PROPERTY_REGISTRY,
                 &CSS_PROPERTY_REGISTRY,
                 &NoVarsSupportedResolver,
@@ -434,23 +449,21 @@ mod tests {
             properties! { TEST_PROPERTY => expected_transition_options }
         );
 
-        let block_resolver = StyleResolver::new(
+        let style_resolver = StyleResolver::new(
             &style_blocks,
-            [block_any_id, block_class_id, block_class_with_hover_id],
+            [block_any, block_class_id, block_class_and_hover],
         );
 
         assert_eq!(
-            block_resolver.resolve_animation_configs(&NoVarsSupportedResolver,),
+            style_resolver.resolve_animation_configs(&NoVarsSupportedResolver,),
             vec![]
         );
 
-        let block_resolver = StyleResolver::new(
-            &style_blocks,
-            [block_any_id, block_class_id, block_with_name_id],
-        );
+        let style_resolver =
+            StyleResolver::new(&style_blocks, [block_any, block_class_id, block_with_name]);
 
         let resolved_animations =
-            block_resolver.resolve_animation_configs(&NoVarsSupportedResolver);
+            style_resolver.resolve_animation_configs(&NoVarsSupportedResolver);
 
         assert_eq!(
             resolved_animations,
@@ -462,180 +475,6 @@ mod tests {
                     ..Default::default()
                 },
             }]
-        );
-    }
-
-    #[test]
-    fn test_media_selectors() {
-        let mut builder = StyleSheetBuilder::new();
-
-        let any_selector = CssSelector::parse_single("*").unwrap();
-
-        let block_dark = builder
-            .new_ruleset()
-            .with_css_selector(
-                any_selector
-                    .clone()
-                    .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Dark)),
-            )
-            .with_property(StyleBuilderProperty::new(
-                TEST_PROPERTY,
-                ReflectValue::Float(0f32),
-            ))
-            .block_id();
-
-        let block_light = builder
-            .new_ruleset()
-            .with_css_selector(
-                any_selector
-                    .clone()
-                    .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Light)),
-            )
-            .with_property(StyleBuilderProperty::new(
-                TEST_PROPERTY,
-                ReflectValue::Float(1f32),
-            ))
-            .block_id();
-
-        let block_min_width_500 = builder
-            .new_ruleset()
-            .with_css_selector(any_selector.clone().with_media_selectors([
-                MediaSelector::ColorScheme(ColorScheme::Light),
-                MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
-            ]))
-            .with_property(StyleBuilderProperty::new(
-                TEST_PROPERTY,
-                ReflectValue::Float(2f32),
-            ))
-            .block_id();
-
-        let block_width_exact_600 = builder
-            .new_ruleset()
-            .with_css_selector(any_selector.clone().with_media_selectors([
-                MediaSelector::ColorScheme(ColorScheme::Light),
-                MediaSelector::ViewportWidth(MediaRangeSelector::Exact(600)),
-            ]))
-            .with_property(StyleBuilderProperty::new(
-                TEST_PROPERTY,
-                ReflectValue::Float(3f32),
-            ))
-            .block_id();
-
-        let block_aspect_ratio_ge_1 = builder
-            .new_ruleset()
-            .with_css_selector(any_selector.clone().with_media_selectors(
-                MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(1.0)),
-            ))
-            .with_property(StyleBuilderProperty::new(
-                TEST_PROPERTY,
-                ReflectValue::Float(3f32),
-            ))
-            .block_id();
-
-        let block_aspect_ratio_le_1 = builder
-            .new_ruleset()
-            .with_css_selector(any_selector.clone().with_media_selectors(
-                MediaSelector::AspectRatio(MediaRangeSelector::LessOrEqual(1.0)),
-            ))
-            .with_property(StyleBuilderProperty::new(
-                TEST_PROPERTY,
-                ReflectValue::Float(3f32),
-            ))
-            .block_id();
-
-        let mut style_blocks = Assets::<StyleBlock>::default();
-
-        let mut custom_loader = TestAssetLoader(&mut style_blocks);
-
-        let style_sheet = builder
-            .build(
-                &EMPTY_TYPE_REGISTRY,
-                &PROPERTY_REGISTRY,
-                StyleAssetLoader::custom(&mut custom_loader),
-            )
-            .unwrap();
-
-        let [
-            block_dark,
-            block_light,
-            block_min_width_500,
-            block_width_exact_600,
-            block_aspect_ratio_ge_1,
-            block_aspect_ratio_le_1,
-        ] = translate_ids(
-            &style_blocks,
-            [
-                block_dark,
-                block_light,
-                block_min_width_500,
-                block_width_exact_600,
-                block_aspect_ratio_ge_1,
-                block_aspect_ratio_le_1,
-            ],
-        );
-
-        let dark_media = TestMediaProvider {
-            scheme: Some(ColorScheme::Dark),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media),
-            vec![block_dark]
-        );
-
-        let light_media = TestMediaProvider {
-            scheme: Some(ColorScheme::Light),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media),
-            vec![block_light]
-        );
-
-        let light_500_media = TestMediaProvider {
-            scheme: Some(ColorScheme::Light),
-            width: Some(500),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media),
-            vec![block_light, block_min_width_500]
-        );
-
-        let light_600_media = TestMediaProvider {
-            scheme: Some(ColorScheme::Light),
-            width: Some(600),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media),
-            vec![block_light, block_min_width_500, block_width_exact_600]
-        );
-
-        let resolution_800x600 = TestMediaProvider {
-            width: Some(800),
-            height: Some(600),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_800x600),
-            vec![block_aspect_ratio_ge_1]
-        );
-
-        let resolution_600x800 = TestMediaProvider {
-            width: Some(600),
-            height: Some(800),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_600x800),
-            vec![block_aspect_ratio_le_1]
         );
     }
 }

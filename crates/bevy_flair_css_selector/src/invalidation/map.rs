@@ -1,11 +1,12 @@
 use crate::invalidation::{ElementChanges, collect_dependencies};
 use crate::pseudo_state::PseudoStateFlags;
 use crate::selector::{CssSelector, CssSelectorImpl};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use selectors::parser::{Combinator, Component, Selector};
 use smol_str::SmolStr;
 use std::sync::Arc;
 
+/// Relationship between an element and the selector dependency that may need invalidation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum CombinatorKind {
     Element,
@@ -82,25 +83,54 @@ impl CombinatorKind {
     }
 }
 
-#[derive(Debug)]
+/// A selector dependency used to determine which elements may need
+/// re-evaluation after an element changes.
+/// The dependency points to the specific part of a selector that may cause the re-evaluation.
+#[derive(Debug, Clone)]
 pub struct Dependency {
     pub(crate) selector: Selector<CssSelectorImpl>,
-    pub(crate) offset: usize,                 // compound start, as above
-    pub(crate) next: Option<Arc<Dependency>>, // only used inside :is()/:where()
+    // Where does the compound start on the selector above
+    pub(crate) offset: usize,
+    // Used inside :is()/:where() to point to the external dependency
+    pub(crate) next: Option<Arc<Dependency>>,
     pub(crate) contains_nth_of: bool,
-    pub(crate) kind: CombinatorKind, // derived from combinator at offset-1
+    pub(crate) kind: CombinatorKind,
 }
 
-#[derive(Default)]
+/// Index of selectors that can trigger an invalidation.
+///
+/// Each selector is indexed from its relative parts,
+/// for example, for `.parent > .child`, two different dependencies are created:
+///
+/// ```text
+/// .parent => Dependency { offset: 2, kind: Children }
+/// .child  => Dependency { offset: 0, kind: Element }
+/// ```
+///
+/// This way, if an element adds or remove the `parent` class, we can quickly identify that children of that element might need
+/// to be reevaluated.
+///
+/// Only four different type of changes are indexed, classes, ID's, attributes and pseudo-state (Like `:hover`).
+#[derive(Debug, Clone, Default)]
 pub struct InvalidationMap {
-    pub by_class: FxHashMap<SmolStr, Vec<Dependency>>,
-    pub by_id: FxHashMap<SmolStr, Vec<Dependency>>,
-    pub by_attr: FxHashMap<SmolStr, Vec<Dependency>>,
-    pub by_state: Vec<(PseudoStateFlags, Dependency)>,
+    pub(crate) by_class: FxHashMap<SmolStr, Vec<Dependency>>,
+    pub(crate) by_id: FxHashMap<SmolStr, Vec<Dependency>>,
+    pub(crate) by_attr: FxHashMap<SmolStr, Vec<Dependency>>,
+    pub(crate) by_state: Vec<(PseudoStateFlags, Dependency)>,
 }
 
 impl InvalidationMap {
-    pub fn build(selectors: &[CssSelector]) -> InvalidationMap {
+    /// Creates an empty invalidation map.
+    pub const fn empty() -> Self {
+        Self {
+            by_class: FxHashMap::with_hasher(FxBuildHasher),
+            by_id: FxHashMap::with_hasher(FxBuildHasher),
+            by_attr: FxHashMap::with_hasher(FxBuildHasher),
+            by_state: Vec::new(),
+        }
+    }
+    /// Builds the invalidation map from a supplied list of selectors.
+    pub fn build<'a>(selectors: impl Iterator<Item = &'a CssSelector>) -> InvalidationMap {
         let mut map = InvalidationMap::default();
         for s in selectors {
             collect_dependencies(&s.selector, &mut map);
@@ -138,6 +168,7 @@ impl InvalidationMap {
         }
     }
 
+    /// Returns dependencies that may be affected by the specified element changes.
     pub fn dependencies_for_change<'a>(&'a self, changes: &ElementChanges) -> Vec<&'a Dependency> {
         let mut out = Vec::new();
         if !changes.is_empty() {
@@ -177,7 +208,7 @@ mod tests {
 
     fn build_map(css: impl IntoIterator<Item = &'static str>) -> InvalidationMap {
         let selectors: Vec<_> = css.into_iter().map(selector).collect();
-        let map = InvalidationMap::build(&selectors);
+        let map = InvalidationMap::build(selectors.iter());
         assert_offsets_valid(&map);
         map
     }

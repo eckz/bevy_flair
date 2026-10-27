@@ -31,7 +31,8 @@ impl SelectorImpl for CssSelectorImpl {
 /// Represents a single selector, i.e. a comma-separated list of selectors would be a `Vec<CssSelector>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssSelector {
-    pub(crate) layer: Arc<str>,
+    /// Layer defined for this selector
+    pub layer: Arc<str>,
     pub(crate) media_selectors: MediaSelectors,
     pub(crate) selector: Selector<CssSelectorImpl>,
     ancestor_hashes: AncestorHashes,
@@ -145,7 +146,7 @@ impl CssSelector {
         Ok(single)
     }
 
-    pub fn ancestor_hashes(&self) -> Option<&AncestorHashes> {
+    pub(crate) fn ancestor_hashes(&self) -> Option<&AncestorHashes> {
         let ah = &self.ancestor_hashes;
         (ah.packed_hashes != [0; 3]).then_some(ah)
     }
@@ -284,13 +285,19 @@ impl CssSelector {
 
 impl cssparser::ToCss for CssSelector {
     fn to_css<W: Write>(&self, dest: &mut W) -> Result<(), std::fmt::Error> {
-        cssparser::ToCss::to_css(&self.selector, dest)
+        if !self.media_selectors.is_empty() {
+            cssparser::ToCss::to_css(&self.media_selectors, dest)?;
+            dest.write_str("{ ")?;
+            cssparser::ToCss::to_css(&self.selector, dest)?;
+            dest.write_str(" }")
+        } else {
+            cssparser::ToCss::to_css(&self.selector, dest)
+        }
     }
 }
 
 impl Display for CssSelector {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // TODO: media selector ToCss
         cssparser::ToCss::to_css(self, f)
     }
 }

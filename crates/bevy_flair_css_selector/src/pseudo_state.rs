@@ -8,16 +8,23 @@ bitflags! {
     /// Represents the current pseudo state of an element.
     #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
     pub struct PseudoStateFlags: usize {
+        /// If the element is pressed (`:active`)
         const PRESSED = 0b000001;
+        /// If the element is hovered (`:hover`)
         const HOVERED = 0b000010;
+        /// If the element is focused (`:focus`)
         const FOCUSED = 0b000100;
+        /// If the element is focused and the focus indicator is visible  (`:focus-visible`)
         const FOCUSED_AND_VISIBLE = 0b001000;
+        /// If the element is disabled (`:disabled`)
         const DISABLED = 0b010000;
+        /// If the element is checked (`:checked`)
         const CHECKED = 0b100000;
     }
 }
 
 impl PseudoStateFlags {
+    /// Returns whether these flags include the state represented by `selector`.
     pub fn matches(&self, selector: PseudoStateSelector) -> bool {
         self.contains(selector.into_single_flag())
     }
@@ -30,21 +37,22 @@ impl PseudoStateFlags {
 /// Helper class that can be used to match against a node state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PseudoStateSelector {
-    /// If the entity is pressed (`:active`)
+    /// If the element is pressed (`:active`)
     Pressed,
-    /// If the entity is hovered (`:hover`)
+    /// If the element is hovered (`:hover`)
     Hovered,
-    /// If the entity is focused (`:focus`)
+    /// If the element is focused (`:focus`)
     Focused,
-    /// If the entity is focused and the focus indicator is visible  (`:focus-visible`)
+    /// If the element is focused and the focus indicator is visible  (`:focus-visible`)
     FocusedAndVisible,
-    /// If the entity is disabled (`:disabled`)
+    /// If the element is disabled (`:disabled`)
     Disabled,
-    /// If the entity is checked (`:checked`)
+    /// If the element is checked (`:checked`)
     Checked,
 }
 
 impl PseudoStateSelector {
+    /// Converts self into a single flag of [`PseudoStateFlags`] type.
     pub fn into_single_flag(self) -> PseudoStateFlags {
         match self {
             Self::Pressed => PseudoStateFlags::PRESSED,

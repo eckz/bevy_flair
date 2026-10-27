@@ -6,18 +6,12 @@ use std::fmt::{Display, Formatter, Write};
 use std::hash::BuildHasher;
 use std::ops::Deref;
 
-// TODO: what to do with these?
-//pub type IdName = std::borrow::Cow<'static, str>;
-//pub type ClassName = std::borrow::Cow<'static, str>;
-//pub type AttributeKey = std::borrow::Cow<'static, str>;
-//pub type AttributeValue = std::borrow::Cow<'static, str>;
-
 fn hash_32(value: &str) -> u32 {
     FxBuildHasher.hash_one(value) as u32
 }
 
 #[derive(Clone, Default, Debug)]
-pub(crate) struct CssString(pub(crate) SmolStr, u32);
+pub struct CssString(pub(crate) SmolStr, u32);
 
 impl CssString {
     pub fn new(s: impl AsRef<str>) -> Self {
@@ -25,7 +19,6 @@ impl CssString {
         Self(SmolStr::new(s), hash_32(s))
     }
 
-    #[cfg(test)]
     pub fn new_static(s: &'static str) -> Self {
         Self(SmolStr::new_static(s), hash_32(s))
     }
@@ -83,9 +76,9 @@ impl PartialEq<str> for CssString {
     }
 }
 
-impl<'a, T: AsRef<str>> PartialEq<&'a T> for CssString {
-    fn eq(&self, other: &&'a T) -> bool {
-        self.0.as_str() == other.as_ref()
+impl PartialEq<&str> for CssString {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
     }
 }
 
@@ -112,7 +105,7 @@ pub(crate) enum CssNever {}
 
 impl cssparser::ToCss for CssNever {
     fn to_css<W: Write>(&self, _dest: &mut W) -> std::fmt::Result {
-        unreachable!("to_css")
+        unreachable!("CssNever::to_css")
     }
 }
 

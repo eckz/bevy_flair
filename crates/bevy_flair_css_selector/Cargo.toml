@@ -11,8 +11,7 @@ rust-version = "1.96.0"
 
 [lints.rust]
 unsafe_code = "forbid"
-## TODO: CHANGE TO "warn"
-missing_docs = "allow"
+missing_docs = "warn"
 
 [lints.clippy]
 print_stdout = "warn"

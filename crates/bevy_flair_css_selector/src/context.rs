@@ -12,6 +12,11 @@ pub struct SelectorMatchingCaches {
 }
 
 impl SelectorMatchingCaches {
+    pub fn clear(&mut self) {
+        self.selector_caches = SelectorCaches::default();
+        self.bloom_filter_cache.clear();
+    }
+
     pub(crate) fn create_matching_context(
         &mut self,
         add_bloom_filter: bool,

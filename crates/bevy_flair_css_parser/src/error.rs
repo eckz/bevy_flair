@@ -2,7 +2,7 @@ use ariadne::*;
 use std::sync::Arc;
 
 use crate::{Spanned, SpannedStr};
-use bevy_flair_style::css_selector::SelectorErrorKind;
+
 use cssparser::{
     BasicParseError, BasicParseErrorKind, ParseError, ParseErrorKind, SourceLocation, ToCss, Token,
 };
@@ -176,10 +176,10 @@ impl From<BasicParseError> for StyleErrorData {
 impl From<SelectorParseErrorKind> for StyleErrorData {
     fn from(kind: SelectorParseErrorKind) -> Self {
         let code = crate::error_codes::basic::INVALID_SELECTOR;
-        let selector_error = SelectorErrorKind::Selector(kind);
         Self {
             code,
-            annotated_message: selector_error.to_string().into(),
+            // TODO: Improve this message
+            annotated_message: format!("{kind:?}").into(),
         }
     }
 }

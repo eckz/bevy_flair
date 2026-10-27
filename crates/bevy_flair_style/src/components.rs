@@ -8,31 +8,31 @@ pub use properties::*;
 
 use std::borrow::Cow;
 
-use crate::{
-    AttributeKey, AttributeValue, ClassName, ColorScheme, IdName, NodePseudoState,
-    NodePseudoStateSelector, StyleBlock, StyleSheet, VarTokens,
-};
+use crate::{StyleBlock, StyleSheet, VarTokens};
 
 use bevy_ecs::prelude::*;
 use bevy_flair_core::{ComponentPropertyId, CssPropertyRegistry, PropertyRegistry};
 use bevy_reflect::prelude::*;
-use bitflags::bitflags;
 
 use bevy_asset::{AssetId, AssetServer, Handle, UntypedAssetId};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::system::SystemParam;
 use bevy_ecs::world::DeferredWorld;
-use bevy_text::TextSpan;
-use bevy_ui::widget::Text;
-use bevy_ui::{Display, Node};
+
 use bevy_window::Window;
 use derive_more::{Deref, DerefMut};
 use itertools::Itertools;
 use std::convert::Infallible;
 use std::str::FromStr;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, atomic};
+
+use bevy_flair_css_selector::media_selector::ColorScheme;
+use bevy_flair_css_selector::{ElementData, ElementFlags};
+use std::sync::Arc;
 use tracing::{trace, warn};
+
+pub(crate) type ClassName = Cow<'static, str>;
+pub(crate) type AttributeKey = Cow<'static, str>;
+pub(crate) type AttributeValue = Cow<'static, str>;
 
 /// Stores the active style rules that apply to an entity.
 ///
@@ -62,87 +62,15 @@ pub(crate) struct WindowMediaFeatures {
 
 impl WindowMediaFeatures {
     pub fn from_window(window: &Window) -> Self {
-        let color_scheme = window.window_theme.map(Into::into);
+        fn window_theme_into_color_scheme(theme: bevy_window::WindowTheme) -> ColorScheme {
+            match theme {
+                bevy_window::WindowTheme::Light => ColorScheme::Light,
+                bevy_window::WindowTheme::Dark => ColorScheme::Dark,
+            }
+        }
+
+        let color_scheme = window.window_theme.map(window_theme_into_color_scheme);
         Self { color_scheme }
-    }
-}
-
-bitflags! {
-    #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
-    pub(crate) struct RecalculateOnChangeFlags: usize {
-        const RECALCULATE_SIBLINGS = 0b001;
-        const RECALCULATE_DESCENDANTS = 0b010;
-        const RECALCULATE_ANCESTORS = 0b100;
-    }
-}
-
-bitflags! {
-    #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
-    pub(crate) struct DependsOnMediaFeaturesFlags: usize {
-        const DEPENDS_ON_COMPUTE_TARGET_INFO = 0b01;
-        const DEPENDS_ON_WINDOW = 0b10;
-    }
-}
-
-#[derive(Reflect)]
-#[reflect(Debug, Default)]
-pub(crate) struct AtomicFlags<T: bitflags::Flags<Bits = usize>> {
-    value: atomic::AtomicUsize,
-    #[reflect(ignore)]
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T: bitflags::Flags<Bits = usize>> std::fmt::Debug for AtomicFlags<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug_tuple = f.debug_tuple(std::any::type_name::<T>());
-        let flags = self.load();
-        for (name, _) in flags.iter_names() {
-            debug_tuple.field(&name);
-        }
-        debug_tuple.finish()
-    }
-}
-
-impl<T: bitflags::Flags<Bits = usize>> Default for AtomicFlags<T> {
-    fn default() -> Self {
-        Self {
-            value: atomic::AtomicUsize::new(0),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<T: bitflags::Flags<Bits = usize>> AtomicFlags<T> {
-    pub fn load(&self) -> T {
-        T::from_bits_truncate(self.value.load(Ordering::Relaxed))
-    }
-
-    /// Whether all set bits in a source flags value are also set in a target flags value.
-    pub fn contains(&self, other: T) -> bool {
-        self.load().contains(other)
-    }
-
-    /// Whether any set bits in a source flags value are also set in a target flags value.
-    pub fn intersects(&self, other: T) -> bool {
-        self.load().intersects(other)
-    }
-
-    /// The bitwise or (`|`) of the bits in two flags values.
-    pub fn insert(&self, value: T) {
-        self.value.fetch_or(value.bits(), Ordering::Relaxed);
-    }
-}
-
-#[derive(Debug, Default, Component)]
-pub(crate) struct StyleFlags {
-    pub(crate) css_selector_flags: AtomicFlags<selectors::matching::ElementSelectorFlags>,
-    pub(crate) recalculate_on_change_flags: AtomicFlags<RecalculateOnChangeFlags>,
-    pub(crate) depends_on_media_flags: AtomicFlags<DependsOnMediaFeaturesFlags>,
-}
-
-impl StyleFlags {
-    pub fn reset(&mut self) {
-        *self = Default::default();
     }
 }
 
@@ -155,76 +83,11 @@ pub(crate) enum EffectiveStyleSheet {
 }
 
 impl EffectiveStyleSheet {
-    #[cfg(test)]
     pub(crate) fn id(&self) -> Option<AssetId<StyleSheet>> {
         match self {
             EffectiveStyleSheet::Handle(handle) => Some(handle.id()),
             EffectiveStyleSheet::None => None,
         }
-    }
-}
-
-/// Gathers all data needed to calculate styles.
-/// Selectors will use this struct to decide if the entity is a match or not.
-#[derive(Debug, Clone, Default, Component, Reflect)]
-#[reflect(Debug, Clone, Default, Component)]
-pub struct StyleData {
-    // Data use for calculate style
-    pub(crate) is_root: bool,
-    pub(crate) id: Option<IdName>,
-    pub(crate) classes: Vec<ClassName>,
-    pub(crate) attributes: std::collections::HashMap<AttributeKey, AttributeValue>,
-
-    pub(crate) type_name: Option<&'static str>,
-    pub(crate) pseudo_state: NodePseudoState,
-    pub(crate) is_pseudo_element: Option<PseudoElement>,
-}
-
-impl StyleData {
-    /// Indicates if this entity is a root. Mainly used to match against: `:root` selectors.
-    pub fn is_root(&self) -> bool {
-        self.is_root
-    }
-
-    /// Gets the id of the current entity, if one is defined.
-    pub fn get_id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
-    /// Returns true if this entity has the specified class.
-    pub fn has_class(&self, class: &str) -> bool {
-        self.classes.iter().any(|c| c == class)
-    }
-
-    /// Returns all active classes for the current entity.
-    pub fn active_classes(&self) -> &[ClassName] {
-        &self.classes
-    }
-
-    /// Gets the value of the specified attribute key, if one is defined.
-    pub fn get_type_name(&self) -> Option<&str> {
-        self.type_name
-    }
-
-    /// Returns true if current entity identifies with the following type.
-    /// How the type of entity is assigned depends on the [`TypeName`] component.
-    pub fn has_type_name(&self, type_name: &str) -> bool {
-        self.type_name == Some(type_name)
-    }
-
-    /// If the current entity matches the given [`NodePseudoState`].
-    pub fn matches_pseudo_state(&self, selector: NodePseudoStateSelector) -> bool {
-        self.pseudo_state.matches(selector)
-    }
-
-    /// Gets the entity's current  [`NodePseudoState`].
-    pub fn get_pseudo_state(&self) -> NodePseudoState {
-        self.pseudo_state
-    }
-
-    /// Mutates the current [`NodePseudoState`].
-    pub fn get_pseudo_state_mut(&mut self) -> &mut NodePseudoState {
-        &mut self.pseudo_state
     }
 }
 
@@ -259,9 +122,9 @@ impl StyleData {
 #[reflect(Debug, Default, Component)]
 #[require(
     EffectiveStyleSheet,
-    StyleData,
+    ElementData,
+    ElementFlags,
     StyleActiveBlocks,
-    StyleFlags,
     StyleMarkers,
     StyleVars,
     StyleProperties
@@ -384,88 +247,19 @@ impl TypeName {
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
         let new_type_name = world.get::<TypeName>(entity).unwrap().0;
-        let Some(mut style_data) = world.get_mut::<StyleData>(entity) else {
-            panic!("TypeName inserted on an entity without StyleData");
+        let Some(mut style_data) = world.get_mut::<ElementData>(entity) else {
+            warn!("TypeName inserted on an entity without ElementData");
+            return;
         };
 
-        if let Some(type_name) = style_data.type_name {
-            panic!(
-                "Error setting type name to '{new_type_name}' on entity {entity:?} because it already has type name '{type_name}'"
+        if let Some(type_name) = &style_data.type_name {
+            warn!(
+                "Cannot set type name to '{new_type_name}' on entity {entity:?} because it already has type name '{type_name}'"
             );
+            return;
         }
         trace!("{entity}.localName = {new_type_name}");
-        style_data.type_name = Some(new_type_name);
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Component, Reflect)]
-#[reflect(Debug, Clone, PartialEq, Component)]
-#[component(immutable, on_insert)]
-pub(crate) enum PseudoElement {
-    /// First child of the element
-    Before,
-    /// Last child of the element
-    After,
-}
-
-impl PseudoElement {
-    fn on_insert(mut world: DeferredWorld, context: HookContext) {
-        let entity = context.entity;
-        let new_pseudo_element = *world.get::<PseudoElement>(entity).unwrap();
-        let mut style_data = world
-            .get_mut::<StyleData>(entity)
-            .expect("PseudoElement without StyleData");
-
-        style_data.is_pseudo_element = Some(new_pseudo_element);
-    }
-}
-
-/// Adds support for both ::before and ::after pseudo-elements.
-/// This works different depending on if the element is a block or text entity.
-///
-/// Text entities are the ones that have the [`Text`] or [`TextSpan`] components.
-/// Block entities need to have a [`Node`] component.
-///
-/// If it's a block entity, two hidden [`Node`] are inserted as a child.
-/// If it's a text entity, two [`TextSpan`] with no text are inserted as a child.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Component, Reflect)]
-#[reflect(Debug, Clone, PartialEq, Default, Component)]
-#[component(immutable, on_insert)]
-pub struct PseudoElementsSupport;
-
-impl PseudoElementsSupport {
-    fn on_insert(mut world: DeferredWorld, context: HookContext) {
-        let entity = context.entity;
-        let (entities, mut commands) = world.entities_and_commands();
-
-        let entity_ref = entities.get(entity).unwrap();
-        if entity_ref.contains::<Text>() || entity_ref.contains::<TextSpan>() {
-            commands.spawn((ChildOf(entity), PseudoElement::Before, TextSpan::default()));
-            commands.spawn((ChildOf(entity), PseudoElement::After, TextSpan::default()));
-        } else if entity_ref.contains::<Node>() {
-            commands.spawn((
-                ChildOf(entity),
-                PseudoElement::Before,
-                StyleData::default(),
-                Node {
-                    display: Display::None,
-                    ..Node::DEFAULT
-                },
-            ));
-            commands.spawn((
-                ChildOf(entity),
-                PseudoElement::After,
-                StyleData::default(),
-                Node {
-                    display: Display::None,
-                    ..Node::DEFAULT
-                },
-            ));
-        } else {
-            warn!(
-                "Entity {entity:?} does is not a Node, Text or TextSpan so it cannot support pseudo elements"
-            );
-        }
+        style_data.type_name = Some(new_type_name.into());
     }
 }
 
@@ -664,50 +458,26 @@ impl From<&RawInlineStyle> for UntypedAssetId {
 
 #[cfg(test)]
 mod tests {
-    use super::{PseudoElement, PseudoElementsSupport, StyleData, TypeName};
+    use super::TypeName;
     use bevy_ecs::component::Component;
-    use bevy_ecs::entity::Entity;
-    use bevy_ecs::hierarchy::Children;
     use bevy_ecs::world::World;
+    use bevy_flair_css_selector::ElementData;
     use bevy_reflect::Reflect;
-    use bevy_ui::Node;
 
     #[derive(Copy, Clone, Component, Reflect)]
-    #[require(StyleData, TypeName("custom-type"))]
+    #[require(ElementData, TypeName("custom-type"))]
     struct ComponentWithCustomType;
 
     #[test]
     fn test_custom_type_name() {
         let mut world = World::new();
         let entity = world.spawn(ComponentWithCustomType).id();
-        let type_name = world.get::<StyleData>(entity).unwrap().type_name;
-        assert_eq!(type_name, Some("custom-type"));
-    }
-
-    #[test]
-    fn test_pseudo_element_support() {
-        let mut world = World::new();
-        let entity = world.spawn((Node::default(), PseudoElementsSupport)).id();
-
-        let children = world.get::<Children>(entity).expect("No children");
-        let [before, after]: [Entity; 2] = (&**children).try_into().expect("Expected 2 children");
-
-        assert_eq!(
-            world.get::<PseudoElement>(before).copied(),
-            Some(PseudoElement::Before)
-        );
-        assert_eq!(
-            world.get::<StyleData>(before).unwrap().is_pseudo_element,
-            Some(PseudoElement::Before)
-        );
-
-        assert_eq!(
-            world.get::<PseudoElement>(after).copied(),
-            Some(PseudoElement::After)
-        );
-        assert_eq!(
-            world.get::<StyleData>(after).unwrap().is_pseudo_element,
-            Some(PseudoElement::After)
-        );
+        let type_name = world
+            .get::<ElementData>(entity)
+            .unwrap()
+            .type_name
+            .as_ref()
+            .unwrap();
+        assert_eq!(type_name, "custom-type");
     }
 }

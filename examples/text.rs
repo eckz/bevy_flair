@@ -24,7 +24,7 @@ fn demo_section(label: impl Into<String>, children: impl SceneList) -> Box<dyn S
 
 fn a(contents: &'static str) -> impl Scene {
     bsn! {
-        PseudoElementsSupport
+        // PseudoElementsSupport
         TypeName("a")
         Hovered
         Text

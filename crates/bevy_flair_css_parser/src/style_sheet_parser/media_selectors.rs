@@ -1,5 +1,6 @@
 use crate::{CssError, CssParser, SpannedStr, error_codes};
-use bevy_flair_style::{ColorScheme, MediaRangeSelector, MediaSelector, MediaSelectors};
+
+use bevy_flair_css_selector::media_selector::*;
 use cssparser::{Token, match_ignore_ascii_case};
 
 fn parse_size(parser: &mut CssParser) -> Result<u32, CssError> {
@@ -154,7 +155,8 @@ pub(super) fn parse_media_selectors(parser: &mut CssParser) -> Result<MediaSelec
 mod tests {
     use super::super::tests::*;
     use crate::style_sheet_parser::CssDeclaration;
-    use bevy_flair_style::{ColorScheme, MediaRangeSelector, MediaSelector, ToCss};
+    use bevy_flair_css_selector::media_selector::*;
+    use cssparser::ToCss;
     use indoc::indoc;
 
     #[test]

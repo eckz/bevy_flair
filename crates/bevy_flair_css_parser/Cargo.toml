@@ -42,6 +42,7 @@ bevy_ui = { workspace = true }
 
 bevy_flair_core = { workspace = true }
 bevy_flair_style = { workspace = true }
+bevy_flair_css_selector = { workspace = true }
 
 cssparser = { workspace = true }
 cssparser-color = { workspace = true }

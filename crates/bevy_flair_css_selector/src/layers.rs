@@ -1,23 +1,5 @@
 use std::sync::Arc;
 
-trait DebugOptionExt<T> {
-    fn debug_unwrap_or_else(self, f: impl FnOnce() -> T) -> T;
-}
-
-impl<T> DebugOptionExt<T> for Option<T> {
-    #[cfg(debug_assertions)]
-    #[inline(always)]
-    fn debug_unwrap_or_else(self, f: impl FnOnce() -> T) -> T {
-        self.unwrap_or_else(f)
-    }
-
-    #[cfg(not(debug_assertions))]
-    #[inline(always)]
-    fn debug_unwrap_or_else(self, _f: impl FnOnce() -> T) -> T {
-        self.unwrap()
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 struct ParsedLayer<'a> {
     parents: Vec<&'a str>,
@@ -42,6 +24,7 @@ impl<'a> ParsedLayer<'a> {
     }
 }
 
+/// An ordering of cascade layers
 #[derive(Debug, Clone)]
 pub struct LayersHierarchy {
     inner: Vec<Arc<str>>,
@@ -54,6 +37,7 @@ impl Default for LayersHierarchy {
 }
 
 impl LayersHierarchy {
+    /// Creates an empty layer hierarchy.
     pub const fn new() -> Self {
         Self { inner: Vec::new() }
     }
@@ -86,6 +70,9 @@ impl LayersHierarchy {
         }
     }
 
+    /// Defines a layer, creating any undefined parent layers in its dotted name.
+    ///
+    /// For example, defining `"parent.child"` also defines `"parent"`.
     pub fn define_layer(&mut self, full_name: &str) {
         self.define_layer_arc(full_name.into());
     }
@@ -103,11 +90,15 @@ impl LayersHierarchy {
         self.inner
             .iter()
             .position(|a| &**a == full_name)
-            .debug_unwrap_or_else(|| {
-                panic!("Layer '{full_name}' not found");
+            .unwrap_or_else(|| {
+                panic!("Layer '{full_name}' not defined");
             })
     }
 
+    /// Compares two layers by their priority in this hierarchy.
+    ///
+    /// The empty layer is treated as having the highest priority. Panics if either
+    /// non-empty layer has not been defined.
     pub fn cmp_layers(&self, a: &str, b: &str) -> std::cmp::Ordering {
         self.get_layer_priority(a).cmp(&self.get_layer_priority(b))
     }
@@ -119,8 +110,8 @@ impl LayersHierarchy {
         self.inner
             .iter()
             .position(|a| &**a == *parent)
-            .debug_unwrap_or_else(|| {
-                panic!("Parent layer '{parent}' not found");
+            .unwrap_or_else(|| {
+                panic!("Parent layer '{parent}' not defined");
             })
     }
 

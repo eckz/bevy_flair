@@ -1,17 +1,19 @@
 use crate::element_data::ElementData;
 use crate::selector::CssSelector;
 use crate::types::CssString;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use smol_str::SmolStr;
 
+/// Opaque number to detect which rules to apply when a selector matches.
+/// During the selector matching algorithm, this is returned id, and it's up to the implementor to figure out
+/// which rules need to be applied for the specified id.
 pub type OpaqueId = u64;
 
 #[derive(Debug, PartialEq, Clone)]
 struct CssSelectorWithOpaqueId {
-    /// Selector to be applied
     pub css_selector: CssSelector,
-    /// When the selector is matches, how to find which information to apply
+    // When the selector is matches, how to find which information to apply
     pub opaque_id: OpaqueId,
 }
 
@@ -26,10 +28,17 @@ impl CssSelectorWithOpaqueId {
     pub fn as_tuple(&self) -> (&CssSelector, OpaqueId) {
         (&self.css_selector, self.opaque_id)
     }
+
+    pub fn into_tuple(self) -> (CssSelector, OpaqueId) {
+        (self.css_selector, self.opaque_id)
+    }
 }
 
-/// Buckets selectors by rightmost class/id/tag so matching only tests selectors that could
-/// plausibly match a given element, instead of every selector in the style sheet.
+/// Groups selectors by their rightmost class/id/tag, so matching only tests selectors that could
+/// possibly match a given element, instead of every selector in the style sheet.
+///
+/// For example, the rule `.parent > .child` it's stored in the bucket for `.child` class.
+/// When an element needs to be evaluated and doesn't have the `.child` class, we can confidently skip that rule
 #[derive(Debug, Clone, Default)]
 pub struct SelectorBuckets {
     universal: Vec<CssSelectorWithOpaqueId>,
@@ -40,6 +49,51 @@ pub struct SelectorBuckets {
 }
 
 impl SelectorBuckets {
+    /// Creates an empty selector buckets.
+    pub const fn empty() -> Self {
+        Self {
+            universal: Vec::new(),
+            is_root: Vec::new(),
+            by_id: FxHashMap::with_hasher(FxBuildHasher),
+            by_class: FxHashMap::with_hasher(FxBuildHasher),
+            by_type_name: FxHashMap::with_hasher(FxBuildHasher),
+        }
+    }
+
+    pub fn into_iter(self) -> std::vec::IntoIter<(CssSelector, OpaqueId)> {
+        let mut result = Vec::new();
+        result.extend(
+            self.universal
+                .into_iter()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.is_root
+                .into_iter()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.by_class
+                .into_values()
+                .flatten()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.by_id
+                .into_values()
+                .flatten()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.by_type_name
+                .into_values()
+                .flatten()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.into_iter()
+    }
+
+    /// Builds the buckets from a list of selectors, and it's corresponding [`OpaqueId`].
     pub fn build(selectors: impl IntoIterator<Item = (CssSelector, OpaqueId)>) -> Self {
         use std::ops::ControlFlow;
 
@@ -142,7 +196,7 @@ impl SelectorBuckets {
         buckets
     }
 
-    /// All possible selectors that could match an element
+    /// Return all possible selectors that could match an element.
     pub fn candidates<'a>(
         &'a self,
         element: &'a ElementData,

@@ -10,10 +10,11 @@ pub struct ElementTreeRoots<'w, 's> {
     #[cfg(not(feature = "ghost_elements"))]
     roots_query: Query<'w, 's, Entity, (With<crate::element_data::ElementData>, Without<ChildOf>)>,
     #[cfg(feature = "ghost_elements")]
-    ghost_roots: crate::ghost_element::GhostElementsRoots<'w, 's>,
+    ghost_roots: crate::ghost_element::GhostElementRoots<'w, 's>,
 }
 
 impl<'w, 's> ElementTreeRoots<'w, 's> {
+    /// Returns an iterator over root elements.
     pub fn iter_roots(&self) -> impl Iterator<Item = Entity> {
         cfg_select! {
             feature = "ghost_elements" => {
@@ -24,9 +25,7 @@ impl<'w, 's> ElementTreeRoots<'w, 's> {
     }
 }
 
-/// Utility class that provides convenient methods for traversing the entities' hierarchy.
-///
-/// Uses [`UiChildren`] internally, so it will skip over any ghost nodes when traversing the hierarchy.
+/// Utility class that provides convenient methods for traversing the elements' hierarchy.
 #[derive(SystemParam)]
 pub struct ElementTreeIterators<'w, 's> {
     #[cfg(not(feature = "ghost_elements"))]
@@ -38,7 +37,7 @@ pub struct ElementTreeIterators<'w, 's> {
 }
 
 impl<'w, 's> ElementTreeIterators<'w, 's> {
-    /// Iterates the children of `entity`.
+    /// Iterates the element children of `entity`.
     pub fn iter_children(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
         cfg_select! {
             feature = "ghost_elements" => {
@@ -54,7 +53,7 @@ impl<'w, 's> ElementTreeIterators<'w, 's> {
         }
     }
 
-    /// Returns the parent entity of the given entity, or [`None`] if it has no parent.
+    /// Returns the parent element of the given entity, or [`None`] if it has no parent.
     pub fn get_parent(&self, entity: Entity) -> Option<Entity> {
         cfg_select! {
             feature = "ghost_elements" => {
@@ -82,13 +81,21 @@ impl<'w, 's> ElementTreeIterators<'w, 's> {
         ElementDescendantIter::new(self, entity)
     }
 
-    /// Returns an iterator over the siblings of the given entity.
+    /// Returns an iterator over all ancestors (parents up the tree) of the given entity.
+    pub fn iter_ancestors(&self, entity: Entity) -> ElementAncestorsIter<'_, '_> {
+        ElementAncestorsIter::new(self, entity)
+    }
+
+    /// Returns an iterator over the siblings that follow the given entity.
+    ///
+    /// Elements are returned in the tree order
     pub fn iter_siblings(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
         self.get_parent(entity)
             .into_iter()
             .flat_map(|parent| self.iter_children(parent))
     }
 
+    /// Returns the next sibling of the given entity, or [`None`] if it has none.
     pub fn iter_next_siblings(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
         let mut found_self = false;
 
@@ -102,24 +109,21 @@ impl<'w, 's> ElementTreeIterators<'w, 's> {
         })
     }
 
+    /// Returns an iterator over the siblings that precede the given entity.
+    ///
+    /// Elements are returned in the tree order (e.g, for `[a,b,c]`, `iter_prev_siblings(c)` would return [a, b];
     pub fn iter_prev_siblings(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
         self.iter_siblings(entity)
             .take_while(move |sibling| *sibling != entity)
     }
 
-    pub fn next_sibling(&'s self, entity: Entity) -> Option<Entity> {
-        let mut found_self = false;
-
-        for sibling in self.iter_siblings(entity) {
-            if found_self {
-                return Some(sibling);
-            }
-            found_self = sibling == entity;
-        }
-        None
+    /// Returns the next sibling of the given entity, or [`None`] if it has none.
+    pub fn next_sibling(&self, entity: Entity) -> Option<Entity> {
+        self.iter_next_siblings(entity).next()
     }
 
-    pub fn prev_sibling(&'s self, entity: Entity) -> Option<Entity> {
+    /// Returns the previous sibling of the given entity, or [`None`] if it has none.
+    pub fn prev_sibling(&self, entity: Entity) -> Option<Entity> {
         let mut previous = None;
 
         for sibling in self.iter_siblings(entity) {
@@ -130,11 +134,6 @@ impl<'w, 's> ElementTreeIterators<'w, 's> {
         }
 
         None
-    }
-
-    /// Returns an iterator over all ancestors (parents up the tree) of the given entity.
-    pub fn iter_ancestors(&self, entity: Entity) -> ElementAncestorsIter<'_, '_> {
-        ElementAncestorsIter::new(self, entity)
     }
 }
 

@@ -10,8 +10,8 @@ pub mod prelude {
 
     #[doc(hidden)]
     pub use bevy_flair_style::{
-        NodePseudoState, StyleSheet, StyleSheetBuilder, TransitionEvent, TransitionEventType,
-        animations::*, components::*,
+        StyleSheet, StyleSheetBuilder, TransitionEvent, TransitionEventType, animations::*,
+        components::*,
     };
 
     #[doc(hidden)]
@@ -22,6 +22,8 @@ pub mod prelude {
 pub use bevy_flair_core as core;
 #[doc(inline)]
 pub use bevy_flair_css_parser as parser;
+#[doc(inline)]
+pub use bevy_flair_css_selector as selector;
 #[doc(inline)]
 pub use bevy_flair_style as style;
 

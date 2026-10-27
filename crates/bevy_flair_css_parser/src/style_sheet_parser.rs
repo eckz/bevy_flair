@@ -3,7 +3,6 @@ mod font_face;
 mod keyframes;
 mod media_selectors;
 
-use bevy_flair_style::css_selector::CssSelector;
 use std::any::TypeId;
 use std::cell::RefCell;
 
@@ -22,12 +21,14 @@ use bevy_flair_core::{
     ComponentPropertyId, CssPropertyRegistry, MaybeTypePath, PropertyRegistry, PropertyValue,
 };
 use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, TransitionPropertyId};
-use bevy_flair_style::{DynamicParseVarTokens, MediaSelectors, StyleSheet, VarTokens};
+use bevy_flair_style::{DynamicParseVarTokens, StyleSheet, VarTokens};
 
 use crate::internal_loader::{ImportMapping, Imports};
 use crate::style_sheet_parser::media_selectors::parse_media_selectors;
 pub use animations::*;
 use bevy_asset::AssetPath;
+use bevy_flair_css_selector::CssSelector;
+use bevy_flair_css_selector::media_selector::MediaSelectors;
 use bevy_reflect::TypeRegistry;
 use derive_more::Deref;
 pub(crate) use font_face::*;
@@ -353,6 +354,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
         _start: &ParserState,
         input: &mut Parser<'i>,
     ) -> Result<Self::AtRule, ParseError<Self::Error>> {
+        let byte_offset = input.position().byte_index() as u32;
         Ok(match prelude {
             AtRuleType::MediaSelector(media_selectors) => {
                 let mut ruleset_body_parser = CssRulesetBodyParser {
@@ -365,7 +367,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                 let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
                 let properties = collect_parser(body_parser);
 
-                let parent_selector = CssSelector::parse_single_for_nested("&")
+                let parent_selector = CssSelector::parse_single_for_nested("&", byte_offset)
                     .unwrap()
                     .with_media_selectors(media_selectors);
 
@@ -389,7 +391,7 @@ impl<'i> AtRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
                 let body_parser = RuleBodyParser::new(input, &mut ruleset_body_parser);
                 let properties = collect_parser(body_parser);
 
-                let parent_selector = CssSelector::parse_single_for_nested("&")
+                let parent_selector = CssSelector::parse_single_for_nested("&", byte_offset)
                     .unwrap()
                     .with_layer(layer.as_ref().into());
 
@@ -415,9 +417,11 @@ impl<'i> QualifiedRuleParser<'i> for CssRulesetBodyParser<'_, 'i> {
         &mut self,
         parser: &mut Parser<'i>,
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
+        let byte_offset = parser.position().byte_index() as u32;
         let mut css_parser = CssParser::from_parser(parser);
-        let selectors = css_parser
-            .inner_spanned(|parser| CssSelector::parse_comma_separated_for_nested(parser));
+        let selectors = css_parser.inner_spanned(|parser| {
+            CssSelector::parse_comma_separated_for_nested(parser, byte_offset)
+        });
         Ok(selectors.map(Spanned::into_inner))
     }
 
@@ -763,9 +767,10 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
         &mut self,
         parser: &mut Parser<'i>,
     ) -> Result<CssParseResult<Vec<CssSelector>>, ParseError<CssError>> {
+        let byte_offset = parser.position().byte_index() as u32;
         let mut parser = CssParser::from_parser(parser);
         let selectors = parser
-            .inner_spanned_err(CssSelector::parse_comma_separated)
+            .inner_spanned_err(|p| CssSelector::parse_comma_separated(p, byte_offset))
             .map_err(|err| {
                 let (err, span) = err.into_inner_and_span();
                 CssError::from_data_and_location(err, span)
@@ -777,7 +782,7 @@ impl<'i> QualifiedRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
                 .map(|selector| {
                     selector
                         .with_media_selectors(self.inner.media_selectors.clone())
-                        .with_layer(self.inner.current_layer.clone())
+                        .with_layer(self.inner.current_layer.clone().into())
                 })
                 .collect()
         });
@@ -886,8 +891,9 @@ mod tests {
     use crate::test_utils::ExpectExt;
     use bevy_ecs::component::Component;
     use bevy_flair_core::*;
-    use bevy_flair_style::{ToCss, VarOrToken, VarToken};
+    use bevy_flair_style::{VarOrToken, VarToken};
     use bevy_reflect::*;
+    use cssparser::ToCss;
     use indoc::indoc;
     use std::assert_matches;
     use std::sync::LazyLock;
