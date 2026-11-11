@@ -1,6 +1,6 @@
 [package]
 name = "bevy_flair"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 description = "Bevy UI styling using CSS"
 license = "MIT OR Apache-2.0"
@@ -35,10 +35,10 @@ bevy_ui_widgets = { version = "0.20.0" }
 bevy_utils = { version = "0.20.0" }
 bevy_window = { version = "0.20.0" }
 
-bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.9.0" }
-bevy_flair_core_macros = { path = "crates/bevy_flair_core_macros", version = "0.9.0" }
-bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.9.0" }
-bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.9.0" }
+bevy_flair_core = { path = "crates/bevy_flair_core", version = "0.10.0" }
+bevy_flair_core_macros = { path = "crates/bevy_flair_core_macros", version = "0.10.0" }
+bevy_flair_style = { path = "crates/bevy_flair_style", version = "0.10.0" }
+bevy_flair_css_parser = { path = "crates/bevy_flair_css_parser", version = "0.10.0" }
 
 cssparser = { version = "0.37" }
 cssparser-color = { version = "0.5" }

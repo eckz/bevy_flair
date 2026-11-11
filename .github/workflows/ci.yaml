@@ -19,7 +19,7 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
           - name: MacOS aarch64
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
 
     name: Check ${{ matrix.name }}

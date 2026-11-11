@@ -57,25 +57,18 @@ fn generate_variables_css(count: usize) -> String {
     debug_assert_eq!(count % 2, 0, "variables are split between width and height");
 
     let mut css = String::new();
-    css.push_str(
-        ":root { display: flex; width: 100%; height: 100%; }\n",
-    );
-    css.push_str(
-        ":root { ",
-    );
+    css.push_str(":root { display: flex; width: 100%; height: 100%; }\n");
+    css.push_str(":root { ");
     for i in 0..count {
         writeln!(&mut css, "  --var-{i}: {}px;", i + 1).unwrap();
     }
     css.push_str("}\n");
 
-    css.push_str(
-        ".alternative { ",
-    );
+    css.push_str(".alternative { ");
     for i in 0..count {
         writeln!(&mut css, "  --var-{i}: {}px;", (i + 1) * 2).unwrap();
     }
     css.push_str("}\n");
-
 
     // Generates a code like this:ç
     // ```css
@@ -164,13 +157,7 @@ fn test_app() -> App {
     app
 }
 
-fn spawn_tree<B>(
-    world: &mut World,
-    style_sheet: &str,
-    depth: u32,
-    width: u32,
-    bundle: B,
-) -> Entity
+fn spawn_tree<B>(world: &mut World, style_sheet: &str, depth: u32, width: u32, bundle: B) -> Entity
 where
     B: Bundle<Effect: NoBundleEffect> + Clone,
 {
