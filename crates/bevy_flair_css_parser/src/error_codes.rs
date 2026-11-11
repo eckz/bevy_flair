@@ -1,11 +1,17 @@
 macro_rules! define_errors {
     ($module:ident => { $($name:ident($code:literal, $msg:literal),)* }) => {
         pub(crate) mod $module {
+            mod inner {
+                $(
+                    #[allow(clippy::zero_prefixed_literal)]
+                    pub(crate) static $name: crate::error::CssErrorCodeDef =
+                         crate::error::CssErrorCodeDef::new_internal($code, $msg);
+                )*
+            }
+
             $(
                 #[allow(clippy::zero_prefixed_literal)]
-                pub const $name: crate::error::CssErrorCode =
-                     crate::error::CssErrorCode::new_internal($code, $msg);
-
+                pub static $name: &'static crate::error::CssErrorCodeDef = &inner::$name;
             )*
         }
     };
@@ -23,6 +29,7 @@ define_errors!(basic => {
     DUPLICATED_KEYFRAMES_ANIMATION(09, "Duplicated @keyframes rule"),
     ASSET_PATH_PARSE_ERROR(10, "Cannot parse asset path"),
     CANNOT_LOAD_IMPORT(11, "Cannot load import url"),
+    END_OF_INPUT(12, "Unexpected end of input"),
 });
 
 define_errors!(color => {
@@ -69,7 +76,6 @@ define_errors!(transform => {
 });
 
 define_errors!(vars => {
-    INVALID_TOKEN(80, "Invalid token"),
     INVALID_VAR_TOKEN(81, "Invalid var token"),
     INVALID_VAR_NAME(82, "Var names should start with --"),
 });

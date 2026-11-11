@@ -1,7 +1,7 @@
-use crate::{CalcValue, CssError, ParserExt, error_codes::vars as error_codes, parse_calc};
+use crate::{CalcValue, CssError, CssParser, parse_calc};
 use bevy_asset::AssetPath;
 use bevy_flair_core::PropertyValue;
-use cssparser::{Parser, match_ignore_ascii_case, parse_important};
+use cssparser::{match_ignore_ascii_case, parse_important};
 use std::path::Path;
 use std::range::Range;
 use variadics_please::all_tuples;
@@ -17,16 +17,16 @@ pub(crate) fn resolve_asset_path<'a>(
 }
 
 pub(crate) fn parse_property_global_keyword<T>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<PropertyValue<T>, CssError> {
-    let next = parser.expect_located_ident()?;
+    let next = parser.expect_ident()?;
 
     Ok(match_ignore_ascii_case! {next.as_ref(),
         "unset" => PropertyValue::Unset,
         "inherit" => PropertyValue::Inherit,
         "initial" => PropertyValue::Initial,
         _ => {
-            return Err(CssError::new_unlocated(error_codes::INVALID_TOKEN, "Invalid property value token"));
+            return Err(CssError::unexpected(&next));
         }
     })
 }
@@ -47,18 +47,17 @@ pub(crate) fn parse_property_global_keyword<T>(
 /// [`parse_calc_property_value_with()`]: crate::legacy_parse_calc_property_with
 /// # Examples
 /// ```
-/// # use cssparser::{Parser, ParserInput};
+/// # use bevy_flair_css_parser::CssParser;
 /// # use bevy_flair_core::PropertyValue;
 /// # use bevy_flair_css_parser::{parse_property_value_with, parse_val};
 ///
-/// let mut input = ParserInput::new("inherit");
-/// let mut parser = Parser::new(&mut input);
+/// let mut parser = CssParser::new("inherit");
 /// let property_value = parse_property_value_with(&mut parser, parse_val).unwrap();
 /// assert_eq!(property_value, PropertyValue::Inherit);
 /// ```
 pub fn parse_property_value_with<T>(
-    parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+    parser: &mut CssParser,
+    mut value_parser: impl FnMut(&mut CssParser) -> Result<T, CssError>,
 ) -> Result<PropertyValue<T>, CssError> {
     if let Ok(value) = parser.try_parse(parse_property_global_keyword) {
         return Ok(value);
@@ -66,29 +65,29 @@ pub fn parse_property_value_with<T>(
     value_parser(parser).map(PropertyValue::Value)
 }
 
-pub(crate) fn parse_many<T, F: FnMut(&mut Parser) -> Result<T, CssError>>(
-    parser: &mut Parser,
+pub(crate) fn parse_many<T, F: FnMut(&mut CssParser) -> Result<T, CssError>>(
+    parser: &mut CssParser,
     mut value_parser: F,
 ) -> Result<Vec<T>, CssError> {
     let mut result: Vec<T> = vec![value_parser(parser)?];
-    while let Ok(next_value) = parser.try_parse_with(&mut value_parser) {
+    while let Ok(next_value) = parser.try_parse(&mut value_parser) {
         result.push(next_value);
     }
     Ok(result)
 }
 
-pub(crate) fn try_parse_none<T: Default>(parser: &mut Parser) -> Option<T> {
+pub(crate) fn try_parse_none<T: Default>(parser: &mut CssParser) -> Option<T> {
     parser
-        .try_parse_with(|parser| {
+        .try_parse(|parser| {
             parser.expect_ident_matching("none")?;
             Ok(T::default())
         })
         .ok()
 }
 
-pub(crate) fn try_parse_none_with_value<T>(parser: &mut Parser, none_value: T) -> Option<T> {
+pub(crate) fn try_parse_none_with_value<T>(parser: &mut CssParser, none_value: T) -> Option<T> {
     parser
-        .try_parse_with(move |parser| {
+        .try_parse(move |parser| {
             parser.expect_ident_matching("none")?;
             Ok(none_value)
         })
@@ -102,18 +101,18 @@ pub(crate) enum ImportantLevel {
     /// Default (no !important found)
     Default,
     /// Important rule, with its location
-    Important(Range<usize>),
+    Important(Range<u32>),
 }
 
-pub(crate) fn try_parse_important_level(parser: &mut Parser) -> ImportantLevel {
-    if let Ok(located) = parser.try_parse(|parser| parser.located(parse_important)) {
-        ImportantLevel::Important(located.location)
+pub(crate) fn try_parse_important_level(parser: &mut CssParser) -> ImportantLevel {
+    if let Ok(located) = parser.try_parse(|parser| parser.inner_spanned(parse_important)) {
+        ImportantLevel::Important(located.span)
     } else {
         ImportantLevel::Default
     }
 }
 
-pub fn parse_number(parser: &mut Parser) -> Result<f32, CssError> {
+pub fn parse_number(parser: &mut CssParser) -> Result<f32, CssError> {
     parse_calc(parser, |calc_value| match calc_value {
         CalcValue::Number(value) => Ok(*value),
         invalid => Err(format!("Expected a number, found '{invalid}'")),
@@ -123,16 +122,16 @@ pub fn parse_number(parser: &mut Parser) -> Result<f32, CssError> {
 pub(crate) trait CombinedParse {
     type Output;
 
-    fn combined_parse(self, parser: &mut Parser) -> Result<Option<Self::Output>, CssError>;
+    fn combined_parse(self, parser: &mut CssParser) -> Result<Option<Self::Output>, CssError>;
 }
 
 macro_rules! impl_combined_parse {
     ($(($F:ident, $v:ident, $T:ident)),*) => {
         impl<$($F, $T),*> CombinedParse for ($($F,)*)
-        where $($F: Fn(&mut Parser) -> Result<Option<$T>, CssError>),* {
+        where $($F: Fn(&mut CssParser) -> Result<Option<$T>, CssError>),* {
             type Output = ($(Option<$T>,)*);
 
-            fn combined_parse(self, parser: &mut Parser) -> Result<Option<Self::Output>, CssError> {
+            fn combined_parse(self, parser: &mut CssParser) -> Result<Option<Self::Output>, CssError> {
                 let ($($v,)*) = self;
                 $(
                     let $v = $v(parser)?;

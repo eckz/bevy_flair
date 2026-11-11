@@ -88,7 +88,7 @@ pub struct StyleFontFace {
 ///   the property value is known at parse time and its value can be represented by a [`ReflectValue`].
 ///
 /// - `Dynamic`: A more flexible representation for runtime-defined properties. It includes the
-///   raw CSS name, a parser for interpreting tokens dynamically, and the actual var token stream.
+///   raw CSS name, a style_sheet_parser for interpreting tokens dynamically, and the actual var token stream.
 ///
 /// This enum allows the styling system to support both statically defined properties and dynamically
 /// parsed properties using variables.

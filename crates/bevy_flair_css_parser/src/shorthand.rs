@@ -3,10 +3,10 @@ use crate::reflect::{
     parse_grid_track_vec, parse_px, parse_repeated_grid_track_vec, parse_val,
 };
 use crate::utils::{
-    CombinedParse, parse_property_global_keyword, parse_property_value_with, try_parse_none,
-    try_parse_none_with_value,
+    CombinedParse, parse_number, parse_property_global_keyword, parse_property_value_with,
+    try_parse_none, try_parse_none_with_value,
 };
-use crate::{CssError, ParserExt, error_codes, parse_angle};
+use crate::{CssError, CssParser, error_codes, parse_angle};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 use bevy_flair_core::helper_components::{TextDecoration, TextDecorationLine};
@@ -19,7 +19,7 @@ use bevy_ui::{
     AlignItems, BackgroundGradient, CornerRadius, GridAutoFlow, GridTrack, JustifyItems,
     OverflowAxis, RepeatedGridTrack, UiTransform, Val, Val2,
 };
-use cssparser::{ParseError, Parser, match_ignore_ascii_case};
+use cssparser::match_ignore_ascii_case;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::{SmolStr, format_smolstr};
@@ -87,7 +87,7 @@ impl CssRef {
 pub type ShorthandParseResult = Result<Vec<(CssRef, PropertyValue)>, CssError>;
 
 /// Function signature used to parse a CSS shorthand property into multiple component properties.
-pub type ShorthandParseFn = fn(&mut Parser) -> ShorthandParseResult;
+pub type ShorthandParseFn = fn(&mut CssParser) -> ShorthandParseResult;
 
 /// Represents a single shorthand property.
 ///
@@ -143,7 +143,6 @@ impl ShorthandProperty {
     ) -> DynamicParseVarTokens {
         use crate::error::ErrorReportGenerator;
         use bevy_flair_style::ToCss;
-        use cssparser::{Parser, ParserInput};
         use std::sync::Arc;
 
         let parse_fn = self.parse_fn;
@@ -152,11 +151,9 @@ impl ShorthandProperty {
         Arc::new(move |tokens| {
             let tokens_as_css = tokens.to_css_string();
 
-            let mut input = ParserInput::new(&tokens_as_css);
-            let mut parser = Parser::new(&mut input);
+            let mut parser = CssParser::new(&tokens_as_css);
 
-            let result = parser
-                .parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
+            let result = parser.parse_entirely(|parser| parse_fn(parser));
 
             result
                 .map(|v| {
@@ -176,8 +173,8 @@ impl ShorthandProperty {
         })
     }
 
-    pub(crate) fn parse(&self, parser: &mut Parser) -> ShorthandParseResult {
-        if let Ok(property_value) = parser.try_parse_with(parse_property_global_keyword) {
+    pub(crate) fn parse(&self, parser: &mut CssParser) -> ShorthandParseResult {
+        if let Ok(property_value) = parser.try_parse(parse_property_global_keyword) {
             Ok(self
                 .sub_properties
                 .iter()
@@ -251,8 +248,8 @@ impl ShorthandPropertyRegistry {
 }
 
 fn parse_four_property_values<T: FromReflect>(
-    parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+    parser: &mut CssParser,
+    mut value_parser: impl FnMut(&mut CssParser) -> Result<T, CssError>,
 ) -> Result<[PropertyValue; 4], CssError> {
     parse_four_values(parser, |parser| {
         parse_property_value_with(parser, &mut value_parser).map(|p| p.map(ReflectValue::new))
@@ -263,14 +260,14 @@ fn parse_four_property_values<T: FromReflect>(
 ///
 /// This follows the CSS shorthand pattern for properties like margin and padding.
 fn parse_four_values<T: Clone>(
-    parser: &mut Parser,
-    mut value_parser: impl FnMut(&mut Parser) -> Result<T, CssError>,
+    parser: &mut CssParser,
+    mut value_parser: impl FnMut(&mut CssParser) -> Result<T, CssError>,
 ) -> Result<[T; 4], CssError> {
     let mut values = SmallVec::<[T; 4]>::new();
 
     values.push(value_parser(parser)?);
     while values.len() < 4 {
-        if let Ok(value) = parser.try_parse_with(|parser| value_parser(parser)) {
+        if let Ok(value) = parser.try_parse(|parser| value_parser(parser)) {
             values.push(value);
         } else {
             break;
@@ -295,12 +292,12 @@ enum UsePrevious {
 type SimpleShorthandProperty = (
     CssRef,
     UsePrevious,
-    fn(&mut Parser) -> Result<PropertyValue, CssError>,
+    fn(&mut CssParser) -> Result<PropertyValue, CssError>,
 );
 
 // Works with simple shorthands that are just a concatenation of other properties
 fn parse_simple_shorthand_property<const N: usize>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     properties: [SimpleShorthandProperty; N],
 ) -> ShorthandParseResult {
     let mut properties = VecDeque::from_iter(properties);
@@ -311,7 +308,7 @@ fn parse_simple_shorthand_property<const N: usize>(
     let mut result = vec![(first_property_ref, first_property_parser(parser)?)];
 
     for (property_ref, use_previous, property_parser) in properties {
-        let parse_result = parser.try_parse_with(property_parser);
+        let parse_result = parser.try_parse(property_parser);
 
         match parse_result {
             Ok(property_value) => {
@@ -331,7 +328,7 @@ fn parse_simple_shorthand_property<const N: usize>(
     Ok(result)
 }
 
-fn parse_ui_rect(css_name: &'static str, parser: &mut Parser) -> ShorthandParseResult {
+fn parse_ui_rect(css_name: &'static str, parser: &mut CssParser) -> ShorthandParseResult {
     let [top, right, bottom, left] = parse_four_property_values(parser, parse_val)?;
     Ok(vec![
         (CssRef(format_smolstr!("{css_name}-left")), left),
@@ -380,7 +377,7 @@ define_css_properties! {
     const BORDER_BOTTOM_RIGHT_RADIUS = "border-bottom-right-radius";
 }
 
-fn parse_border_color(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_border_color(parser: &mut CssParser) -> ShorthandParseResult {
     let [top, right, bottom, left] = parse_four_property_values(parser, parse_color)?;
     Ok(vec![
         (BORDER_TOP_COLOR, top),
@@ -390,7 +387,7 @@ fn parse_border_color(parser: &mut Parser) -> ShorthandParseResult {
     ])
 }
 
-fn parse_border_radius(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_border_radius(parser: &mut CssParser) -> ShorthandParseResult {
     let [
         mut top_left,
         mut top_right,
@@ -436,7 +433,7 @@ define_css_properties! {
 }
 
 /// Parses the `overflow` shorthand into `overflow-x` and `overflow-y`.
-fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_overflow(parser: &mut CssParser) -> ShorthandParseResult {
     let parse_overflow_axis = parse_enum_as_property_value::<OverflowAxis>;
     parse_simple_shorthand_property(
         parser,
@@ -447,12 +444,12 @@ fn parse_overflow(parser: &mut Parser) -> ShorthandParseResult {
     )
 }
 
-fn parse_border_style(parser: &mut Parser) -> Result<(), CssError> {
+fn parse_border_style(parser: &mut CssParser) -> Result<(), CssError> {
     let ident = parser.expect_ident()?;
     let _: () = match_ignore_ascii_case! { ident.as_ref(),
         "dotted" | "dashed" | "solid" | "double" | "groove" | "ridge" | "inset" | "outset"  => (),
         // This error does not matter much because it will be ignored
-        _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
+        _ => return Err(CssError::unexpected(&ident)),
     };
     Ok(())
 }
@@ -460,7 +457,7 @@ fn parse_border_style(parser: &mut Parser) -> Result<(), CssError> {
 fn parse_border_inner<I: IntoIterator<Item = CssRef>>(
     width_ref: I,
     color_ref: I,
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> ShorthandParseResult {
     let width = match try_parse_none_with_value(parser, Val::ZERO) {
         Some(zero_value) => PropertyValue::Value(ReflectValue::Val(zero_value)),
@@ -475,11 +472,9 @@ fn parse_border_inner<I: IntoIterator<Item = CssRef>>(
     // Border style is being ignored because it's not supported by bevy,
     // but it's convenient to have for when you copy-paste.
     // TODO: Ideally we should emit a warning or similar
-    let _ = parser.try_parse_with(parse_border_style);
+    let _ = parser.try_parse(parse_border_style);
 
-    if let Ok(color) =
-        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
-    {
+    if let Ok(color) = parser.try_parse(|parser| parse_property_value_with(parser, parse_color)) {
         let color = color.map(ReflectValue::Color);
         result.extend(
             color_ref
@@ -491,7 +486,7 @@ fn parse_border_inner<I: IntoIterator<Item = CssRef>>(
     Ok(result)
 }
 
-fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_border(parser: &mut CssParser) -> ShorthandParseResult {
     parse_border_inner(
         [
             BORDER_LEFT_WIDTH,
@@ -509,24 +504,24 @@ fn parse_border(parser: &mut Parser) -> ShorthandParseResult {
     )
 }
 
-fn parse_border_top(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_border_top(parser: &mut CssParser) -> ShorthandParseResult {
     parse_border_inner([BORDER_TOP_WIDTH], [BORDER_TOP_COLOR], parser)
 }
 
-fn parse_border_right(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_border_right(parser: &mut CssParser) -> ShorthandParseResult {
     parse_border_inner([BORDER_RIGHT_WIDTH], [BORDER_RIGHT_COLOR], parser)
 }
 
-fn parse_border_bottom(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_border_bottom(parser: &mut CssParser) -> ShorthandParseResult {
     parse_border_inner([BORDER_BOTTOM_WIDTH], [BORDER_BOTTOM_COLOR], parser)
 }
 
-fn parse_border_left(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_border_left(parser: &mut CssParser) -> ShorthandParseResult {
     parse_border_inner([BORDER_LEFT_WIDTH], [BORDER_LEFT_COLOR], parser)
 }
 
-fn parse_border_width(parser: &mut Parser) -> ShorthandParseResult {
-    if let Ok(width) = parser.try_parse_with(parse_width_ident) {
+fn parse_border_width(parser: &mut CssParser) -> ShorthandParseResult {
+    if let Ok(width) = parser.try_parse(parse_width_ident) {
         let width = PropertyValue::Value(ReflectValue::Val(width));
         return Ok(vec![
             (BORDER_LEFT_WIDTH, width.clone()),
@@ -550,7 +545,7 @@ define_css_properties! {
     const OUTLINE_COLOR = "outline-color";
 }
 
-fn parse_width_ident(parser: &mut Parser) -> Result<Val, CssError> {
+fn parse_width_ident(parser: &mut CssParser) -> Result<Val, CssError> {
     let ident = parser.expect_ident()?;
     Ok(match_ignore_ascii_case! { ident.as_ref(),
         "none" => Val::ZERO,
@@ -558,12 +553,12 @@ fn parse_width_ident(parser: &mut Parser) -> Result<Val, CssError> {
         "medium" => Val::Px(2.0),
         "thick" => Val::Px(5.0),
         // This error does not matter much because it will be ignored
-        _ => return Err(CssError::from(parser.new_error_for_next_token::<()>())),
+        _ => return Err(CssError::unexpected(&ident)),
     })
 }
 
-fn parse_outline(parser: &mut Parser) -> ShorthandParseResult {
-    fn parse_ident_or_val(parser: &mut Parser) -> Result<Val, CssError> {
+fn parse_outline(parser: &mut CssParser) -> ShorthandParseResult {
+    fn parse_ident_or_val(parser: &mut CssParser) -> Result<Val, CssError> {
         parser
             .try_parse(parse_width_ident)
             .or_else(|_| parse_val(parser))
@@ -573,9 +568,7 @@ fn parse_outline(parser: &mut Parser) -> ShorthandParseResult {
 
     let mut result = vec![(OUTLINE_WIDTH, width)];
 
-    if let Ok(color) =
-        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
-    {
+    if let Ok(color) = parser.try_parse(|parser| parse_property_value_with(parser, parse_color)) {
         result.push((OUTLINE_COLOR, color.map(ReflectValue::Color)));
     }
 
@@ -588,7 +581,7 @@ define_css_properties! {
     const FLEX_BASIS = "flex-basis";
 }
 
-fn parse_flex(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_flex(parser: &mut CssParser) -> ShorthandParseResult {
     fn final_result((flex_grow, flex_shrink, flex_basis): (f32, f32, Val)) -> ShorthandParseResult {
         Ok(vec![
             (
@@ -606,14 +599,11 @@ fn parse_flex(parser: &mut Parser) -> ShorthandParseResult {
         ])
     }
 
-    fn parse_flex_keyword<'i>(
-        parser: &mut Parser<'i, '_>,
-    ) -> Result<(f32, f32, Val), ParseError<'i, ()>> {
+    fn parse_flex_keyword(parser: &mut CssParser) -> Result<(f32, f32, Val), CssError> {
         let ident = parser.expect_ident()?;
         Ok(match_ignore_ascii_case! { ident.as_ref(),
             "none" => (0.0, 0.0, Val::Auto),
-            // This error does not matter much because it will be ignored
-            _ => return Err(parser.new_error_for_next_token()),
+            _ => return Err(CssError::unexpected(&ident)),
         })
     }
 
@@ -621,13 +611,9 @@ fn parse_flex(parser: &mut Parser) -> ShorthandParseResult {
         return final_result(r);
     };
 
-    if let Ok(flex_grow) = parser.try_parse(|parser| parser.expect_number()) {
-        let flex_shrink = parser
-            .try_parse(|parser| parser.expect_number())
-            .unwrap_or(1.0);
-        let flex_basis = parser
-            .try_parse_with(parse_val)
-            .unwrap_or(Val::Percent(0.0));
+    if let Ok(flex_grow) = parser.try_parse(parse_number) {
+        let flex_shrink = parser.try_parse(parse_number).unwrap_or(1.0);
+        let flex_basis = parser.try_parse(parse_val).unwrap_or(Val::Percent(0.0));
 
         return final_result((flex_grow, flex_shrink, flex_basis));
     }
@@ -663,11 +649,11 @@ fn convert_align_items_into_justify_items(align_items: AlignItems) -> JustifyIte
 }
 
 /// Parses the `place-items` shorthand into `align-items` and `justify-items`.
-fn parse_place_items(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_place_items(parser: &mut CssParser) -> ShorthandParseResult {
     let align_items = parse_enum_as_property_value::<AlignItems>(parser)?;
 
     let justify_items = parser
-        .try_parse_with(parse_enum_as_property_value::<JustifyItems>)
+        .try_parse(parse_enum_as_property_value::<JustifyItems>)
         .unwrap_or_else(|_| {
             align_items.clone().map(|v| {
                 ReflectValue::new(
@@ -689,12 +675,14 @@ define_css_properties! {
     const ROW_GAP = "row-gap";
 }
 
-pub(crate) fn parse_val_as_property_value(parser: &mut Parser) -> Result<PropertyValue, CssError> {
+pub(crate) fn parse_val_as_property_value(
+    parser: &mut CssParser,
+) -> Result<PropertyValue, CssError> {
     parse_property_value_with(parser, parse_val).map(|v| v.map(ReflectValue::Val))
 }
 
 /// Parses the `gap` shorthand into `row-gap` and `column-gap`.
-fn parse_gap(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_gap(parser: &mut CssParser) -> ShorthandParseResult {
     parse_simple_shorthand_property(
         parser,
         [
@@ -711,16 +699,16 @@ define_css_properties! {
 }
 
 fn parse_background_image_inner(
-    parser: &mut Parser,
+    parser: &mut CssParser,
     result: &mut Vec<(CssRef, PropertyValue)>,
 ) -> Result<(), CssError> {
     let mut gradients = Vec::new();
     let mut image = PropertyValue::None;
 
-    let _ = parser.parse_comma_separated_with(|parser| {
-        if let Ok(parsed_image) = parser.try_parse_with(parse_asset_path::<Image>) {
+    let _ = parser.parse_comma_separated_until_non_comma(|parser| {
+        if let Ok(parsed_image) = parser.try_parse(parse_asset_path::<Image>) {
             image = PropertyValue::Value(parsed_image);
-        } else if let Ok(parsed_gradient) = parser.try_parse_with(parse_gradient) {
+        } else if let Ok(parsed_gradient) = parser.try_parse(parse_gradient) {
             gradients.push(parsed_gradient);
         }
         Ok(())
@@ -738,16 +726,16 @@ fn parse_background_image_inner(
     Ok(())
 }
 
-fn parse_background_image(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_background_image(parser: &mut CssParser) -> ShorthandParseResult {
     let mut result = Vec::new();
     parse_background_image_inner(parser, &mut result)?;
     Ok(result)
 }
 
-fn parse_background(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_background(parser: &mut CssParser) -> ShorthandParseResult {
     let mut result = Vec::new();
     if let Ok(background_color) =
-        parser.try_parse_with(|parser| parse_property_value_with(parser, parse_color))
+        parser.try_parse(|parser| parse_property_value_with(parser, parse_color))
     {
         result.push((BACKGROUND_COLOR, background_color.map(ReflectValue::new)));
     }
@@ -765,7 +753,7 @@ define_css_properties! {
 }
 
 /// Parses the `grid-template` shorthand into `grid-template-rows` / `grid-template-columns`.
-fn parse_grid_template(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_grid_template(parser: &mut CssParser) -> ShorthandParseResult {
     if let Some(none_value) = try_parse_none::<Vec<RepeatedGridTrack>>(parser) {
         let default_property_value = PropertyValue::Value(ReflectValue::new(none_value));
         return Ok(vec![
@@ -789,8 +777,8 @@ fn parse_grid_template(parser: &mut Parser) -> ShorthandParseResult {
 //   <'grid-template'>
 //   <'grid-template-rows'> / [ auto-flow && dense? ] <'grid-auto-columns'>?
 //   [ auto-flow && dense? ] <'grid-auto-rows'>? / <'grid-template-columns'>
-fn parse_grid(parser: &mut Parser) -> ShorthandParseResult {
-    if let Ok(grid_template) = parser.try_parse_with(parse_grid_template) {
+fn parse_grid(parser: &mut CssParser) -> ShorthandParseResult {
+    if let Ok(grid_template) = parser.try_parse(parse_grid_template) {
         return Ok(grid_template);
     }
 
@@ -804,7 +792,7 @@ fn parse_grid(parser: &mut Parser) -> ShorthandParseResult {
     }
 
     fn parse_auto_flow(
-        parser: &mut Parser,
+        parser: &mut CssParser,
         non_dense: GridAutoFlow,
         dense: GridAutoFlow,
     ) -> Result<PropertyValue, CssError> {
@@ -820,13 +808,13 @@ fn parse_grid(parser: &mut Parser) -> ShorthandParseResult {
     }
 
     // <'grid-template-rows'> / [ auto-flow && dense? ] <'grid-auto-columns'>?
-    if let Ok(result) = parser.try_parse_with(|parser| {
+    if let Ok(result) = parser.try_parse(|parser| {
         let grid_template_rows = parse_property_value_with(parser, parse_repeated_grid_track_vec)?;
         parser.expect_delim('/')?;
         let auto_flow = parse_auto_flow(parser, GridAutoFlow::Column, GridAutoFlow::ColumnDense)?;
 
         let grid_auto_columns = parser
-            .try_parse_with(|parser| parse_property_value_with(parser, parse_grid_track_vec))
+            .try_parse(|parser| parse_property_value_with(parser, parse_grid_track_vec))
             .unwrap_or_else(|_| auto_grid_track());
 
         Ok(vec![
@@ -844,7 +832,7 @@ fn parse_grid(parser: &mut Parser) -> ShorthandParseResult {
     let auto_flow = parse_auto_flow(parser, GridAutoFlow::Row, GridAutoFlow::RowDense)?;
 
     let grid_auto_rows = parser
-        .try_parse_with(|parser| parse_property_value_with(parser, parse_grid_track_vec))
+        .try_parse(|parser| parse_property_value_with(parser, parse_grid_track_vec))
         .unwrap_or_else(|_| auto_grid_track());
 
     parser.expect_delim('/')?;
@@ -866,16 +854,16 @@ define_css_properties! {
     const ROTATE = "rotate";
 }
 
-fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, CssError> {
+fn parse_ui_transform_translation(parser: &mut CssParser) -> Result<Option<Val2>, CssError> {
     let start = parser.state();
-    let function = parser.expect_located_function()?;
+    let function = parser.expect_function()?;
 
     match_ignore_ascii_case! { &*function,
         "translate" => {
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 let translate_x = parse_val(parser)?;
                 let translate_y = parser
-                    .try_parse_with(|parser| {
+                    .try_parse(|parser| {
                         parser.expect_comma()?;
                         parse_val(parser)
                     })
@@ -884,13 +872,13 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, C
             })
         },
         "translatex" => {
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 let translate_x = parse_val(parser)?;
                 Ok(Some(Val2::new(translate_x, Val::ZERO)))
             })
         },
         "translatey" => {
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 let translate_y = parse_val(parser)?;
                 Ok(Some(Val2::new(Val::ZERO, translate_y)))
             })
@@ -900,7 +888,7 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, C
             Ok(None)
         },
         _ => {
-            Err(CssError::new_located(
+            Err(CssError::new(
                 &function,
                 error_codes::transform::UNEXPECTED_TRANSFORM_FUNCTION,
                 format!("Function '{function}' is not supported. Valid functions are 'translate' | 'translatex' | 'translatey' | 'scale' | 'scalex' | 'scaley' | 'rotate' | 'rotatez'"),
@@ -912,18 +900,18 @@ fn parse_ui_transform_translation(parser: &mut Parser) -> Result<Option<Val2>, C
 const INVALID_ORDER_OF_FUNCTIONS: &str =
     "Invalid order of functions. The only correct order is translate(..) scale(..) rotate(..)";
 
-fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssError> {
+fn parse_ui_transform_scale(parser: &mut CssParser) -> Result<Option<Vec2>, CssError> {
     let start = parser.state();
-    let Ok(function) = parser.try_parse_with(|parser| parser.expect_located_function()) else {
+    let Ok(function) = parser.try_parse(|parser| parser.expect_function()) else {
         return Ok(None);
     };
 
     match_ignore_ascii_case! { &function,
         "scale" => {
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 let scale_x = parse_px(parser)?;
                 let scale_y = parser
-                    .try_parse_with(|parser| {
+                    .try_parse(|parser| {
                         parser.expect_comma()?;
                         parse_px(parser)
                     })
@@ -933,19 +921,19 @@ fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssErro
             })
         },
         "scalex" => {
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 let scale_x = parse_px(parser)?;
                 Ok(Some(Vec2::new(scale_x, 1.0)))
             })
         },
         "scaley" => {
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 let scale_y = parse_px(parser)?;
                 Ok(Some(Vec2::new(1.0, scale_y)))
             })
         },
         "translate" | "translatey" | "translatex" => {
-            Err(CssError::new_located(
+            Err(CssError::new(
                 &function,
                 error_codes::transform::INVALID_TRANSFORM_FUNCTION_ORDER,
                 INVALID_ORDER_OF_FUNCTIONS
@@ -958,20 +946,20 @@ fn parse_ui_transform_scale(parser: &mut Parser) -> Result<Option<Vec2>, CssErro
     }
 }
 
-fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssError> {
+fn parse_ui_transform_rotation(parser: &mut CssParser) -> Result<Option<Rot2>, CssError> {
     let start = parser.state();
-    let Ok(function) = parser.try_parse_with(|parser| parser.expect_located_function()) else {
+    let Ok(function) = parser.try_parse(|parser| parser.expect_function()) else {
         return Ok(None);
     };
 
     match_ignore_ascii_case! { &function,
         "rotate" | "rotatez" => {
-            parser.parse_nested_block_with(|parser| {
+            parser.parse_nested_block(|parser| {
                 Ok(Some(parse_angle(parser)?.into_rot2()))
             })
         },
         "scale" | "scalex" | "scaley" | "translate" | "translatey" | "translatex" => {
-            Err(CssError::new_located(
+            Err(CssError::new(
                 &function,
                 error_codes::transform::INVALID_TRANSFORM_FUNCTION_ORDER,
                 INVALID_ORDER_OF_FUNCTIONS
@@ -984,7 +972,7 @@ fn parse_ui_transform_rotation(parser: &mut Parser) -> Result<Option<Rot2>, CssE
     }
 }
 
-fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_transform(parser: &mut CssParser) -> ShorthandParseResult {
     if let Some(none_value) = try_parse_none::<UiTransform>(parser) {
         return Ok(vec![
             (TRANSLATE, ReflectValue::new(none_value.translation).into()),
@@ -1000,9 +988,10 @@ fn parse_transform(parser: &mut Parser) -> ShorthandParseResult {
     )
         .combined_parse(parser)?
     else {
-        let next = parser.next().cloned()?;
-        return Err(CssError::from(
-            parser.new_unexpected_token_error::<()>(next),
+        let next = parser.next_token()?;
+        return Err(CssError::unexpected_token(
+            &next,
+            "One of the following functions: 'scale' | 'scalex' | 'scaley' | 'translate' | 'translatey' | 'translatex' | 'rotate', 'rotatez'",
         ));
     };
 
@@ -1026,7 +1015,7 @@ define_css_properties! {
     const TEXT_DECORATION_COLOR = "text-decoration-color";
 }
 
-fn parse_text_decoration(parser: &mut Parser) -> ShorthandParseResult {
+fn parse_text_decoration(parser: &mut CssParser) -> ShorthandParseResult {
     if let Some(none_value) = try_parse_none::<TextDecoration>(parser) {
         return Ok(vec![
             (
@@ -1041,13 +1030,13 @@ fn parse_text_decoration(parser: &mut Parser) -> ShorthandParseResult {
     }
 
     let mut result = Vec::new();
-    if let Ok(decoration_line) = parser.try_parse_with(parse_enum_value::<TextDecorationLine>) {
+    if let Ok(decoration_line) = parser.try_parse(parse_enum_value::<TextDecorationLine>) {
         result.push((
             TEXT_DECORATION_LINE,
             ReflectValue::new(decoration_line).into(),
         ));
     }
-    if let Ok(color) = parser.try_parse_with(parse_color) {
+    if let Ok(color) = parser.try_parse(parse_color) {
         result.push((TEXT_DECORATION_COLOR, ReflectValue::new(Some(color)).into()));
     }
 

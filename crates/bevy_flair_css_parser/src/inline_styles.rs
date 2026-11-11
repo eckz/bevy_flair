@@ -1,5 +1,5 @@
 use crate::internal_loader::process_ruleset_property;
-use crate::parser::{CssPropertyParser, parse_inline_properties};
+use crate::style_sheet_parser::{CssPropertyParser, parse_inline_properties};
 use crate::{ErrorReportGenerator, ShorthandPropertyRegistry};
 use bevy_asset::AssetServer;
 use bevy_ecs::prelude::*;

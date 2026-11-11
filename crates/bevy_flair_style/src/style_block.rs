@@ -15,9 +15,9 @@ use tracing::{error, warn};
 
 use crate::{VarName, VarResolver, VarToken, VarTokens};
 
-/// A parser function for dynamically parsing a list of [`VarToken`]s.
+/// A style_sheet_parser function for dynamically parsing a list of [`VarToken`]s.
 ///
-/// This parser is used to convert a sequence of var tokens into a list of defined properties.
+/// This style_sheet_parser is used to convert a sequence of var tokens into a list of defined properties.
 ///
 /// The result is a `Vec` of `(ComponentPropertyRef, PropertyValue)` pairs, or an error if parsing fails.
 pub type DynamicParseVarTokens = Arc<
