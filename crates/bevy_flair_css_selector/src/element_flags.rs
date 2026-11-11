@@ -80,6 +80,7 @@ pub struct ElementFlags {
 }
 
 impl ElementFlags {
+    /// Resets the stored selector flags.
     pub fn clear(&mut self) {
         self.css_selector_flags.clear();
         self.css_selector_flags.clear();

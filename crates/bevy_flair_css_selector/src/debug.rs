@@ -1,8 +1,8 @@
-use std::fmt;
+use crate::ElementData;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::name::Name;
 use bevy_ecs::query::QueryData;
-use crate::ElementData;
+use std::fmt;
 
 /// Convenient query for giving a human friendly name to an entity that might be an element.
 ///
@@ -14,7 +14,7 @@ use crate::ElementData;
 ///     for (name, mut score) in &mut scores {
 ///         score.0 += 1.0;
 ///         if score.0.is_nan() {
-///             log::error!("Score for {name} is invalid");
+///             println!("Score for {name} is invalid");
 ///         }
 ///     }
 /// }
@@ -23,8 +23,9 @@ use crate::ElementData;
 ///
 /// # Implementation
 ///
-/// The `Display` impl for `ElementDebugName` returns the `Name` where there is one
-/// or {index}v{generation} for entities without one.
+/// The `Display` implementation shows the entity's [`Name`] prefixed with `#` when available;
+/// otherwise, it shows the entity ID. If the entity has [`ElementData`], that data is appended
+/// in parentheses.
 #[derive(QueryData)]
 #[query_data(derive(Debug))]
 pub struct ElementDebugName {
@@ -45,13 +46,11 @@ impl<'w, 's> fmt::Display for ElementDebugNameItem<'w, 's> {
             }
             (None, Some(element_data)) => {
                 write!(f, "{entity} ({element_data})", entity = self.entity)
-            },
+            }
             (Some(name), None) => {
                 write!(f, "#{name}")
-            },
-            (None, None) => {
-                fmt::Display::fmt(&self.entity, f)
             }
+            (None, None) => fmt::Display::fmt(&self.entity, f),
         }
     }
 }

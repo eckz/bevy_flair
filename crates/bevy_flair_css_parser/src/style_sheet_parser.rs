@@ -81,7 +81,7 @@ pub struct CssRuleset {
 
 #[derive(Debug)]
 pub(crate) enum CssStyleSheetItem {
-    EmbedStylesheet(StyleSheet, ImportMapping, Option<String>),
+    EmbedStylesheet(Box<StyleSheet>, ImportMapping, Option<String>),
     Inner(Vec<CssStyleSheetItem>),
     RuleSet(CssRuleset),
     FontFace(FontFace),
@@ -688,7 +688,7 @@ impl<'i> AtRuleParser<'i> for CssStyleSheetParser<'_, 'i> {
                     .expect("import not found");
 
                 Ok(CssStyleSheetItem::EmbedStylesheet(
-                    style_sheet.clone(),
+                    Box::new(style_sheet.clone()),
                     mapping.clone(),
                     layer,
                 ))

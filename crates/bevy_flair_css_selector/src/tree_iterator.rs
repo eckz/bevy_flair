@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 /// Utility class for iterating over root entities.
 ///
-/// Uses [`UiRootNodes`] internally, so it will skip over any ghost nodes when traversing the hierarchy.
+/// Uses the root-node query internally, so it will skip over any ghost nodes when traversing the hierarchy.
 #[derive(SystemParam)]
 pub struct ElementTreeRoots<'w, 's> {
     #[cfg(not(feature = "ghost_elements"))]
@@ -86,16 +86,16 @@ impl<'w, 's> ElementTreeIterators<'w, 's> {
         ElementAncestorsIter::new(self, entity)
     }
 
-    /// Returns an iterator over the siblings that follow the given entity.
-    ///
-    /// Elements are returned in the tree order
+    /// Returns an iterator over the children of the entity's parent, including the entity itself
+    /// when present, in tree order.
     pub fn iter_siblings(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
         self.get_parent(entity)
             .into_iter()
             .flat_map(|parent| self.iter_children(parent))
     }
 
-    /// Returns the next sibling of the given entity, or [`None`] if it has none.
+    /// Returns an iterator over the following siblings of the given entity, excluding the entity itself,
+    /// in tree order.
     pub fn iter_next_siblings(&'s self, entity: Entity) -> impl Iterator<Item = Entity> + 's {
         let mut found_self = false;
 

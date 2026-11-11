@@ -101,7 +101,6 @@ pub type ElementDataRef<'a> = ElementRef<'a, ElementData>;
 pub type ElementDataSnapshotRef<'a> = ElementRef<'a, ElementDataSnapshot>;
 
 impl ElementDataRef<'_> {
-
     /// Returns the element flags of this reference
     pub fn element_flags(&self) -> &ElementFlags {
         self.0.data_ref.1

@@ -5,8 +5,14 @@ use selectors::Element;
 use selectors::matching::ElementSelectorFlags;
 use std::iter;
 
+/// A change to the children of an element, used to decide which elements must be re-matched.
 pub enum StructuralChange {
-    ChildrenChanged { was_empty: bool },
+    /// A child was added or removed.
+    ChildrenChanged {
+        /// Whether the parent had no children before the change.
+        was_empty: bool,
+    },
+    /// The last child was removed, so the parent became empty.
     ChildrenRemoved,
 }
 
@@ -43,9 +49,8 @@ pub fn mark_dirty_from_structural_change(
             // `HAS_SLOW_SELECTOR_LATER_SIBLINGS` is placed on the parent of the
             // subject of a sibling combinator, so it tells us whether any
             // sibling combinator may depend on this element.
-            let sibling_combinator_may_depend = parent
-                .parent_element()
-                .is_some_and(|parent_of_parent| {
+            let sibling_combinator_may_depend =
+                parent.parent_element().is_some_and(|parent_of_parent| {
                     parent_of_parent
                         .element_flags()
                         .css_selector_flags
@@ -176,11 +181,11 @@ mod tests {
     // I generally don't like doing things like this, but for this case it improves the readability a lot
     use selectors::matching::ElementSelectorFlags as F;
 
+    type StructuralChangesQuery<'w, 's> =
+        Query<'w, 's, (Entity, Ref<'static, Children>), (With<ElementData>, Changed<Children>)>;
+
     fn extract_dirty_by_flags(
-        structural_changes_query: Query<
-            (Entity, Ref<Children>),
-            (With<ElementData>, Changed<Children>),
-        >,
+        structural_changes_query: StructuralChangesQuery,
         mut removed_components: RemovedComponents<Children>,
         element_ref_builder: ElementRefBuilder,
     ) -> Vec<Entity> {

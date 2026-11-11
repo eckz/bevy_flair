@@ -23,7 +23,7 @@ use bevy_time::Time;
 use bevy_ui::prelude::*;
 use bevy_window::{PrimaryWindow, RequestRedraw, Window, WindowEvent};
 use rustc_hash::FxHashSet;
-use tracing::{debug, trace, trace_span, warn};
+use tracing::{debug, trace, warn};
 
 pub(crate) use apply_computed_values::*;
 use bevy_flair_css_selector::invalidation::{
@@ -426,10 +426,7 @@ pub(crate) fn invalidate_elements_from_parent_changes(
 ) {
     // Reparenting can change both ancestor-dependent selector matches and inherited
     // property/variable values for the moved entity and its whole subtree.
-    for entity in changed_child_of_query
-        .iter()
-        .chain(removed_child_of.read())
-    {
+    for entity in changed_child_of_query.iter().chain(removed_child_of.read()) {
         to_be_marked.insert(entity);
         to_be_marked.extend(iterators.iter_descendants(entity));
     }
@@ -472,7 +469,6 @@ pub(crate) fn invalidate_elements_from_structural_changes(
         (ElementDebugName, Ref<Children>),
         (With<ElementData>, Changed<Children>),
     >,
-    debug_name_query: Query<ElementDebugName>,
     mut markers_query: Query<&mut StyleMarkers>,
     mut removed_children: RemovedComponents<Children>,
     element_ref_builder: ElementRefBuilder,
@@ -488,7 +484,6 @@ pub(crate) fn invalidate_elements_from_structural_changes(
 
     for entity in removed_children.read() {
         if let Some(element) = element_ref_builder.new_data_ref(entity) {
-            let debug_name = debug_name_query.get(entity).unwrap();
             mark_dirty_from_structural_change(
                 element,
                 &element_ref_builder,
@@ -499,7 +494,6 @@ pub(crate) fn invalidate_elements_from_structural_changes(
     }
 
     for entity in to_be_marked.drain() {
-        let debug_name = debug_name_query.get(entity).unwrap();
         if let Ok(mut marker) = markers_query.get_mut(entity) {
             marker.recalculate_style();
         }

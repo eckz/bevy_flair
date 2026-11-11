@@ -76,17 +76,17 @@ fn invalidation_candidates<'a>(
 }
 
 fn kleene_may_be_different(a: KleeneValue, b: KleeneValue) -> bool {
-    match (a, b) {
+    matches!(
+        (a, b),
         (KleeneValue::True, KleeneValue::False)
-        | (KleeneValue::False, KleeneValue::True)
-        | (KleeneValue::Unknown, _)
-        | (_, KleeneValue::Unknown) => true,
-        _ => false,
-    }
+            | (KleeneValue::False, KleeneValue::True)
+            | (KleeneValue::Unknown, _)
+            | (_, KleeneValue::Unknown)
+    )
 }
 
 /// Finds and marks entities whose selector matches may have changed due to a [`Dependency`] on an `entity`.
-pub fn mark_dirty_from_dependency<'a>(
+pub fn mark_dirty_from_dependency(
     dep: &Dependency,
     entity: Entity,
     ref_builder: &ElementRefBuilder,

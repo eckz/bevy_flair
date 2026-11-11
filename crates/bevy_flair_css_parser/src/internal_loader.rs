@@ -187,7 +187,7 @@ impl InternalStylesheetLoader<'_> {
         ) {
             match item {
                 CssStyleSheetItem::EmbedStylesheet(style_sheet, mapping, layer) => {
-                    builder.embed_style_sheet(style_sheet, &mapping, layer);
+                    builder.embed_style_sheet(*style_sheet, &mapping, layer);
                 }
                 CssStyleSheetItem::Inner(items) => {
                     for item in items {

@@ -214,12 +214,6 @@ mod tests {
         }};
     }
 
-    macro_rules! element {
-        ($($tt:tt)*) => {
-            &crate::css_selector::testing::TestElementRef::new(&entity!($($tt)*))
-        };
-    }
-
     const TEST_ANIMATION_NAME: &str = "test-animation";
 
     #[derive(Default)]

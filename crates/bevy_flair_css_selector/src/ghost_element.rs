@@ -10,6 +10,13 @@ use smallvec::SmallVec;
 #[reflect(Component, Default, Debug, Clone)]
 pub struct GhostElement;
 
+type ElementChildrenQuery<'w, 's> = Query<
+    'w,
+    's,
+    (Option<&'static Children>, Has<GhostElement>),
+    Or<(With<ElementData>, With<GhostElement>)>,
+>;
+
 /// System param that allows iteration of all elements, taking GhostElements into account.
 ///
 /// A UI element node is either a [`ElementData`] without a [`ChildOf`], or with only [`GhostElement`] ancestors.
@@ -40,12 +47,7 @@ impl<'w, 's> GhostElementRoots<'w, 's> {
 /// System param that gives access to Element children utilities, skipping over [`GhostElement`].
 #[derive(SystemParam)]
 pub(crate) struct GhostElementChildren<'w, 's> {
-    element_children_query: Query<
-        'w,
-        's,
-        (Option<&'static Children>, Has<GhostElement>),
-        Or<(With<ElementData>, With<GhostElement>)>,
-    >,
+    element_children_query: ElementChildrenQuery<'w, 's>,
     ghost_elements_query: Query<'w, 's, Entity, With<GhostElement>>,
     child_of_query: Query<'w, 's, &'static ChildOf>,
 }
@@ -72,21 +74,11 @@ impl<'w, 's> GhostElementChildren<'w, 's> {
             .iter_ancestors(entity)
             .find(|entity| !self.ghost_elements_query.contains(*entity))
     }
-
-    /// Returns `true` if the given entity is either a [`ElementData`] or a [`GhostElement`].
-    pub fn is_element(&'s self, entity: Entity) -> bool {
-        self.element_children_query.contains(entity)
-    }
 }
 
 pub(crate) struct GhostElementChildrenIter<'w, 's> {
     stack: SmallVec<[Entity; 8]>,
-    query: &'s Query<
-        'w,
-        's,
-        (Option<&'static Children>, Has<GhostElement>),
-        Or<(With<ElementData>, With<GhostElement>)>,
-    >,
+    query: &'s ElementChildrenQuery<'w, 's>,
 }
 
 impl<'w, 's> Iterator for GhostElementChildrenIter<'w, 's> {

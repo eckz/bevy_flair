@@ -66,6 +66,7 @@ impl<'a> ElementChanges<'a> {
         c
     }
 
+    /// Returns `true` if no classes, ids, attributes or pseudo-states changed.
     pub fn is_empty(&self) -> bool {
         self.classes.is_empty()
             && self.ids.is_empty()

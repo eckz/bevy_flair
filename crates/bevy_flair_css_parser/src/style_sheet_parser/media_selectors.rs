@@ -288,7 +288,10 @@ mod tests {
             .selectors
             .expect("Error while parsing nested selector");
         assert_eq!(nested_selector.len(), 1);
-        assert_eq!(nested_selector[0].to_css_string(), "&");
+        assert_eq!(
+            nested_selector[0].to_css_string(),
+            "@media (max-width: 1000px){ & }"
+        );
 
         let media_selectors = nested_selector[0].get_media_selectors();
 

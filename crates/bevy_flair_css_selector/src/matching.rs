@@ -8,13 +8,13 @@ use crate::layers::LayersHierarchy;
 use crate::media_selector::MediaFeaturesProvider;
 use selectors::matching::matches_selector;
 use std::sync::Arc;
-use tracing::{info_span, trace_span};
+use tracing::info_span;
 
 /// A selector that matches an element, along with metadata used to determine cascade order.
 pub struct MatchedSelector {
     /// Layer defined for the selector, empty for selectors without layers.
     pub layer: Arc<str>,
-    /// Specificity of the selector (See https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Specificity)
+    /// Specificity of the selector (see [CSS Specificity](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Specificity)).
     pub specificity: u32,
     /// If the selector is scoped, how close is the @scope from the matched element
     pub scope_proximity: Option<u32>,

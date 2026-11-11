@@ -4,7 +4,7 @@ use bevy_ecs::entity::Entity;
 use selectors::context::SelectorCaches;
 use selectors::matching::*;
 
-/// This struct should be rebuilt once per frame
+/// Rebuild or clear these caches between frames.
 #[derive(Default)]
 pub struct SelectorMatchingCaches {
     selector_caches: SelectorCaches,
@@ -12,6 +12,7 @@ pub struct SelectorMatchingCaches {
 }
 
 impl SelectorMatchingCaches {
+    /// Resets all cached selector-matching state so it can be reused for the next frame.
     pub fn clear(&mut self) {
         self.selector_caches = SelectorCaches::default();
         self.bloom_filter_cache.clear();

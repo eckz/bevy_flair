@@ -60,39 +60,6 @@ impl SelectorBuckets {
         }
     }
 
-    pub fn into_iter(self) -> std::vec::IntoIter<(CssSelector, OpaqueId)> {
-        let mut result = Vec::new();
-        result.extend(
-            self.universal
-                .into_iter()
-                .map(CssSelectorWithOpaqueId::into_tuple),
-        );
-        result.extend(
-            self.is_root
-                .into_iter()
-                .map(CssSelectorWithOpaqueId::into_tuple),
-        );
-        result.extend(
-            self.by_class
-                .into_values()
-                .flatten()
-                .map(CssSelectorWithOpaqueId::into_tuple),
-        );
-        result.extend(
-            self.by_id
-                .into_values()
-                .flatten()
-                .map(CssSelectorWithOpaqueId::into_tuple),
-        );
-        result.extend(
-            self.by_type_name
-                .into_values()
-                .flatten()
-                .map(CssSelectorWithOpaqueId::into_tuple),
-        );
-        result.into_iter()
-    }
-
     /// Builds the buckets from a list of selectors, and it's corresponding [`OpaqueId`].
     pub fn build(selectors: impl IntoIterator<Item = (CssSelector, OpaqueId)>) -> Self {
         use std::ops::ControlFlow;
@@ -226,6 +193,48 @@ impl SelectorBuckets {
             .chain(by_id)
             .chain(by_class)
             .chain(by_tag)
+    }
+}
+
+impl IntoIterator for SelectorBuckets {
+    type Item = (CssSelector, OpaqueId);
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    /// Consumes the buckets and returns an iterator over every stored
+    /// `(selector, opaque_id)` pair.
+    ///
+    /// The iteration order is unspecified.
+    fn into_iter(self) -> Self::IntoIter {
+        let mut result = Vec::new();
+        result.extend(
+            self.universal
+                .into_iter()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.is_root
+                .into_iter()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.by_class
+                .into_values()
+                .flatten()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.by_id
+                .into_values()
+                .flatten()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.extend(
+            self.by_type_name
+                .into_values()
+                .flatten()
+                .map(CssSelectorWithOpaqueId::into_tuple),
+        );
+        result.into_iter()
     }
 }
 

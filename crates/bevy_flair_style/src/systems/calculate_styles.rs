@@ -16,7 +16,7 @@ use bevy_flair_css_selector::{
 };
 use bevy_ui::{ComputedUiRenderTargetInfo, ComputedUiTargetCamera};
 use bevy_window::PrimaryWindow;
-use tracing::{debug, info_span, trace, warn};
+use tracing::{debug, trace, warn};
 
 #[derive(SystemParam)]
 pub(crate) struct MediaFeaturesParam<'w, 's> {

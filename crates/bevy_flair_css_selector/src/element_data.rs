@@ -12,11 +12,17 @@ use std::fmt;
 #[derive(Debug, Clone, Default, PartialEq, Component)]
 #[require(ElementFlags, ElementDataSnapshot)]
 pub struct ElementData {
+    /// Whether this element is a root of the element tree (it has no parent element).
     pub is_root: bool,
+    /// The element's `id`, used by `#id` selectors.
     pub id: Option<CssString>,
+    /// The element's CSS classes, used by `.class` selectors.
     pub classes: SmallVec<[CssString; 1]>,
+    /// Additional attributes, used by attribute selectors such as `[name=value]`.
     pub attributes: FxHashMap<SmolStr, CssString>,
+    /// The element's type/tag name, used by type selectors.
     pub type_name: Option<CssString>,
+    /// The pseudo-classes currently active on this element.
     pub pseudo_state: PseudoStateFlags,
 }
 
@@ -34,7 +40,7 @@ impl ElementData {
     }
 
     /// Hashes of this element's own id/classes/type_name,
-    /// comparable against a selector's component hashes in a [`BloomFilter`].
+    /// comparable against a selector's component hashes in a [`selectors::bloom::BloomFilter`].
     pub(crate) fn unique_hashes(&self) -> impl DoubleEndedIterator<Item = u32> + '_ {
         let id = self.id.as_ref().map(|id| id.precomputed_hash()).into_iter();
 
@@ -116,6 +122,7 @@ impl ElementDataSnapshot {
         self.0.clone_from(data);
     }
 
+    /// Returns the [`ElementData`] that was captured in this snapshot.
     pub fn snapshot_data(&self) -> &ElementData {
         &self.0
     }

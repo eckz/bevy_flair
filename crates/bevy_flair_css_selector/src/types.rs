@@ -10,15 +10,18 @@ fn hash_32(value: &str) -> u32 {
     FxBuildHasher.hash_one(value) as u32
 }
 
+/// A small-string-optimized, pre-hashed CSS string used for ids, classes, attributes and type names.
 #[derive(Clone, Default, Debug)]
 pub struct CssString(pub(crate) SmolStr, u32);
 
 impl CssString {
+    /// Creates a `CssString` from `s`, computing its hash.
     pub fn new(s: impl AsRef<str>) -> Self {
         let s = s.as_ref();
         Self(SmolStr::new(s), hash_32(s))
     }
 
+    /// Creates a `CssString` from a static string literal.
     pub fn new_static(s: &'static str) -> Self {
         Self(SmolStr::new_static(s), hash_32(s))
     }
@@ -27,7 +30,14 @@ impl CssString {
         self.0.as_str()
     }
 
+    /// An empty `CssString`.
     pub const EMPTY: CssString = CssString(SmolStr::new_static(""), 838452008);
+}
+
+#[test]
+fn assert_empty_string() {
+    let empty = CssString::new("");
+    assert_eq!(empty.1, CssString::EMPTY.1);
 }
 
 impl<'a> From<&'a str> for CssString {

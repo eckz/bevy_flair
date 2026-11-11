@@ -6,6 +6,7 @@
 mod bloom_filters;
 mod bucket;
 mod context;
+mod debug;
 mod element_data;
 mod element_flags;
 mod element_impl;
@@ -22,7 +23,6 @@ mod selector;
 mod testing;
 mod tree_iterator;
 mod types;
-mod debug;
 
 #[cfg(feature = "ghost_elements")]
 pub use ghost_element::GhostElement;
@@ -32,6 +32,7 @@ pub use layers::*;
 pub use bloom_filters::*;
 pub use bucket::*;
 pub use context::*;
+pub use debug::*;
 pub use element_data::*;
 pub use element_flags::*;
 pub use element_impl::*;
@@ -39,4 +40,3 @@ pub use pseudo_state::*;
 pub use selector::CssSelector;
 pub use tree_iterator::*;
 pub use types::CssString;
-pub use debug::*;

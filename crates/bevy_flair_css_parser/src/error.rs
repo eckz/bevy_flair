@@ -176,10 +176,17 @@ impl From<BasicParseError> for StyleErrorData {
 impl From<SelectorParseErrorKind> for StyleErrorData {
     fn from(kind: SelectorParseErrorKind) -> Self {
         let code = crate::error_codes::basic::INVALID_SELECTOR;
+        let annotated_message = match kind {
+            SelectorParseErrorKind::EmptySelector => "Empty selector found".into(),
+            SelectorParseErrorKind::ClassNeedsIdent => "Expected an ident for a class".into(),
+            SelectorParseErrorKind::UnsupportedPseudoClassOrElement => {
+                "Unsupported pseudo-class. Pseudo-elements are unsupported. Only valid pseudo-classes are: 'hover' | 'active' | 'focus' | 'focus-visible'".into()
+            }
+            other => format!("Selector error: {other:?}").into(),
+        };
         Self {
             code,
-            // TODO: Improve this message
-            annotated_message: format!("{kind:?}").into(),
+            annotated_message,
         }
     }
 }

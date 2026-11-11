@@ -71,9 +71,9 @@ where
     }
 }
 
-// TODO
+/// Trait used to resolve the property value of an item's parent.
 pub trait ParentPropertyResolver {
-    // TODO:
+    /// Returns the property value of the parent, if there is one.
     fn parent_property(&self) -> Option<PropertyValue>;
 }
 

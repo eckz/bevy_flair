@@ -529,36 +529,19 @@ fn structural_selectors_restyle_descendants() {
             Root,
             Styled::new(asset_server.load_style_sheet("structural_descendants.css")),
             children![
-                (
-                    Element,
-                    UniqueName::new("a"),
-                    ClassList::new("a"),
-                ),
-                (
-                    Element,
-                    UniqueName::new("b"),
-                    ClassList::new("b"),
-                ),
+                (Element, UniqueName::new("a"), ClassList::new("a"),),
+                (Element, UniqueName::new("b"), ClassList::new("b"),),
             ],
         ));
     }
 
-    fn spawn_x(
-        app: &mut App,
-        a: Entity,
-        x_name: &'static str,
-        y_name: &'static str,
-    ) {
+    fn spawn_x(app: &mut App, a: Entity, x_name: &'static str, y_name: &'static str) {
         app.world_mut().spawn((
             Element,
             ClassList::new("x"),
             UniqueName::new(x_name),
             ChildOf(a),
-            children![(
-                Element,
-                ClassList::new("y"),
-                UniqueName::new(y_name),
-            )],
+            children![(Element, ClassList::new("y"), UniqueName::new(y_name),)],
         ));
     }
 
