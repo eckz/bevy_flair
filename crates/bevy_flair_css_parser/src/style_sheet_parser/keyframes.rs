@@ -1,11 +1,11 @@
-use crate::parser::{
+use crate::style_sheet_parser::{
     CssDeclaration, CssParserContext, CssRulesetBodyParser, CssStyleSheetItem,
     ParseAnimationProperties, collect_parser,
 };
-use crate::{CssError, ParserExt, error_codes};
+use crate::{CssError, CssParser, SpannedStr, error_codes};
 use cssparser::{
-    AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserState,
-    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, Token,
+    AtRuleParser, DeclarationParser, ParseError, Parser, ParserState, QualifiedRuleParser,
+    RuleBodyItemParser, RuleBodyParser, Token,
 };
 use std::sync::Arc;
 
@@ -42,8 +42,8 @@ pub(crate) struct ParserAnimationKeyFrames {
     pub keyframes: Vec<ParserAnimationKeyFrame>,
 }
 
-fn parse_keyframe(parser: &mut Parser) -> Result<f32, CssError> {
-    let next = parser.located_next()?;
+fn parse_keyframe(parser: &mut CssParser) -> Result<f32, CssError> {
+    let next = parser.next_token()?;
 
     Ok(match &*next {
         Token::Ident(ident) if ident.eq_ignore_ascii_case("from") => 0.0,
@@ -53,7 +53,7 @@ fn parse_keyframe(parser: &mut Parser) -> Result<f32, CssError> {
         }
         Token::Number { value, .. } if value.clamp(0.0, 1.0) == *value => *value,
         _ => {
-            return Err(CssError::new_located(
+            return Err(CssError::new(
                 &next,
                 error_codes::animations::UNEXPECTED_KEYFRAME_TOKEN,
                 "Is not valid as keyframe. 'from', 'to', 20% are valid examples",
@@ -62,7 +62,7 @@ fn parse_keyframe(parser: &mut Parser) -> Result<f32, CssError> {
     })
 }
 
-/// `@keyframes` body parser
+/// `@keyframes` body style_sheet_parser
 struct CssKeyframesBodyParser<'a, 'i> {
     inner: CssParserContext<'a, 'i>,
 }
@@ -78,21 +78,21 @@ impl<'i> QualifiedRuleParser<'i> for CssKeyframesBodyParser<'_, 'i> {
     type QualifiedRule = ParserAnimationKeyFrame;
     type Error = CssError;
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::Prelude, ParseError<'i, Self::Error>> {
-        input.parse_comma_separated(|parser| {
-            parse_keyframe(parser).map_err(|err| err.into_parse_error())
-        })
+        parser: &mut Parser<'i>,
+    ) -> Result<Self::Prelude, ParseError<Self::Error>> {
+        let mut parser = CssParser::from_parser(parser);
+
+        Ok(parser.parse_comma_separated(|parser| parse_keyframe(parser))?)
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         times: Self::Prelude,
         _: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self::QualifiedRule, ParseError<'i, Self::Error>> {
+        input: &mut Parser<'i>,
+    ) -> Result<Self::QualifiedRule, ParseError<Self::Error>> {
         let mut ruleset_body_parser = CssRulesetBodyParser {
             parse_vars: false,
             parse_transition: false,
@@ -126,9 +126,9 @@ impl<'i> RuleBodyItemParser<'i, ParserAnimationKeyFrame, CssError>
 }
 
 pub(super) fn parse_keyframes_body<'i, 'a>(
-    name: CowRcStr<'i>,
+    name: SpannedStr<'i>,
     context: CssParserContext<'a, 'i>,
-    input: &mut Parser<'i, '_>,
+    input: &mut Parser<'i>,
 ) -> CssStyleSheetItem {
     let mut keyframe_body_parser = CssKeyframesBodyParser {
         inner: context.clone(),
@@ -139,7 +139,8 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
     let mut declared_animations = context.defined_animations.borrow_mut();
 
     if declared_animations.contains(&name) {
-        return CssError::new_unlocated(
+        return CssError::new(
+            &name,
             error_codes::basic::DUPLICATED_KEYFRAMES_ANIMATION,
             format!("Animation with name '{name}' was already defined"),
         )
@@ -149,7 +150,7 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
     declared_animations.insert(name.clone());
 
     CssStyleSheetItem::AnimationKeyFrames(ParserAnimationKeyFrames {
-        name: Arc::from(&*name),
+        name: Arc::from(name.as_ref()),
         keyframes,
     })
 }
@@ -157,8 +158,8 @@ pub(super) fn parse_keyframes_body<'i, 'a>(
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::CssDeclaration;
-    use crate::parser::keyframes::ParserAnimationKeyFrame;
+    use crate::style_sheet_parser::CssDeclaration;
+    use crate::style_sheet_parser::keyframes::ParserAnimationKeyFrame;
     use crate::test_utils::{ExpectExt, NoVarsSupportedResolver};
     use bevy_flair_style::animations::{AnimationProperty, AnimationPropertyId, EasingFunction};
     use indoc::indoc;

@@ -1,5 +1,6 @@
 use crate::error::CssError;
 
+use crate::CssParser;
 use crate::ReflectParseCss;
 use crate::utils::parse_property_value_with;
 use bevy_asset::{Asset, Handle};
@@ -7,7 +8,6 @@ use bevy_flair_core::ReflectValue;
 use bevy_flair_style::placeholder::AssetPathPlaceholder;
 use bevy_image::Image;
 use bevy_reflect::{CreateTypeData, TypePath};
-use cssparser::Parser;
 
 /// Parses an asset path for the given asset type `A`.
 /// This function expects either a `url("path")` or a string `"path"` in the CSS.
@@ -27,7 +27,7 @@ use cssparser::Parser;
 /// app.register_type_data::<AssetPathPlaceholder<MyAsset>, ReflectPlaceholder>();
 /// ```
 pub fn parse_asset_path<A: Asset + TypePath>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<ReflectValue, CssError> {
     let path = parser.expect_url_or_string()?;
     Ok(ReflectValue::new(AssetPathPlaceholder::<A>::new(

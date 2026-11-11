@@ -1,4 +1,4 @@
-use crate::ParserExt;
+use crate::CssParser;
 use crate::error::CssError;
 use crate::error_codes::enums as error_codes;
 use crate::reflect::ReflectParseCssEnum;
@@ -6,7 +6,6 @@ use crate::utils::parse_property_value_with;
 use bevy_flair_core::PropertyValue;
 use bevy_reflect::enums::{DynamicEnum, DynamicVariant, Enum, EnumInfo, VariantInfo};
 use bevy_reflect::{CreateTypeData, FromReflect, TypeInfo, Typed};
-use cssparser::Parser;
 use std::borrow::Cow;
 
 fn enum_variants(enum_info: &EnumInfo) -> impl Iterator<Item = &'static str> {
@@ -91,14 +90,16 @@ fn create_unit_enum_from_reflection<T: FromReflect + Typed>(
 }
 
 // TODO: Print all possible valid values?
-pub fn parse_enum_value<T: FromReflect + Typed + Enum>(parser: &mut Parser) -> Result<T, CssError> {
-    let ident = parser.expect_located_ident()?;
+pub fn parse_enum_value<T: FromReflect + Typed + Enum>(
+    parser: &mut CssParser,
+) -> Result<T, CssError> {
+    let ident = parser.expect_ident()?;
     create_unit_enum_from_reflection::<T>(ident.as_ref())
-        .map_err(|err| CssError::new_located(&ident, error_codes::INVALID_ENUM_VALUE, err))
+        .map_err(|err| CssError::new(&ident, error_codes::INVALID_ENUM_VALUE, err))
 }
 
 pub fn parse_enum_as_property_value<T: FromReflect + Typed + Enum>(
-    parser: &mut Parser,
+    parser: &mut CssParser,
 ) -> Result<PropertyValue, CssError> {
     parse_property_value_with(parser, parse_enum_value::<T>).map(PropertyValue::into_reflect_value)
 }

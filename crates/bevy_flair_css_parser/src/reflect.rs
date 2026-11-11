@@ -17,6 +17,7 @@ pub use crate::parse_color;
 pub use assets::parse_asset_path;
 pub use ui::parse_val;
 
+use crate::CssParser;
 use crate::error::CssError;
 use bevy_app::{App, Plugin};
 use bevy_camera::visibility::Visibility;
@@ -33,7 +34,7 @@ use bevy_ui::widget::NodeImageMode;
 /// A function that parses a CSS type.
 /// When the function succeeds, it should return a [`bevy_flair_core::ReflectValue`].
 /// When the function fails, it should return a [`CssError`].
-pub type PropertyValueParseFn = fn(&mut cssparser::Parser) -> Result<PropertyValue, CssError>;
+pub type PropertyValueParseFn = fn(&mut CssParser) -> Result<PropertyValue, CssError>;
 
 /// [`bevy_reflect::TypeData`] for parsing a CSS type when the type is an enum.
 /// It's automatically implemented to all [`Enum`] types.
@@ -60,7 +61,6 @@ impl ReflectParseCss {
         property_id: ComponentPropertyId,
     ) -> DynamicParseVarTokens {
         use crate::error::ErrorReportGenerator;
-        use cssparser::{Parser, ParserInput};
         use std::sync::Arc;
 
         let parse_fn = self.0;
@@ -68,11 +68,9 @@ impl ReflectParseCss {
         Arc::new(move |tokens| {
             let tokens_as_css = tokens.to_css_string();
 
-            let mut input = ParserInput::new(&tokens_as_css);
-            let mut parser = Parser::new(&mut input);
+            let mut parser = CssParser::new(&tokens_as_css);
 
-            let result = parser
-                .parse_entirely(|parser| parse_fn(parser).map_err(|err| err.into_parse_error()));
+            let result = parser.parse_entirely(|parser| parse_fn(parser));
 
             result
                 .map(|v| vec![(ComponentPropertyRef::Id(property_id), v)])

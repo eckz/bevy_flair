@@ -1,9 +1,9 @@
-use crate::parser::{CssStyleSheetItem, collect_parser};
-use crate::{CssError, ParserExt, error_codes};
+use crate::style_sheet_parser::{CssStyleSheetItem, collect_parser};
+use crate::{CssError, CssParser, error_codes};
 use bevy_flair_style::StyleFontSource;
 use cssparser::{
-    AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserState,
-    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, Token, match_ignore_ascii_case,
+    AtRuleParser, CowRcStr, DeclarationParser, ParseError, ParserState, QualifiedRuleParser,
+    RuleBodyItemParser, RuleBodyParser, Token, match_ignore_ascii_case,
 };
 
 #[derive(Clone, PartialEq, Debug)]
@@ -35,11 +35,9 @@ impl From<CssError> for FontFaceProperty {
 }
 
 impl FontFaceProperty {
-    pub(crate) fn into_parse_result(
-        self,
-    ) -> Result<FontFaceProperty, ParseError<'static, CssError>> {
+    pub(crate) fn into_parse_result(self) -> Result<FontFaceProperty, ParseError<CssError>> {
         match self {
-            FontFaceProperty::Error(err) => Err(err.into_parse_error()),
+            FontFaceProperty::Error(err) => Err(err.into()),
             other => Ok(other),
         }
     }
@@ -58,14 +56,14 @@ impl PartialEq for FontFace {
     }
 }
 
-fn parse_font_face_property(property_name: CowRcStr, parser: &mut Parser) -> FontFaceProperty {
-    fn parse_font_family(parser: &mut Parser) -> Result<FontFaceProperty, CssError> {
+fn parse_font_face_property(property_name: CowRcStr, parser: &mut CssParser) -> FontFaceProperty {
+    fn parse_font_family(parser: &mut CssParser) -> Result<FontFaceProperty, CssError> {
         let font_family_name = parser.expect_string()?;
         Ok(FontFaceProperty::FamilyName(font_family_name.to_string()))
     }
 
-    fn parse_source(parser: &mut Parser) -> Result<FontFaceProperty, CssError> {
-        let next = parser.located_next()?;
+    fn parse_source(parser: &mut CssParser) -> Result<FontFaceProperty, CssError> {
+        let next = parser.next_token()?;
 
         match &*next {
             Token::UnquotedUrl(value) => Ok(FontFaceProperty::Source(FontFaceSource::Path(
@@ -74,19 +72,20 @@ fn parse_font_face_property(property_name: CowRcStr, parser: &mut Parser) -> Fon
             Token::QuotedString(value) => Ok(FontFaceProperty::Source(FontFaceSource::Path(
                 value.to_string(),
             ))),
-            Token::Function(name) if name.eq_ignore_ascii_case("url") => parser
-                .parse_nested_block_with(|parser| {
+            Token::Function(name) if name.eq_ignore_ascii_case("url") => {
+                parser.parse_nested_block(|parser| {
                     Ok(FontFaceProperty::Source(FontFaceSource::Path(
                         parser.expect_string()?.to_string(),
                     )))
-                }),
+                })
+            }
             Token::Function(name) if name.eq_ignore_ascii_case("local") => parser
-                .parse_nested_block_with(|parser| {
+                .parse_nested_block(|parser| {
                     Ok(FontFaceProperty::Source(FontFaceSource::Local(
                         parser.expect_string()?.to_string(),
                     )))
                 }),
-            _ => Err(CssError::new_located(
+            _ => Err(CssError::new(
                 &next,
                 error_codes::basic::UNEXPECTED_TOKEN,
                 "Not valid source token",
@@ -102,13 +101,13 @@ fn parse_font_face_property(property_name: CowRcStr, parser: &mut Parser) -> Fon
             parse_source(parser)
         },
         _ => {
-            Err(CssError::new_unlocated(error_codes::basic::UNEXPECTED_FONT_FACE_PROPERTY, "This property is not recognized. Only 'font-family' and 'src' can be used"))
+            Err(CssError::unlocated(error_codes::basic::UNEXPECTED_FONT_FACE_PROPERTY, "This property is not recognized. Only 'font-family' and 'src' can be used"))
         }
     };
     result.unwrap_or_else(FontFaceProperty::Error)
 }
 
-/// Font-face declaration parser
+/// Font-face declaration style_sheet_parser
 struct CssFontFaceBodyParser;
 
 impl<'i> AtRuleParser<'i> for CssFontFaceBodyParser {
@@ -127,13 +126,14 @@ impl<'i> DeclarationParser<'i> for CssFontFaceBodyParser {
     type Declaration = FontFaceProperty;
     type Error = CssError;
 
-    fn parse_value<'t>(
+    fn parse_value(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
+        parser: &mut cssparser::Parser<'i>,
         _declaration_start: &ParserState,
-    ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
-        parse_font_face_property(name, input).into_parse_result()
+    ) -> Result<Self::Declaration, ParseError<Self::Error>> {
+        let mut parser = CssParser::from_parser(parser);
+        parse_font_face_property(name, &mut parser).into_parse_result()
     }
 }
 
@@ -147,9 +147,9 @@ impl<'i> RuleBodyItemParser<'i, FontFaceProperty, CssError> for CssFontFaceBodyP
     }
 }
 
-pub(super) fn parse_font_face_body(input: &mut Parser) -> CssStyleSheetItem {
+pub(super) fn parse_font_face_body(parser: &mut CssParser) -> CssStyleSheetItem {
     let mut font_face_body_parser = CssFontFaceBodyParser;
-    let body_parser = RuleBodyParser::new(input, &mut font_face_body_parser);
+    let body_parser = RuleBodyParser::new(parser.inner_parser_mut(), &mut font_face_body_parser);
     let properties = collect_parser(body_parser);
 
     let mut errors = Vec::new();
@@ -177,7 +177,7 @@ pub(super) fn parse_font_face_body(input: &mut Parser) -> CssStyleSheetItem {
             errors,
         })
     } else {
-        CssStyleSheetItem::Error(CssError::new_unlocated(
+        CssStyleSheetItem::Error(CssError::unlocated(
             error_codes::basic::INCOMPLETE_FONT_FACE_RULE,
             "A font face requires 'font-family' and 'src' provided",
         ))
@@ -187,7 +187,7 @@ pub(super) fn parse_font_face_body(input: &mut Parser) -> CssStyleSheetItem {
 #[cfg(test)]
 mod tests {
     use super::super::tests::*;
-    use crate::parser::{FontFace, FontFaceSource};
+    use crate::style_sheet_parser::{FontFace, FontFaceSource};
     use indoc::indoc;
 
     #[test]
