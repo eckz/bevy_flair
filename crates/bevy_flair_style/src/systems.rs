@@ -190,12 +190,10 @@ pub(crate) fn calculate_effective_style_sheet(
         }
     }
 
-    // For all modified entities, we need to recursively recalculate all descendants
-    for entity in effective_style_sheet_changed {
-        for child in styled_children.iter_descendants(entity) {
-            set_effective_style_sheet(child);
-        }
-    }
+    // For all modified entities, recursively recalculate descendants
+    styled_children.mark_descendants(effective_style_sheet_changed, |entity| {
+        set_effective_style_sheet(entity);
+    });
 }
 
 // TODO: I guess this should be done automatically by bevy or winit, but it's not happening
@@ -432,6 +430,7 @@ pub(crate) fn recalculate_style_on_changed_children(
     mut markers_query: Query<&mut StyleMarkers>,
     styled_children: StyledChildren,
     mut to_be_marked: Local<EntityHashSet>,
+    mut descendant_roots: Local<Vec<Entity>>,
     mut removed_children: RemovedComponents<Children>,
 ) {
     use selectors::matching::ElementSelectorFlags;
@@ -449,8 +448,14 @@ pub(crate) fn recalculate_style_on_changed_children(
             to_be_marked.insert(entity);
         }
 
-        to_be_marked.extend(styled_children.iter_descendants(entity));
+        descendant_roots.push(entity);
     }
+
+    styled_children.mark_descendants(descendant_roots.drain(..), |entity| {
+        if let Ok(mut marker) = markers_query.get_mut(entity) {
+            marker.recalculate_style();
+        }
+    });
 
     for entity in to_be_marked.drain() {
         if let Ok(mut marker) = markers_query.get_mut(entity) {
@@ -479,6 +484,7 @@ pub(crate) fn recalculate_style_on_related_entities_changes(
     )>,
     styled_children: StyledChildren,
     mut to_be_marked: Local<EntityHashSet>,
+    mut descendant_roots: Local<Vec<Entity>>,
 ) {
     let entities_changed_query = queries.p0();
 
@@ -498,7 +504,7 @@ pub(crate) fn recalculate_style_on_related_entities_changes(
             to_be_marked.extend(styled_children.iter_siblings(entity));
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_DESCENDANTS) {
-            to_be_marked.extend(styled_children.iter_descendants(entity));
+            descendant_roots.push(entity);
         }
         if flags.contains(RecalculateOnChangeFlags::RECALCULATE_ANCESTORS) {
             to_be_marked.extend(styled_children.iter_ancestors(entity));
@@ -506,6 +512,12 @@ pub(crate) fn recalculate_style_on_related_entities_changes(
     }
 
     let mut markers_query = queries.p1();
+    styled_children.mark_descendants(descendant_roots.drain(..), |entity| {
+        if let Ok(mut marker) = markers_query.get_mut(entity) {
+            marker.recalculate_style();
+        }
+    });
+
     for entity in to_be_marked.drain() {
         if let Ok(mut marker) = markers_query.get_mut(entity) {
             marker.recalculate_style();
