@@ -11,12 +11,12 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 use bevy_flair_css_selector::media_selector::{ColorScheme, MediaFeaturesProvider};
 use bevy_flair_css_selector::{
-    AncestorsBloomFilterBuilder, DependsOnMediaFeaturesFlags, ElementFlags, ElementRefBuilder,
-    ElementTreeIterators, SelectorMatchingCaches,
+    AncestorsBloomFilterBuilder, DependsOnMediaFeaturesFlags, ElementDebugName, ElementFlags,
+    ElementRefBuilder, ElementTreeIterators, SelectorMatchingCaches,
 };
 use bevy_ui::{ComputedUiRenderTargetInfo, ComputedUiTargetCamera};
 use bevy_window::PrimaryWindow;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info_span, trace, warn};
 
 #[derive(SystemParam)]
 pub(crate) struct MediaFeaturesParam<'w, 's> {
@@ -123,7 +123,7 @@ pub(crate) fn calculate_styles_and_set_vars(
     style_blocks: Res<Assets<StyleBlock>>,
     mut param_set: ParamSet<(
         Query<(
-            NameOrEntity,
+            ElementDebugName,
             &EffectiveStyleSheet,
             Option<&RawInlineStyle>,
             &mut StyleActiveBlocks,
@@ -153,7 +153,7 @@ pub(crate) fn calculate_styles_and_set_vars(
         },
         |(to_mark, caches),
          (
-            name_or_entity,
+            debug_name,
             effective_style_sheet,
             maybe_inline_style,
             mut active_blocks,
@@ -165,7 +165,7 @@ pub(crate) fn calculate_styles_and_set_vars(
             if !marker.needs_calculate_style() {
                 return;
             }
-            let entity = name_or_entity.entity;
+            let entity = debug_name.entity;
 
             let EffectiveStyleSheet::Handle(style_sheet_id) = effective_style_sheet else {
                 return;
@@ -188,12 +188,12 @@ pub(crate) fn calculate_styles_and_set_vars(
                 && !inline_style.is_loaded(&asset_server)
             {
                 warn!(
-                    "InlineStyle on '{name_or_entity}' not loaded yet: {load_states:?}",
+                    "InlineStyle on '{debug_name}' not loaded yet: {load_states:?}",
                     load_states = asset_server.get_load_states(inline_style)
                 );
                 return;
             }
-            debug!("Calculating style on '{name_or_entity}'");
+            debug!("Calculating style on '{debug_name}'");
             to_mark.clear_style_recalculation.insert(entity);
 
             let Some(element_ref) = ref_builder.new_data_ref(entity) else {
@@ -216,7 +216,7 @@ pub(crate) fn calculate_styles_and_set_vars(
             }
 
             if active_blocks.active_blocks != new_blocks {
-                trace!("Active blocks on '{name_or_entity}': {new_blocks:?}");
+                trace!("Active blocks on '{debug_name}': {new_blocks:?}");
                 active_blocks.active_blocks = new_blocks;
             }
 
@@ -225,7 +225,7 @@ pub(crate) fn calculate_styles_and_set_vars(
             let new_vars = style_resolver.resolve_vars();
 
             if vars.replace_vars(new_vars) {
-                trace!("Setting vars on '{name_or_entity}': {:?}", &**vars);
+                trace!("Setting vars on '{debug_name}': {:?}", &**vars);
                 to_mark
                     .mark_descendants_resolve_property_values
                     .push(entity);

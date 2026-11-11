@@ -483,3 +483,140 @@ fn inline_loader() {
 
     assert_width_eq!(app, "root", Val::Px(30.0));
 }
+
+#[test]
+fn structural_selectors_restyle_descendants() {
+    include_css_inline!(
+        "structural_descendants.css" => r#"
+            .a {
+                display: flex;
+            }
+
+            .b {
+                display: none;
+            }
+
+            .a:empty ~ .b {
+                display: flex;
+            }
+
+            .y {
+                height: initial;
+            }
+
+            .x:nth-child(odd) .y {
+                width: 10px;
+            }
+
+            .x:nth-child(even) .y {
+                width: 20px;
+            }
+
+            .x:first-child .y {
+                height: 30px;
+            }
+
+            .x:last-child .y {
+                height: 40px;
+            }
+        "#
+    );
+
+    let mut app = test_app();
+
+    fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+        commands.spawn((
+            Root,
+            Styled::new(asset_server.load_style_sheet("structural_descendants.css")),
+            children![
+                (
+                    Element,
+                    UniqueName::new("a"),
+                    ClassList::new("a"),
+                ),
+                (
+                    Element,
+                    UniqueName::new("b"),
+                    ClassList::new("b"),
+                ),
+            ],
+        ));
+    }
+
+    fn spawn_x(
+        app: &mut App,
+        a: Entity,
+        x_name: &'static str,
+        y_name: &'static str,
+    ) {
+        app.world_mut().spawn((
+            Element,
+            ClassList::new("x"),
+            UniqueName::new(x_name),
+            ChildOf(a),
+            children![(
+                Element,
+                ClassList::new("y"),
+                UniqueName::new(y_name),
+            )],
+        ));
+    }
+
+    app.add_systems(Startup, spawn_test_scene);
+    app.update();
+
+    // `.a:empty ~ .b`
+    assert_node_attr_eq!(app, "b", display, Display::Flex);
+
+    let a = app.get_entity_by_unique_name("a");
+
+    spawn_x(&mut app, a, "x1", "x1/y");
+    app.update();
+
+    // First added `x` is both `:first-child` and `:last-child`
+    assert_width_eq!(app, "x1/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(40.0));
+    assert_node_attr_eq!(app, "b", display, Display::None);
+
+    spawn_x(&mut app, a, "x2", "x2/y");
+    app.update();
+
+    // x1 is odd/first, x2 is even/last
+    assert_width_eq!(app, "x1/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(30.0));
+    assert_width_eq!(app, "x2/y", Val::Px(20.0));
+    assert_node_attr_eq!(app, "x2/y", height, Val::Px(40.0));
+
+    spawn_x(&mut app, a, "x3", "x3/y");
+    app.update();
+
+    // x2 is no longer `:last-child`, so its height resets and x3 becomes last
+    assert_width_eq!(app, "x1/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(30.0));
+    assert_width_eq!(app, "x2/y", Val::Px(20.0));
+    assert_node_attr_eq!(app, "x2/y", height, Val::Auto);
+    assert_width_eq!(app, "x3/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x3/y", height, Val::Px(40.0));
+
+    let x1 = app.get_entity_by_unique_name("x1");
+    let x2 = app.get_entity_by_unique_name("x2");
+    let x3 = app.get_entity_by_unique_name("x3");
+
+    app.world_mut().despawn(x3);
+    app.update();
+
+    // x2 is `:last-child` again
+    assert_node_attr_eq!(app, "x2/y", height, Val::Px(40.0));
+
+    app.world_mut().despawn(x2);
+    app.update();
+
+    // x1 is `:last-child` again
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(40.0));
+
+    app.world_mut().despawn(x1);
+    app.update();
+
+    // `a` is empty again, so the empty message is shown
+    assert_node_attr_eq!(app, "b", display, Display::Flex);
+}

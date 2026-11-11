@@ -23,15 +23,16 @@ use bevy_time::Time;
 use bevy_ui::prelude::*;
 use bevy_window::{PrimaryWindow, RequestRedraw, Window, WindowEvent};
 use rustc_hash::FxHashSet;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace, trace_span, warn};
 
 pub(crate) use apply_computed_values::*;
 use bevy_flair_css_selector::invalidation::{
     ElementChanges, StructuralChange, mark_dirty_from_dependency, mark_dirty_from_structural_change,
 };
 use bevy_flair_css_selector::{
-    DependsOnMediaFeaturesFlags, ElementData, ElementDataSnapshot, ElementFlags, ElementRefBuilder,
-    ElementTreeIterators, ElementTreeRoots, PseudoStateFlags, SelectorMatchingCaches,
+    DependsOnMediaFeaturesFlags, ElementData, ElementDataSnapshot, ElementDebugName, ElementFlags,
+    ElementRefBuilder, ElementTreeIterators, ElementTreeRoots, PseudoStateFlags,
+    SelectorMatchingCaches,
 };
 pub(crate) use calculate_styles::*;
 pub(crate) use resolve_property_values::*;
@@ -416,28 +417,78 @@ pub(crate) fn invalidate_on_render_target_info_change(
     }
 }
 
+pub(crate) fn invalidate_elements_from_parent_changes(
+    changed_child_of_query: Query<Entity, Changed<ChildOf>>,
+    mut removed_child_of: RemovedComponents<ChildOf>,
+    iterators: ElementTreeIterators,
+    mut markers_query: Query<&mut StyleMarkers>,
+    mut to_be_marked: Local<EntityHashSet>,
+) {
+    // Reparenting can change both ancestor-dependent selector matches and inherited
+    // property/variable values for the moved entity and its whole subtree.
+    for entity in changed_child_of_query
+        .iter()
+        .chain(removed_child_of.read())
+    {
+        to_be_marked.insert(entity);
+        to_be_marked.extend(iterators.iter_descendants(entity));
+    }
+
+    if to_be_marked.is_empty() {
+        return;
+    }
+
+    for mut marker in markers_query
+        .iter_many_unique_mut(to_be_marked.drain())
+        .matched()
+    {
+        marker.recalculate_style();
+    }
+}
+
+pub(crate) fn invalidate_elements_from_inline_style_changes(
+    changed_inline_style_query: Query<Entity, Changed<RawInlineStyle>>,
+    mut removed_inline_style: RemovedComponents<RawInlineStyle>,
+    mut markers_query: Query<&mut StyleMarkers>,
+    mut to_be_marked: Local<EntityHashSet>,
+) {
+    to_be_marked.extend(changed_inline_style_query.iter());
+    to_be_marked.extend(removed_inline_style.read());
+
+    if to_be_marked.is_empty() {
+        return;
+    }
+
+    for mut marker in markers_query
+        .iter_many_unique_mut(to_be_marked.drain())
+        .matched()
+    {
+        marker.recalculate_style();
+    }
+}
+
 pub(crate) fn invalidate_elements_from_structural_changes(
     structural_changes_query: Query<
-        (Entity, Ref<Children>),
+        (ElementDebugName, Ref<Children>),
         (With<ElementData>, Changed<Children>),
     >,
+    debug_name_query: Query<ElementDebugName>,
     mut markers_query: Query<&mut StyleMarkers>,
     mut removed_children: RemovedComponents<Children>,
     element_ref_builder: ElementRefBuilder,
     mut to_be_marked: Local<EntityHashSet>,
 ) {
-    for (entity, children) in structural_changes_query {
-        println!("Children of {entity:?} have changed");
+    for (debug_name, children) in structural_changes_query {
         let change = StructuralChange::ChildrenChanged {
             was_empty: children.is_added(),
         };
-
-        let element = element_ref_builder.new_data_ref(entity).unwrap();
+        let element = element_ref_builder.new_data_ref(debug_name.entity).unwrap();
         mark_dirty_from_structural_change(element, &element_ref_builder, change, &mut to_be_marked);
     }
 
     for entity in removed_children.read() {
         if let Some(element) = element_ref_builder.new_data_ref(entity) {
+            let debug_name = debug_name_query.get(entity).unwrap();
             mark_dirty_from_structural_change(
                 element,
                 &element_ref_builder,
@@ -448,6 +499,7 @@ pub(crate) fn invalidate_elements_from_structural_changes(
     }
 
     for entity in to_be_marked.drain() {
+        let debug_name = debug_name_query.get(entity).unwrap();
         if let Ok(mut marker) = markers_query.get_mut(entity) {
             marker.recalculate_style();
         }
@@ -585,8 +637,8 @@ pub(crate) fn set_animation_computed_values(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_property_values(
+    roots: ElementTreeRoots,
     iterators: ElementTreeIterators,
-    property_values_copy_query: Query<&StylePropertyValuesCopy>,
     mut properties_query: Query<(NameOrEntity, &mut StyleProperties, &mut StyleMarkers)>,
     static_property_maps: Res<StaticPropertyMaps>,
     app_type_registry: Res<AppTypeRegistry>,
@@ -595,6 +647,7 @@ pub(crate) fn compute_property_values(
     #[cfg(feature = "detailed_trace")] debug_helper: PropertyIdDebugHelperParam,
 ) {
     let type_registry = app_type_registry.0.read();
+    let properties_changed = &global_change_detection.property_values_changed_this_frame;
 
     #[cfg(feature = "detailed_trace")]
     let trace_new_properties = |name_or_entity: &dyn core::fmt::Display,
@@ -611,26 +664,53 @@ pub(crate) fn compute_property_values(
         }
     };
 
-    for (entity, mut properties, mut marker) in &mut properties_query {
-        if !marker.needs_compute_property_values() {
-            continue;
-        }
-        marker.finish_compute_property_values();
+    // Traverse the hierarchy in tree order so a parent is always computed before
+    // its children. This allows inherited values to use the parent's computed value.
+    for root in roots.iter_roots() {
+        if let Ok((name_or_entity, mut properties, mut marker)) = properties_query.get_mut(root)
+            && marker.needs_compute_property_values()
+        {
+            marker.finish_compute_property_values();
 
-        trace!("Calling `compute_pending_property_values` on {entity}");
-        properties.compute_pending_property_values(
-            &type_registry,
-            &property_registry,
-            &static_property_maps,
-            Some(&global_change_detection.property_values_changed_this_frame),
-            || {
-                iterators
-                    .iter_ancestors(entity.entity)
-                    .map(|ancestor| &property_values_copy_query.get(ancestor).unwrap().0)
-            },
-        );
-        #[cfg(feature = "detailed_trace")]
-        trace_new_properties(&entity, &properties);
+            trace!("Calling `compute_pending_property_values` on {name_or_entity}");
+            properties.compute_pending_property_values(
+                &type_registry,
+                &property_registry,
+                &static_property_maps,
+                Some(properties_changed),
+                None,
+            );
+            #[cfg(feature = "detailed_trace")]
+            trace_new_properties(&name_or_entity, &properties);
+        }
+
+        for (parent, entity) in iterators.iter_descendants_with_parent(root) {
+            let Ok(
+                [
+                    (_, parent_properties, _),
+                    (name_or_entity, mut properties, mut marker),
+                ],
+            ) = properties_query.get_many_mut([parent, entity])
+            else {
+                continue;
+            };
+
+            if !marker.needs_compute_property_values() {
+                continue;
+            }
+            marker.finish_compute_property_values();
+
+            trace!("Calling `compute_pending_property_values` on {name_or_entity}");
+            properties.compute_pending_property_values(
+                &type_registry,
+                &property_registry,
+                &static_property_maps,
+                Some(properties_changed),
+                Some(&parent_properties),
+            );
+            #[cfg(feature = "detailed_trace")]
+            trace_new_properties(&name_or_entity, &properties);
+        }
     }
 }
 

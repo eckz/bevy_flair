@@ -33,6 +33,31 @@ pub fn mark_dirty_from_structural_change(
         };
         if was_empty != now_empty {
             mark_dirty.insert(entity);
+
+            // `:empty` may be part of a compound on the left of a sibling
+            // combinator (e.g. `.a:empty ~ .b`). When the
+            // emptiness of this element flips, following siblings may start or
+            // stop matching, and so may their descendants (e.g.
+            // `.a:empty ~ .b .c`).
+            //
+            // `HAS_SLOW_SELECTOR_LATER_SIBLINGS` is placed on the parent of the
+            // subject of a sibling combinator, so it tells us whether any
+            // sibling combinator may depend on this element.
+            let sibling_combinator_may_depend = parent
+                .parent_element()
+                .is_some_and(|parent_of_parent| {
+                    parent_of_parent
+                        .element_flags()
+                        .css_selector_flags
+                        .contains(ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS)
+                });
+
+            if sibling_combinator_may_depend {
+                for sibling in iterators.iter_next_siblings(entity) {
+                    mark_dirty.insert(sibling);
+                    mark_dirty.extend(iterators.iter_descendants(sibling));
+                }
+            }
         }
     }
 
@@ -45,27 +70,30 @@ pub fn mark_dirty_from_structural_change(
         // must be restyled, because they may match :nth-last-child,
         // :last-of-type, :nth-last-of-type, or :only-of-type.
         // HAS_SLOW_SELECTOR* was set by the presence of :nth (But not of).
-        for s in iterators.iter_children(entity) {
-            mark_dirty.insert(s);
-        }
+        //
+        // Descendants of those children are also marked, because a child may be
+        // an ancestor of the selector's subject (e.g. `.x:nth-child(odd) .y`).
+        mark_dirty.extend(iterators.iter_descendants(entity));
     } else if flags.contains(ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS) {
         // When a child is added or removed from the parent, any later
         // children must be restyled, because they may match :nth-child,
         // :first-of-type, or :nth-of-type.
-        for s in iterators.iter_children(entity) {
-            mark_dirty.insert(s);
-        }
+        //
+        // Descendants of those children are also marked, because a child may be
+        // an ancestor of the selector's subject (e.g. `.x ~ .x .y`).
+        mark_dirty.extend(iterators.iter_descendants(entity));
     }
 
     if flags.contains(ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR) {
         // When a child is added or removed from the parent, the first and
         // last children must be restyled, because they may match :first-child,
         // :last-child, or :only-child.
+        //
+        // Descendants of those children are also marked, because a child may be
+        // an ancestor of the selector's subject (e.g. `.x:first-child .y`).
         match change {
             StructuralChange::ChildrenChanged { was_empty } if !was_empty => {
-                for s in iterators.iter_children(entity) {
-                    mark_dirty.insert(s);
-                }
+                mark_dirty.extend(iterators.iter_descendants(entity));
             }
             _ => {}
         }
@@ -482,6 +510,239 @@ mod tests {
         world.despawn(child_of_b);
 
         assert_dirty!(world, [b]);
+    }
+
+    #[test]
+    fn empty_sibling_flags() {
+        let mut world = World::new();
+        let world = &mut world;
+
+        world.spawn((
+            element_data!(class = "root"),
+            children![
+                (element_data!(class = "a"),),
+                (
+                    element_data!(class = "b"),
+                    children![(element_data!(<span class = "c" />),)],
+                ),
+            ],
+        ));
+
+        let root = world.find_by_class("root");
+        let a = world.find_by_class("a");
+        let b = world.find_by_class("b");
+        let c = world.find_by_class("c");
+
+        // Nothing is dirty at first
+        assert_dirty!(world, []);
+
+        run_selectors!(world => ".a:empty ~ .b");
+        assert_flags!(world, a, F::HAS_EMPTY_SELECTOR);
+        assert_flags!(world, root, F::HAS_SLOW_SELECTOR_LATER_SIBLINGS);
+
+        // Still nothing is dirty
+        assert_dirty!(world, []);
+
+        // Adding the first child makes `.a:empty` stop matching,
+        // so the following sibling and its subtree must be recalculated.
+        world.spawn((element_data!(class = "x"), ChildOf(a)));
+
+        assert_dirty!(world, [a, b, c]);
+
+        // Removing the last child makes it match again.
+        let x = world.find_by_class("x");
+        world.despawn(x);
+
+        assert_dirty!(world, [a, b, c]);
+    }
+
+    #[test]
+    fn empty_without_sibling_flags() {
+        let mut world = World::new();
+        let world = &mut world;
+
+        world.spawn((
+            element_data!(class = "root"),
+            children![
+                (element_data!(class = "a"),),
+                (
+                    element_data!(class = "b"),
+                    children![(element_data!(<span class = "c" />),)],
+                ),
+            ],
+        ));
+
+        let a = world.find_by_class("a");
+
+        // Nothing is dirty at first
+        assert_dirty!(world, []);
+
+        run_selectors!(world => ".a:empty");
+        assert_flags!(world, a, F::HAS_EMPTY_SELECTOR);
+
+        // Still nothing is dirty
+        assert_dirty!(world, []);
+
+        // Without a sibling combinator, only the element whose `:empty` state
+        // changed is invalidated.
+        world.spawn((element_data!(class = "x"), ChildOf(a)));
+
+        assert_dirty!(world, [a]);
+
+        let x = world.find_by_class("x");
+        world.despawn(x);
+
+        assert_dirty!(world, [a]);
+    }
+
+    #[test]
+    fn nth_child_descendants_flags() {
+        let mut world = World::new();
+        let world = &mut world;
+
+        world.spawn((
+            element_data!(class = "root"),
+            children![(
+                element_data!(class = "a"),
+                children![
+                    (
+                        element_data!(class = "x" id = "c1"),
+                        children![(element_data!(<span class = "y" id = "t1" />),)],
+                    ),
+                    (
+                        element_data!(class = "x" id = "c2"),
+                        children![(element_data!(<span class = "y" id = "t2" />),)],
+                    ),
+                ],
+            )],
+        ));
+
+        let a = world.find_by_class("a");
+        let c1 = world.find_by_id("c1");
+        let c2 = world.find_by_id("c2");
+        let t1 = world.find_by_id("t1");
+        let t2 = world.find_by_id("t2");
+
+        // Nothing is dirty at first
+        assert_dirty!(world, []);
+
+        run_selectors!(world => ".x:nth-child(odd) .y");
+        assert_flags!(
+            world,
+            a,
+            F::HAS_SLOW_SELECTOR_LATER_SIBLINGS | F::HAS_SLOW_SELECTOR_NTH
+        );
+
+        // Still nothing is dirty
+        assert_dirty!(world, []);
+
+        // A child was added, so the `:nth-child(odd)` state of every child may
+        // have changed. Descendants of those children (the `.y` subject)
+        // need to be recalculated as well.
+        world.spawn((
+            element_data!(class = "x" id = "c3"),
+            children![(element_data!(<span class = "y" id = "t3" />),)],
+            ChildOf(a),
+        ));
+
+        let c3 = world.find_by_id("c3");
+        let t3 = world.find_by_id("t3");
+
+        assert_dirty!(world, [c1, c2, c3, t1, t2, t3]);
+    }
+
+    #[test]
+    fn edge_child_descendants_flags() {
+        let mut world = World::new();
+        let world = &mut world;
+
+        world.spawn((
+            element_data!(class = "root"),
+            children![(
+                element_data!(class = "a"),
+                children![
+                    (
+                        element_data!(class = "x" id = "c1"),
+                        children![(element_data!(<span class = "y" id = "t1" />),)],
+                    ),
+                    (
+                        element_data!(class = "x" id = "c2"),
+                        children![(element_data!(<span class = "y" id = "t2" />),)],
+                    ),
+                ],
+            )],
+        ));
+
+        let a = world.find_by_class("a");
+        let c1 = world.find_by_id("c1");
+        let c2 = world.find_by_id("c2");
+        let t1 = world.find_by_id("t1");
+        let t2 = world.find_by_id("t2");
+
+        assert_dirty!(world, []);
+
+        run_selectors!(world => ".x:first-child .y");
+        assert_flags!(world, a, F::HAS_EDGE_CHILD_SELECTOR);
+
+        assert_dirty!(world, []);
+
+        world.spawn((
+            element_data!(class = "x" id = "c3"),
+            children![(element_data!(<span class = "y" id = "t3" />),)],
+            ChildOf(a),
+        ));
+
+        let c3 = world.find_by_id("c3");
+        let t3 = world.find_by_id("t3");
+
+        assert_dirty!(world, [c1, c2, c3, t1, t2, t3]);
+    }
+
+    #[test]
+    fn sibling_descendants_flags() {
+        let mut world = World::new();
+        let world = &mut world;
+
+        world.spawn((
+            element_data!(class = "root"),
+            children![(
+                element_data!(class = "a"),
+                children![
+                    (
+                        element_data!(class = "x" id = "c1"),
+                        children![(element_data!(<span class = "y" id = "t1" />),)],
+                    ),
+                    (
+                        element_data!(class = "x" id = "c2"),
+                        children![(element_data!(<span class = "y" id = "t2" />),)],
+                    ),
+                ],
+            )],
+        ));
+
+        let a = world.find_by_class("a");
+        let c1 = world.find_by_id("c1");
+        let c2 = world.find_by_id("c2");
+        let t1 = world.find_by_id("t1");
+        let t2 = world.find_by_id("t2");
+
+        assert_dirty!(world, []);
+
+        run_selectors!(world => ".x ~ .x .y");
+        assert_flags!(world, a, F::HAS_SLOW_SELECTOR_LATER_SIBLINGS);
+
+        assert_dirty!(world, []);
+
+        world.spawn((
+            element_data!(class = "x" id = "c3"),
+            children![(element_data!(<span class = "y" id = "t3" />),)],
+            ChildOf(a),
+        ));
+
+        let c3 = world.find_by_id("c3");
+        let t3 = world.find_by_id("t3");
+
+        assert_dirty!(world, [c1, c2, c3, t1, t2, t3]);
     }
 
     #[test]

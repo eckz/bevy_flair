@@ -376,7 +376,7 @@ mod tests {
                 let mut e = ElementData::new();
                 e.type_name = Some(CssString::new_static("div"));
                 e.pseudo_state = PseudoStateFlags::HOVERED;
-                e.classes.push(CssString::new_static(".test_class"));
+                e.classes.push(CssString::new_static("test_class"));
                 e
             };
             let entity = world.spawn(element_data).id();

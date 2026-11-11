@@ -328,6 +328,8 @@ impl Plugin for FlairStylePlugin {
                     )
                         .in_set(StyleSystems::SetElementData),
                     (
+                        systems::invalidate_elements_from_parent_changes,
+                        systems::invalidate_elements_from_inline_style_changes,
                         systems::invalidate_elements_from_data_changes,
                         systems::invalidate_elements_from_structural_changes,
                         (

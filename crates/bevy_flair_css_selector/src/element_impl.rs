@@ -100,6 +100,14 @@ pub type ElementDataRef<'a> = ElementRef<'a, ElementData>;
 /// Type used to navigate over `ElementDataSnapshot`s on the hierarchy.
 pub type ElementDataSnapshotRef<'a> = ElementRef<'a, ElementDataSnapshot>;
 
+impl ElementDataRef<'_> {
+
+    /// Returns the element flags of this reference
+    pub fn element_flags(&self) -> &ElementFlags {
+        self.0.data_ref.1
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct InternalElementRef<'a, T: ElementRefType> {
     entity: Entity,

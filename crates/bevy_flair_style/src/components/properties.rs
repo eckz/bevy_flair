@@ -10,7 +10,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::{Commands, FromWorld, Resource, World};
 use bevy_flair_core::{
     ComponentPropertyId, ComputedValue, MaybeTypePath, PropertiesHashMap, PropertyBloomFilter,
-    PropertyMap, PropertyRegistry, PropertyValue, PropertyValueComputeContext, ReflectValue,
+    PropertyMap, PropertyRegistry, PropertyValue, ReflectValue,
 };
 use bevy_reflect::TypeRegistry;
 use bevy_utils::TypeIdHashMap;
@@ -79,15 +79,10 @@ macro_rules! debug_assert_not_empty {
     };
 }
 
-/// Copy of `StyleProperties` field `property_values`.
-/// Used for computing inherited properties to avoid aliasing errors.
-#[derive(Debug, Default, Component)]
-pub(crate) struct StylePropertyValuesCopy(pub(crate) PropertyMap<PropertyValue>);
-
 /// Contains all properties applied to the current Node.
 /// Also contains active animations and transits
 #[derive(Clone, Debug, Default, Component)]
-#[require(StyleMarkers, StylePropertyValuesCopy)]
+#[require(StyleMarkers)]
 pub struct StyleProperties {
     // Components that were inserted automatically, so they can be auto removed
     pub(crate) auto_inserted_components: TypeIdHashMap<()>,
@@ -143,16 +138,23 @@ fn get_reflect_animatable<'a>(
 }
 
 impl StyleProperties {
-    pub(crate) fn compute_pending_property_values<
-        'a,
-        I: IntoIterator<Item = &'a PropertyMap<PropertyValue>>,
-    >(
+    /// Returns the most recent computed values, either from this frame's pending values
+    /// or from the last frame's computed values if nothing was computed this frame.
+    pub(crate) fn latest_computed_values(&self) -> &PropertyMap<ComputedValue> {
+        if self.pending_computed_values.is_empty() {
+            &self.computed_values
+        } else {
+            &self.pending_computed_values
+        }
+    }
+
+    pub(crate) fn compute_pending_property_values(
         &mut self,
         type_registry: &TypeRegistry,
         property_registry: &PropertyRegistry,
         static_property_maps: &StaticPropertyMaps,
         properties_changed: Option<&PropertyBloomFilter>,
-        ancestor_properties: impl Fn() -> I,
+        parent: Option<&StyleProperties>,
     ) {
         debug_assert_empty!(
             "compute_pending_property_values",
@@ -173,6 +175,11 @@ impl StyleProperties {
         } else {
             mem::take(&mut self.pending_property_values)
         };
+        // A parent can have an empty computed values map if it was spawned after `reset_properties`.
+        let parent_computed_values = parent.and_then(|parent| {
+            let computed_values = parent.latest_computed_values();
+            (!computed_values.is_empty()).then_some(computed_values)
+        });
 
         for ((property_id, property_value), mut new_computed, unset_value, initial_value) in izip!(
             pending_property_values.iter(),
@@ -183,7 +190,7 @@ impl StyleProperties {
             if let Some(properties_changed) = properties_changed {
                 // Performance improvement: If the property value should inherit,
                 //       but the property id has not changed this frame, we can assume it's the same value
-                //       and there is no need to transverse the ancestors to end up with the same computed value.
+                //       and there is no need to recompute it.
                 if matches!(property_value, PropertyValue::Inherit)
                     && !properties_changed.contains(property_id)
                 {
@@ -191,21 +198,15 @@ impl StyleProperties {
                 }
             }
 
-            let compute_context = PropertyValueComputeContext {
-                unset: unset_value,
-                initial: initial_value,
-                ancestors: &|| {
-                    ancestor_properties().into_iter().map(|p| {
-                        // This could happen if the parent has a non-loaded stylesheet
-                        if p.is_empty() {
-                            PropertyValue::None
-                        } else {
-                            p[property_id].clone()
-                        }
-                    })
-                },
+            let computed_value = match parent_computed_values {
+                Some(parent_computed_values) => property_value.compute_with_parent(
+                    unset_value,
+                    initial_value,
+                    &parent_computed_values[property_id],
+                ),
+                None => property_value.compute_as_root(unset_value, initial_value),
             };
-            new_computed.set_if_neq(property_value.compute(compute_context));
+            new_computed.set_if_neq(computed_value);
         }
         self.property_values = pending_property_values;
 
@@ -940,29 +941,25 @@ mod tests {
     macro_rules! set_property_values_and_compute {
         ($properties:expr) => {{
             set_property_values!($properties);
-            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, || []);
+            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, None);
             $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
         ($properties:expr, { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
-            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, || []);
+            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, None);
             $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
-        ($properties:expr, [$($ancestors:expr),*]) => {{
+        ($properties:expr, [$parent:expr]) => {{
             set_property_values!($properties);
-            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, || [
-                $(&$ancestors.property_values),*
-            ]);
+            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, Some(&$parent));
             $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
-        ($properties:expr, [$($ancestors:expr),*], { $($rest:tt)* }) => {{
+        ($properties:expr, [$parent:expr], { $($rest:tt)* }) => {{
             set_property_values!($properties, $($rest)*);
-            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, || [
-                $(&$ancestors.property_values),*
-            ]);
+            $properties.compute_pending_property_values(&TYPE_REGISTRY, &PROPERTY_REGISTRY, &STATIC_PROPERTY_MAPS, None, Some(&$parent));
             $properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
             assert!($properties.pending_property_values.is_empty());
         }};
@@ -1001,7 +998,7 @@ mod tests {
             &PROPERTY_REGISTRY,
             &STATIC_PROPERTY_MAPS,
             None,
-            || [],
+            None,
         );
         assert!(properties.pending_property_values.is_empty());
         properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
@@ -1032,7 +1029,7 @@ mod tests {
             &PROPERTY_REGISTRY,
             &STATIC_PROPERTY_MAPS,
             None,
-            || [],
+            None,
         );
         properties.set_animation_computed_values(&STATIC_PROPERTY_MAPS);
         assert!(properties.pending_property_values.is_empty());
@@ -1060,7 +1057,7 @@ mod tests {
 
         set_property_values_and_compute!(root, { PROPERTY_1 => 1.0, PROPERTY_2 => 2.0, INHERITED_PROPERTY => PropertyValue::Initial });
         set_property_values_and_compute!(child, [root], { PROPERTY_2 => PropertyValue::Inherit, PROPERTY_3 => PropertyValue::Inherit });
-        set_property_values_and_compute!(grand_child, [child, root], { PROPERTY_2 => PropertyValue::Inherit });
+        set_property_values_and_compute!(grand_child, [child], { PROPERTY_2 => PropertyValue::Inherit });
 
         assert_eq!(
             apply_computed_values!(root),
@@ -1075,6 +1072,27 @@ mod tests {
             apply_computed_values!(grand_child),
             values![PROPERTY_2 => 2.0, INHERITED_PROPERTY => 4000.0]
         );
+    }
+
+    #[test]
+    fn inherits_from_parent_computed_values() {
+        let mut root = new_properties();
+        let mut child = new_properties();
+
+        set_property_values_and_compute!(root, { PROPERTY_2 => 2.0 });
+        set_property_values_and_compute!(child, [root], { PROPERTY_2 => PropertyValue::Inherit });
+
+        assert_eq!(apply_computed_values!(root), values![PROPERTY_2 => 2.0]);
+        assert_eq!(apply_computed_values!(child), values![PROPERTY_2 => 2.0]);
+        assert!(root.pending_computed_values.is_empty());
+
+        // The parent is not recomputed, so the child must use the parent's `computed_values`
+        set_property_values_and_compute!(
+            child,
+            [root],
+            { PROPERTY_2 => PropertyValue::Inherit, PROPERTY_3 => 3.0 }
+        );
+        assert_eq!(apply_computed_values!(child), values![PROPERTY_3 => 3.0]);
     }
 
     const TRANSITION_1_SECOND: TransitionOptions = TransitionOptions {
@@ -1231,7 +1249,7 @@ mod tests {
 
         set_property_values_and_compute!(root, { PROPERTY_1 => 0.0, PROPERTY_2 => 0.0, INHERITED_PROPERTY => 0.0 });
         set_property_values_and_compute!(child, [root], { PROPERTY_2 => PropertyValue::Inherit });
-        set_property_values_and_compute!(grand_child, [child, root], { PROPERTY_2 => PropertyValue::Inherit });
+        set_property_values_and_compute!(grand_child, [child], { PROPERTY_2 => PropertyValue::Inherit });
 
         assert_eq!(
             apply_computed_values!(root),
@@ -1251,7 +1269,7 @@ mod tests {
         // We modify on the root, but not on any of the children
         set_property_values_and_compute!(root, { PROPERTY_1 => 5.0, PROPERTY_2 => 5.0, INHERITED_PROPERTY => 5.0 });
         set_property_values_and_compute!(child, [root]);
-        set_property_values_and_compute!(grand_child, [child, root]);
+        set_property_values_and_compute!(grand_child, [child]);
         assert_eq!(
             apply_computed_values!(root),
             values![PROPERTY_1 => 5.0, PROPERTY_2 => 5.0, INHERITED_PROPERTY => 5.0]
@@ -1273,7 +1291,7 @@ mod tests {
 
         set_property_values_and_compute!(root);
         set_property_values_and_compute!(child, [root]);
-        set_property_values_and_compute!(grand_child, [child, root]);
+        set_property_values_and_compute!(grand_child, [child]);
         assert_eq!(apply_computed_values!(root), values![]);
         // Child does not have any transition, so the properties are applied directly
         assert_eq!(apply_computed_values!(child), values![]);
@@ -1318,7 +1336,7 @@ mod tests {
 
         set_property_values_and_compute!(root, {});
         set_property_values_and_compute!(child, [root], { INHERITED_PROPERTY => 0.0 });
-        set_property_values_and_compute!(grand_child, [child, root], {});
+        set_property_values_and_compute!(grand_child, [child], {});
 
         assert_eq!(apply_computed_values!(root), values![]);
 
@@ -1335,7 +1353,7 @@ mod tests {
         // We modify on the child, but not on root or grand_child
         set_property_values_and_compute!(root);
         set_property_values_and_compute!(child, [root], { INHERITED_PROPERTY => 5.0});
-        set_property_values_and_compute!(grand_child, [child, root]);
+        set_property_values_and_compute!(grand_child, [child]);
         assert_eq!(apply_computed_values!(root), values![]);
         assert_eq!(apply_computed_values!(child), values![]);
 
@@ -1355,7 +1373,7 @@ mod tests {
 
         set_property_values_and_compute!(root);
         set_property_values_and_compute!(child, [root]);
-        set_property_values_and_compute!(grand_child, [child, root]);
+        set_property_values_and_compute!(grand_child, [child]);
         assert_eq!(apply_computed_values!(root), values![]);
         assert_eq!(
             apply_computed_values!(child),

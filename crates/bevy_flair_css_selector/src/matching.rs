@@ -8,6 +8,7 @@ use crate::layers::LayersHierarchy;
 use crate::media_selector::MediaFeaturesProvider;
 use selectors::matching::matches_selector;
 use std::sync::Arc;
+use tracing::{info_span, trace_span};
 
 /// A selector that matches an element, along with metadata used to determine cascade order.
 pub struct MatchedSelector {
@@ -59,6 +60,8 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
     bloom_filter_builder: &AncestorsBloomFilterBuilder,
 ) -> Vec<MatchedSelector> {
     let entity = element.entity();
+
+    // TODO: Bloom filter, true or false or what?
     let mut ctx = caches.create_matching_context(true, entity, bloom_filter_builder);
 
     let mut result = Vec::new();
@@ -68,6 +71,9 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
             if !css_selector.matches_media_selector(media_features_provider) {
                 continue;
             }
+
+            let span = info_span!("matches_selector", css_selector = css_selector.to_string());
+            let _e = span.enter();
 
             let hashes = css_selector.ancestor_hashes();
             let matches = matches_selector(&css_selector.selector, 0, hashes, &element.0, &mut ctx);

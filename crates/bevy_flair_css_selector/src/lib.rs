@@ -22,6 +22,7 @@ mod selector;
 mod testing;
 mod tree_iterator;
 mod types;
+mod debug;
 
 #[cfg(feature = "ghost_elements")]
 pub use ghost_element::GhostElement;
@@ -38,3 +39,4 @@ pub use pseudo_state::*;
 pub use selector::CssSelector;
 pub use tree_iterator::*;
 pub use types::CssString;
+pub use debug::*;

@@ -1,7 +1,7 @@
 use crate::animations::{AnimationConfiguration, KeyframesResolver};
 use crate::components::{
     EffectiveStyleSheet, PropertyIdDebugHelperParam, StaticPropertyMaps, StyleActiveBlocks,
-    StyleMarkers, StyleProperties, StylePropertyValuesCopy, StyleVars,
+    StyleMarkers, StyleProperties, StyleVars,
 };
 use crate::{GlobalChangeDetection, StyleBlock, StyleResolver, StyleSheet, VarResolver, VarTokens};
 use bevy_asset::Assets;
@@ -77,7 +77,6 @@ pub(crate) fn resolve_property_values(
             Ref<EffectiveStyleSheet>,
             &mut StyleMarkers,
             &mut StyleProperties,
-            &mut StylePropertyValuesCopy,
         )>,
         Query<&mut StyleMarkers>,
     )>,
@@ -101,7 +100,6 @@ pub(crate) fn resolve_property_values(
             effective_style_sheet,
             mut marker,
             mut properties,
-            mut property_values_copy,
         )| {
             if !marker.needs_resolve_property_values() {
                 return;
@@ -129,7 +127,6 @@ pub(crate) fn resolve_property_values(
 
             debug_assert!(properties.pending_property_values.is_empty());
 
-            property_values_copy.0 = property_values.clone();
             properties.pending_property_values = property_values;
             properties.origin = origin;
 
