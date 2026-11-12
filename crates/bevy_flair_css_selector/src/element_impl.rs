@@ -162,6 +162,15 @@ where
     T: ElementRefType,
 {
     type Impl = CssSelectorImpl;
+    fn opaque(&self) -> OpaqueElement {
+        OpaqueElement::new(self.element_data())
+    }
+
+    fn parent_element(&self) -> Option<Self> {
+        let parent = self.param.iterators.get_parent(self.entity)?;
+        self.new_related(parent)
+    }
+
     fn parent_node_is_shadow_root(&self) -> bool {
         false
     }
@@ -170,56 +179,8 @@ where
         unimplemented!("containing_shadow_host")
     }
 
-    fn is_html_element_in_html_document(&self) -> bool {
-        false
-    }
-
-    fn has_namespace(&self, _ns: &<Self::Impl as SelectorImpl>::BorrowedNamespaceUrl) -> bool {
-        unimplemented!("has_namespace")
-    }
-
-    fn is_link(&self) -> bool {
-        false
-    }
-
-    fn is_html_slot_element(&self) -> bool {
-        unimplemented!("is_html_slot_element")
-    }
-
-    fn has_custom_state(&self, _name: &<Self::Impl as SelectorImpl>::Identifier) -> bool {
-        unimplemented!("has_custom_state")
-    }
-
-    fn imported_part(
-        &self,
-        _name: &<Self::Impl as SelectorImpl>::Identifier,
-    ) -> Option<<Self::Impl as SelectorImpl>::Identifier> {
-        unimplemented!("imported_part")
-    }
-
-    fn is_part(&self, _name: &<Self::Impl as SelectorImpl>::Identifier) -> bool {
-        unimplemented!("is_part")
-    }
-
     fn is_pseudo_element(&self) -> bool {
         false
-    }
-
-    fn match_pseudo_element(
-        &self,
-        _pe: &CssNever,
-        _context: &mut MatchingContext<Self::Impl>,
-    ) -> bool {
-        unimplemented!("Pseudo elements are not supported")
-    }
-
-    fn opaque(&self) -> OpaqueElement {
-        OpaqueElement::new(self.element_data())
-    }
-
-    fn parent_element(&self) -> Option<Self> {
-        let parent = self.param.iterators.get_parent(self.entity)?;
-        self.new_related(parent)
     }
 
     fn prev_sibling_element(&self) -> Option<Self> {
@@ -235,6 +196,10 @@ where
         self.new_related(first_child)
     }
 
+    fn is_html_element_in_html_document(&self) -> bool {
+        false
+    }
+
     fn has_local_name(&self, local_name: &<Self::Impl as SelectorImpl>::BorrowedLocalName) -> bool {
         self.element_data()
             .type_name
@@ -242,35 +207,8 @@ where
             .is_some_and(|type_name| type_name == local_name)
     }
 
-    fn match_non_ts_pseudo_class(
-        &self,
-        selector: &InternalPseudoStateSelector,
-        _context: &mut MatchingContext<Self::Impl>,
-    ) -> bool {
-        self.element_data().pseudo_state.matches_internal(*selector)
-    }
-
-    fn has_id(
-        &self,
-        id: &<Self::Impl as SelectorImpl>::Identifier,
-        case_sensitivity: CaseSensitivity,
-    ) -> bool {
-        if let Some(name) = &self.element_data().id {
-            case_sensitivity.eq(name.as_ref(), id.as_ref())
-        } else {
-            false
-        }
-    }
-
-    fn has_class(
-        &self,
-        name: &<Self::Impl as SelectorImpl>::Identifier,
-        case_sensitivity: CaseSensitivity,
-    ) -> bool {
-        self.element_data()
-            .classes
-            .iter()
-            .any(|c| case_sensitivity.eq(c.as_ref(), name.as_ref()))
+    fn has_namespace(&self, _ns: &<Self::Impl as SelectorImpl>::BorrowedNamespaceUrl) -> bool {
+        unimplemented!("has_namespace")
     }
 
     fn is_same_type(&self, other: &Self) -> bool {
@@ -301,16 +239,20 @@ where
             .contains_key(local_name.as_str())
     }
 
-    fn is_empty(&self) -> bool {
-        self.param
-            .iterators
-            .iter_children(self.entity)
-            .next()
-            .is_none()
+    fn match_non_ts_pseudo_class(
+        &self,
+        selector: &InternalPseudoStateSelector,
+        _context: &mut MatchingContext<Self::Impl>,
+    ) -> bool {
+        self.element_data().pseudo_state.matches_internal(*selector)
     }
 
-    fn is_root(&self) -> bool {
-        self.element_data().is_root
+    fn match_pseudo_element(
+        &self,
+        _pe: &CssNever,
+        _context: &mut MatchingContext<Self::Impl>,
+    ) -> bool {
+        unimplemented!("Pseudo elements are not supported")
     }
 
     fn apply_selector_flags(&self, selector_flags: selectors::matching::ElementSelectorFlags) {
@@ -347,6 +289,64 @@ where
         {
             apply_to_element(parent, flags_for_parent)
         }
+    }
+
+    fn is_link(&self) -> bool {
+        false
+    }
+
+    fn is_html_slot_element(&self) -> bool {
+        unimplemented!("is_html_slot_element")
+    }
+
+    fn has_id(
+        &self,
+        id: &<Self::Impl as SelectorImpl>::Identifier,
+        case_sensitivity: CaseSensitivity,
+    ) -> bool {
+        if let Some(name) = &self.element_data().id {
+            case_sensitivity.eq(name.as_ref(), id.as_ref())
+        } else {
+            false
+        }
+    }
+
+    fn has_class(
+        &self,
+        name: &<Self::Impl as SelectorImpl>::Identifier,
+        case_sensitivity: CaseSensitivity,
+    ) -> bool {
+        self.element_data()
+            .classes
+            .iter()
+            .any(|c| case_sensitivity.eq(c.as_ref(), name.as_ref()))
+    }
+
+    fn has_custom_state(&self, _name: &<Self::Impl as SelectorImpl>::Identifier) -> bool {
+        unimplemented!("has_custom_state")
+    }
+
+    fn imported_part(
+        &self,
+        _name: &<Self::Impl as SelectorImpl>::Identifier,
+    ) -> Option<<Self::Impl as SelectorImpl>::Identifier> {
+        unimplemented!("imported_part")
+    }
+
+    fn is_part(&self, _name: &<Self::Impl as SelectorImpl>::Identifier) -> bool {
+        unimplemented!("is_part")
+    }
+
+    fn is_empty(&self) -> bool {
+        self.param
+            .iterators
+            .iter_children(self.entity)
+            .next()
+            .is_none()
+    }
+
+    fn is_root(&self) -> bool {
+        self.element_data().is_root
     }
 
     fn add_element_unique_hashes(&self, filter: &mut selectors::bloom::BloomFilter) -> bool {

@@ -361,6 +361,9 @@ impl Plugin for FlairStylePlugin {
                         .in_set(StyleSystems::ApplyComputedProperties),
                 ),
             );
+
+        #[cfg(feature = "ghost_nodes")]
+        app.register_required_components::<bevy_ui::experimental::GhostNode, bevy_flair_css_selector::GhostElement>();
     }
 }
 

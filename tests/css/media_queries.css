@@ -35,3 +35,21 @@
         width: 100px;
     }
 }
+
+.nested-same-specificity {
+    background-color: red;
+    & {
+        background-color: blue;
+    }
+    /* Same specificity as the nested `&` rule, but later in source order. */
+    background-color: green;
+}
+
+.nested-media-order {
+    background-color: gray;
+    @media (min-width: 600px) {
+        background-color: blue;
+    }
+    /* Same specificity as the nested @media rule, but later in source order. */
+    background-color: black;
+}

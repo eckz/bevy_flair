@@ -1,4 +1,4 @@
-//! Shows different text properties, and the usage of ::before selector.
+//! Shows different text properties.
 
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
@@ -24,11 +24,13 @@ fn demo_section(label: impl Into<String>, children: impl SceneList) -> Box<dyn S
 
 fn a(contents: &'static str) -> impl Scene {
     bsn! {
-        // PseudoElementsSupport
         TypeName("a")
         Hovered
         Text
         Children [
+            ClassList::new("link-icon")
+            TextSpan
+            --
             TextSpan::new(contents)
         ]
     }
@@ -65,7 +67,7 @@ fn text_scene() -> impl Scene {
     ));
 
     sections.push(demo_section(
-        "2 - Link (with ::before and :hover) and small",
+        "2 - Link (with icon and :hover) and small",
         bsn! {
             @a("This is a link ")
             Children[

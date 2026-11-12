@@ -259,7 +259,7 @@ fn media_queries() {
     let app = &mut app;
 
     let _filter_guard = set_panic_on_warn_filter(|_, message| {
-        !message.starts_with("Media selector for 'prefers-color-scheme' cannot be matched")
+        !message.starts_with("Media selector '@media (prefers-color-scheme")
     });
 
     fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -269,7 +269,19 @@ fn media_queries() {
         commands.spawn((
             Root,
             Styled::new(asset_server.load_style_sheet("media_queries.css")),
-            children![(Element, UniqueName::new("child"), ClassList::new("child"),)],
+            children![
+                (Element, UniqueName::new("child"), ClassList::new("child"),),
+                (
+                    Element,
+                    UniqueName::new("nested-same-specificity"),
+                    ClassList::new("nested-same-specificity"),
+                ),
+                (
+                    Element,
+                    UniqueName::new("nested-media-order"),
+                    ClassList::new("nested-media-order"),
+                ),
+            ],
         ));
     }
 
@@ -278,6 +290,14 @@ fn media_queries() {
 
     set_resolution(app, (640, 480), 1.0);
     assert_width_eq!(app, "root", Val::Px(1.0));
+
+    // A nested `&` rule has the same specificity as its parent, so a later
+    // declaration in the parent must still win.
+    assert_background_color_eq!(app, "nested-same-specificity", css::GREEN);
+
+    // The media query matches at this resolution, but it still has the same
+    // specificity as the parent, so the later declaration must win.
+    assert_background_color_eq!(app, "nested-media-order", css::BLACK);
 
     set_window_theme(app, Some(WindowTheme::Dark));
     assert_width_eq!(app, "root", Val::Px(10.0));

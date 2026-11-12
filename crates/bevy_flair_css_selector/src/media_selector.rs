@@ -235,191 +235,167 @@ impl fmt::Display for MediaSelectors {
 
 #[cfg(test)]
 mod tests {
-    use super::{ColorScheme, MediaSelector, MediaSelectors};
+    use super::{
+        ColorScheme, MediaFeaturesProvider, MediaRangeSelector, MediaSelector, MediaSelectors,
+    };
+
+    fn ms(m: impl Into<MediaSelectors>) -> MediaSelectors {
+        m.into()
+    }
 
     #[test]
     fn formats_multiple_media_selectors() {
-        // Create MediaSelectors with a width and color-scheme selector.
-        // Assert the result is:
-        // "@media (min-width: 300px) and (prefers-color-scheme: dark)"
-        let ms: MediaSelectors = MediaSelector::ColorScheme(ColorScheme::Dark).into();
+        let dark_selector = ms(MediaSelector::ColorScheme(ColorScheme::Dark));
+        let min_width_500_selector = ms([
+            MediaSelector::ColorScheme(ColorScheme::Light),
+            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
+        ]);
 
-        assert_eq!(MediaSelectors::default().to_string(), "@media all");
-        assert_eq!(ms.to_string(), "@media (prefers-color-scheme: dark)");
+        assert_eq!(ms([]).to_string(), "@media all");
+        assert_eq!(
+            dark_selector.to_string(),
+            "@media (prefers-color-scheme: dark)"
+        );
+        assert_eq!(
+            min_width_500_selector.to_string(),
+            "@media (prefers-color-scheme: light) and (min-width: 500px)"
+        );
     }
 
-    // TODO: ADAPT THIS TEST!
-    // #[test]
-    // fn test_media_selectors() {
-    //     let mut builder = StyleSheetBuilder::new();
-    //
-    //     let any_selector = css_selector!("*");
-    //
-    //     let block_dark = builder
-    //         .new_ruleset()
-    //         .with_css_selector(
-    //             any_selector
-    //                 .clone()
-    //                 .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Dark)),
-    //         )
-    //         .with_property(StyleBuilderProperty::new(
-    //             TEST_PROPERTY,
-    //             ReflectValue::Float(0f32),
-    //         ))
-    //         .block_id();
-    //
-    //     let block_light = builder
-    //         .new_ruleset()
-    //         .with_css_selector(
-    //             any_selector
-    //                 .clone()
-    //                 .with_media_selectors(MediaSelector::ColorScheme(ColorScheme::Light)),
-    //         )
-    //         .with_property(StyleBuilderProperty::new(
-    //             TEST_PROPERTY,
-    //             ReflectValue::Float(1f32),
-    //         ))
-    //         .block_id();
-    //
-    //     let block_min_width_500 = builder
-    //         .new_ruleset()
-    //         .with_css_selector(any_selector.clone().with_media_selectors([
-    //             MediaSelector::ColorScheme(ColorScheme::Light),
-    //             MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
-    //         ]))
-    //         .with_property(StyleBuilderProperty::new(
-    //             TEST_PROPERTY,
-    //             ReflectValue::Float(2f32),
-    //         ))
-    //         .block_id();
-    //
-    //     let block_width_exact_600 = builder
-    //         .new_ruleset()
-    //         .with_css_selector(any_selector.clone().with_media_selectors([
-    //             MediaSelector::ColorScheme(ColorScheme::Light),
-    //             MediaSelector::ViewportWidth(MediaRangeSelector::Exact(600)),
-    //         ]))
-    //         .with_property(StyleBuilderProperty::new(
-    //             TEST_PROPERTY,
-    //             ReflectValue::Float(3f32),
-    //         ))
-    //         .block_id();
-    //
-    //     let block_aspect_ratio_ge_1 = builder
-    //         .new_ruleset()
-    //         .with_css_selector(any_selector.clone().with_media_selectors(
-    //             MediaSelector::AspectRatio(MediaRangeSelector::GreaterOrEqual(1.0)),
-    //         ))
-    //         .with_property(StyleBuilderProperty::new(
-    //             TEST_PROPERTY,
-    //             ReflectValue::Float(3f32),
-    //         ))
-    //         .block_id();
-    //
-    //     let block_aspect_ratio_le_1 = builder
-    //         .new_ruleset()
-    //         .with_css_selector(any_selector.clone().with_media_selectors(
-    //             MediaSelector::AspectRatio(MediaRangeSelector::LessOrEqual(1.0)),
-    //         ))
-    //         .with_property(StyleBuilderProperty::new(
-    //             TEST_PROPERTY,
-    //             ReflectValue::Float(3f32),
-    //         ))
-    //         .block_id();
-    //
-    //     let mut style_blocks = Assets::<StyleBlock>::default();
-    //
-    //     let mut custom_loader = TestAssetLoader(&mut style_blocks);
-    //
-    //     let style_sheet = builder
-    //         .build(
-    //             &EMPTY_TYPE_REGISTRY,
-    //             &PROPERTY_REGISTRY,
-    //             StyleAssetLoader::custom(&mut custom_loader),
-    //         )
-    //         .unwrap();
-    //
-    //     let [
-    //     block_dark,
-    //     block_light,
-    //     block_min_width_500,
-    //     block_width_exact_600,
-    //     block_aspect_ratio_ge_1,
-    //     block_aspect_ratio_le_1,
-    //     ] = translate_ids(
-    //         &style_blocks,
-    //         [
-    //             block_dark,
-    //             block_light,
-    //             block_min_width_500,
-    //             block_width_exact_600,
-    //             block_aspect_ratio_ge_1,
-    //             block_aspect_ratio_le_1,
-    //         ],
-    //     );
-    //
-    //     let dark_media = TestMediaProvider {
-    //         scheme: Some(ColorScheme::Dark),
-    //         ..Default::default()
-    //     };
-    //
-    //     assert_eq!(
-    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &dark_media),
-    //         vec![block_dark]
-    //     );
-    //
-    //     let light_media = TestMediaProvider {
-    //         scheme: Some(ColorScheme::Light),
-    //         ..Default::default()
-    //     };
-    //
-    //     assert_eq!(
-    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &light_media),
-    //         vec![block_light]
-    //     );
-    //
-    //     let light_500_media = TestMediaProvider {
-    //         scheme: Some(ColorScheme::Light),
-    //         width: Some(500),
-    //         ..Default::default()
-    //     };
-    //
-    //     assert_eq!(
-    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &light_500_media),
-    //         vec![block_light, block_min_width_500]
-    //     );
-    //
-    //     let light_600_media = TestMediaProvider {
-    //         scheme: Some(ColorScheme::Light),
-    //         width: Some(600),
-    //         ..Default::default()
-    //     };
-    //
-    //     assert_eq!(
-    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &light_600_media),
-    //         vec![block_light, block_min_width_500, block_width_exact_600]
-    //     );
-    //
-    //     let resolution_800x600 = TestMediaProvider {
-    //         width: Some(800),
-    //         height: Some(600),
-    //         ..Default::default()
-    //     };
-    //
-    //     assert_eq!(
-    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_800x600),
-    //         vec![block_aspect_ratio_ge_1]
-    //     );
-    //
-    //     let resolution_600x800 = TestMediaProvider {
-    //         width: Some(600),
-    //         height: Some(800),
-    //         ..Default::default()
-    //     };
-    //
-    //     assert_eq!(
-    //         style_sheet.get_matching_block_ids_for_element(element!(Text), &resolution_600x800),
-    //         vec![block_aspect_ratio_le_1]
-    //     );
-    // }
+    #[derive(Default)]
+    struct TestProvider {
+        scheme: Option<ColorScheme>,
+        resolution: Option<f32>,
+        width: Option<u32>,
+        height: Option<u32>,
+    }
+
+    impl MediaFeaturesProvider for TestProvider {
+        fn get_color_scheme(&self) -> Option<ColorScheme> {
+            self.scheme
+        }
+
+        fn get_resolution(&self) -> Option<f32> {
+            self.resolution
+        }
+
+        fn get_viewport_width(&self) -> Option<u32> {
+            self.width
+        }
+
+        fn get_viewport_height(&self) -> Option<u32> {
+            self.height
+        }
+    }
+
+    #[test]
+    fn test_media_selectors() {
+        let dark_selector = ms(MediaSelector::ColorScheme(ColorScheme::Dark));
+        let light_selector = ms(MediaSelector::ColorScheme(ColorScheme::Light));
+
+        let min_width_500_selector = ms([
+            MediaSelector::ColorScheme(ColorScheme::Light),
+            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
+        ]);
+        let width_exact_600_selector = ms([
+            MediaSelector::ColorScheme(ColorScheme::Light),
+            MediaSelector::ViewportWidth(MediaRangeSelector::Exact(600)),
+        ]);
+
+        let height_exact_600_selector = ms(MediaSelector::ViewportHeight(
+            MediaRangeSelector::Exact(600),
+        ));
+        let aspect_ratio_ge_1_selector = ms(MediaSelector::AspectRatio(
+            MediaRangeSelector::GreaterOrEqual(1.0),
+        ));
+        let aspect_ratio_le_1_selector = ms(MediaSelector::AspectRatio(
+            MediaRangeSelector::LessOrEqual(1.0),
+        ));
+        let min_resolution_2_selector = ms(MediaSelector::Resolution(
+            MediaRangeSelector::GreaterOrEqual(2.0),
+        ));
+
+        let dark_media = TestProvider {
+            scheme: Some(ColorScheme::Dark),
+            ..Default::default()
+        };
+        let light_media = TestProvider {
+            scheme: Some(ColorScheme::Light),
+            ..Default::default()
+        };
+
+        // An empty set of selectors always matches.
+        assert!(ms([]).matches(&light_media));
+
+        assert!(dark_selector.matches(&dark_media));
+        assert!(!dark_selector.matches(&light_media));
+        assert!(light_selector.matches(&light_media));
+        assert!(!light_selector.matches(&dark_media));
+
+        let light_400_media = TestProvider {
+            scheme: Some(ColorScheme::Light),
+            width: Some(400),
+            ..Default::default()
+        };
+        let light_500_media = TestProvider {
+            scheme: Some(ColorScheme::Light),
+            width: Some(500),
+            ..Default::default()
+        };
+        let light_600_media = TestProvider {
+            scheme: Some(ColorScheme::Light),
+            width: Some(600),
+            ..Default::default()
+        };
+
+        assert!(min_width_500_selector.matches(&light_500_media));
+        assert!(!min_width_500_selector.matches(&light_400_media));
+        assert!(width_exact_600_selector.matches(&light_600_media));
+        assert!(!width_exact_600_selector.matches(&light_500_media));
+
+        // All selectors in the set need to match.
+        let dark_500_media = TestProvider {
+            scheme: Some(ColorScheme::Dark),
+            width: Some(500),
+            ..Default::default()
+        };
+        assert!(!min_width_500_selector.matches(&dark_500_media));
+
+        let resolution_800x600 = TestProvider {
+            width: Some(800),
+            height: Some(600),
+            ..Default::default()
+        };
+        let resolution_600x800 = TestProvider {
+            width: Some(600),
+            height: Some(800),
+            ..Default::default()
+        };
+
+        assert!(height_exact_600_selector.matches(&resolution_800x600));
+        assert!(!height_exact_600_selector.matches(&resolution_600x800));
+
+        assert!(aspect_ratio_ge_1_selector.matches(&resolution_800x600));
+        assert!(!aspect_ratio_ge_1_selector.matches(&resolution_600x800));
+        assert!(!aspect_ratio_le_1_selector.matches(&resolution_800x600));
+        assert!(aspect_ratio_le_1_selector.matches(&resolution_600x800));
+
+        let resolution_2 = TestProvider {
+            resolution: Some(2.0),
+            ..Default::default()
+        };
+        let resolution_1 = TestProvider {
+            resolution: Some(1.0),
+            ..Default::default()
+        };
+        assert!(min_resolution_2_selector.matches(&resolution_2));
+        assert!(!min_resolution_2_selector.matches(&resolution_1));
+
+        // Selectors whose feature cannot be resolved don't match.
+        assert_eq!(
+            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500))
+                .matches(&TestProvider::default()),
+            None
+        );
+    }
 }

@@ -265,12 +265,34 @@ impl CssSelector {
 
         let media_selectors = parent_media_selectors.merge_with(self.media_selectors);
 
+        // Nested selectors are forced to be in the parent ruleset's source order. Their
+        // own offset points inside the parent block, while the blocks emitted
+        // for declarations after the nested rule reuse the parent's earlier
+        // offset. Comparing offsets directly would therefore put the nested
+        // selector after those later declarations:
+        //
+        //     .foo {              /* selector offset = 0  */
+        //         color: red;     /* block A, offset 0  */
+        //         & {             /* nested selector offset = 20 */
+        //             color: blue; /* block B, offset 20 */
+        //         }
+        //         color: green;   /* block C, offset 0, reuses `.foo` */
+        //     }
+        //
+        // Sorting by offset gives red(0), green(0), blue(20), so blue wins
+        // even though green appears later in the source. Ideally every split
+        // block would carry its own source position, but we don't track
+        // declaration positions. Reusing the parent's offset is a pragmatic
+        // workaround: blocks are emitted in source order, so the block order
+        // tie-breaker still produces the correct cascade order.
+        let source_byte_offset = parent_selectors[0].source_byte_offset;
+
         Self {
             layer,
             media_selectors,
             selector,
             ancestor_hashes,
-            source_byte_offset: self.source_byte_offset,
+            source_byte_offset,
         }
     }
 

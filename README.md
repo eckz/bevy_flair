@@ -136,7 +136,7 @@ Common CSS selectors and combinators, via the [selectors](https://crates.io/crat
 | Combinators: descendant (`ul li`), child (`ul > li`), sibling (`img + p`, `img ~ p`)                                                           |   ✅   |                                                                                                                              |
 | Attribute selectors                                                                                                                            |   ✅   | Via [`AttributeList`](https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.AttributeList.html)                 |
 | Nested selectors (`&:hover { ... }`)                                                                                                           |   ✅   |                                                                                                                              |
-| `::before` and `::after`                                                                                                                       |   ✅   | Enabled with [`PseudoElementsSupport`](https://docs.rs/bevy_flair/latest/bevy_flair/style/struct.PseudoElementsSupport.html) |
+| `::before` and `::after`                                                                                                                       |   ❌   | Pseudo-elements are not supported by the new selector implementation.                                                        |
 | Automatic [`aria-*` attribute selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Selectors/Attribute_selectors)             |   ❌   | ARIA attributes are not in sync with `bevy_a11y`                                                                             |
 | Other [pseudo-elements](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Selectors/Pseudo-elements) like `::checkmark`, `::backdrop` |   🛑   | Bevy has no general concept of pseudo-elements to target                                                                     |
 
@@ -254,7 +254,7 @@ Common CSS selectors and combinators, via the [selectors](https://crates.io/crat
 | Inherited stylesheets                                                                                  |   ✅   | Specify a [`Styled`](https://docs.rs/bevy_flair/latest/bevy_flair/style/components/enum.Styled.html) on a root node and all children inherit it |
 | Different stylesheets per subtree                                                                      |   ✅   | Use a different `Styled` per subtree. It's even possible to apply no style to a given subtree                                                   |
 | Hot-reloading                                                                                          |   ✅   | Edit your `.css` file and see styles re-applied on the fly. One of the main advantages over specifying styles directly in code                  |
-| [`GhostNode`](https://docs.rs/bevy/latest/bevy/ui/experimental/struct.GhostNode.html) in the hierarchy |   ✅   | Ghost nodes are ignored. Enable the `ghost_nodes` feature for better support                                                                    |
+| [`GhostNode`](https://docs.rs/bevy/latest/bevy/ui/experimental/struct.GhostNode.html) in the hierarchy |   ✅   | Ghost elements are ignored. Enable the `ghost_nodes` feature                                                                                    |
 | Custom properties                                                                                      |   ✅   | See the [sound effects example](https://github.com/eckz/bevy_flair/blob/main/examples/sound_effects.rs)                                         |
 | Override parsing                                                                                       |   ✅   | See the [custom parsing example](https://github.com/eckz/bevy_flair/blob/main/examples/custom_parsing.rs)                                       |
 | More than one stylesheet per entity                                                                    |   ❌   | Use `@import` instead                                                                                                                           |
@@ -294,7 +294,7 @@ Common CSS selectors and combinators, via the [selectors](https://crates.io/crat
 
 | bevy | bevy_flair    |
 | ---- | ------------- |
-| 0.20 | 0.9           |
+| 0.20 | 0.9, 0.10     |
 | 0.19 | 0.8           |
 | 0.18 | 0.7           |
 | 0.17 | 0.5, 0.6      |

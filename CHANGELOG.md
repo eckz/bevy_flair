@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.0] - Unreleased
 
+### Added
+- New `bevy_flair_css_selector` crate (re-exported as `bevy_flair::selector`) containing selector parsing, matching, invalidation and selector caches.
+
 ### Changed
 - Upgraded `cssparser` to 0.38, `cssparser-color` to 0.6 and `selectors` to 0.41.
 - Custom CSS parsers now receive a `CssParser` instead of a raw `cssparser::Parser`. The new parser tracks byte spans, so `Located` and `ParserExt` were replaced by `Spanned`, `SpannedStr` and `CssParser::try_parse`.
+- `StyleSystems::SetStyleData` renamed to `StyleSystems::SetElementData`.
+- `StyleSystems::MarkEntitiesForStyleRecalculation` renamed to `StyleSystems::InvalidateEntities`.
+- `NodePseudoState` replaced by `PseudoStateFlags` and `ElementData`.
+- `CssSelector`, `ColorScheme`, `MediaSelectors` and related selector types moved to `bevy_flair_css_selector`.
+
+### Removed
+- `PseudoElementsSupport` and pseudo-element support (`::before` and `::after`). Pseudo-elements are not supported.
 
 ## [0.9.0] - 14-Oct-2026
 

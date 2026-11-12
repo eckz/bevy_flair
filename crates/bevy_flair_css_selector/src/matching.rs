@@ -37,6 +37,8 @@ impl MatchedSelector {
             .then_with(|| a.scope_proximity.cmp(&b.scope_proximity).reverse())
             .then_with(|| a.input_group_index.cmp(&b.input_group_index))
             .then_with(|| a.source_byte_offset.cmp(&b.source_byte_offset))
+            // See the comment in bevy_flair_css_selector::selector::CssSelector::replace_parent_selector
+            .then_with(|| a.opaque_id.cmp(&b.opaque_id))
     }
 }
 
@@ -61,7 +63,7 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
 ) -> Vec<MatchedSelector> {
     let entity = element.entity();
 
-    // TODO: Bloom filter, true or false or what?
+    // Build a bloom filter for the ancestor hashes to speed up selector matching.
     let mut ctx = caches.create_matching_context(true, entity, bloom_filter_builder);
 
     let mut result = Vec::new();
@@ -175,6 +177,16 @@ mod tests {
 
         assert_eq!(
             MatchedSelector::compare(&later_source, &earlier_source, &NO_LAYERS),
+            Ordering::Greater
+        );
+
+        let mut earlier_block = matched(1, None, 0, 100);
+        earlier_block.opaque_id = 1;
+        let mut later_block = matched(1, None, 0, 100);
+        later_block.opaque_id = 2;
+
+        assert_eq!(
+            MatchedSelector::compare(&later_block, &earlier_block, &NO_LAYERS),
             Ordering::Greater
         );
     }

@@ -49,12 +49,8 @@ tracing = "0.1"
 bevy_flair_core = { workspace = true }
 bevy_flair_css_selector = { workspace = true }
 
-cssparser = { workspace = true }
-selectors = { workspace = true }
-precomputed-hash = { version = "0.1" }
-
 [features]
-ghost_nodes = ["bevy_ui/ghost_nodes"]
+ghost_nodes = ["bevy_ui/ghost_nodes", "bevy_flair_css_selector/ghost_elements"]
 detailed_trace = []
 
 [dev-dependencies]

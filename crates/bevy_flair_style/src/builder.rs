@@ -777,7 +777,6 @@ impl StyleSheetBuilder {
             .css_selectors_to_blocks
             .into_iter()
             .map(|(selector, id)| (selector, opaque_id_from_builder_block_id(id)))
-            // TODO:!!
             .chain(self.embedded_css_selectors_to_blocks)
             .collect::<Vec<_>>();
 
@@ -830,10 +829,4 @@ where
             value: ReflectValue::new(value).into(),
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // TODO: Add test for the builder
-    // use super::*;
 }

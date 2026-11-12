@@ -25,7 +25,6 @@ rustc-hash = "2.1"
 smol_str = "0.2"
 smallvec = { version = "1.16", features = ["const_new"] }
 bevy_ecs = { workspace = true }
-# TODO, Add feature for this
 bevy_reflect = { workspace = true }
 
 tracing = "0.1"
