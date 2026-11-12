@@ -78,7 +78,7 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
             let _e = span.enter();
 
             let hashes = css_selector.ancestor_hashes();
-            let matches = matches_selector(&css_selector.selector, 0, hashes, &element.0, &mut ctx);
+            let matches = matches_selector(&css_selector.selector, 0, hashes, element.0, &mut ctx);
 
             if matches {
                 result.push(MatchedSelector {

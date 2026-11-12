@@ -43,7 +43,7 @@ bevy_flair_css_selector = { path = "crates/bevy_flair_css_selector", version = "
 
 cssparser = { version = "0.38" }
 cssparser-color = { version = "0.6" }
-selectors = { version = "0.41" }
+selectors = { version = "0.43" }
 
 [dependencies]
 bevy_app = { workspace = true }

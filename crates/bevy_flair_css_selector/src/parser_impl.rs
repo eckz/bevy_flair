@@ -1,4 +1,4 @@
-use cssparser::{CowRcStr, ParseError, match_ignore_ascii_case};
+use cssparser::{ParseError, match_ignore_ascii_case};
 use selectors::parser::SelectorParseErrorKind;
 
 use crate::pseudo_state::{InternalPseudoStateSelector, PseudoStateSelector};
@@ -33,39 +33,34 @@ impl<'i> selectors::Parser<'i> for CssSelectorParser {
 
     fn parse_non_ts_pseudo_class(
         &self,
-        name: CowRcStr<'i>,
+        name: &str,
     ) -> Result<InternalPseudoStateSelector, ParseError<Self::Error>> {
-        Ok(InternalPseudoStateSelector(
-            match_ignore_ascii_case! {name.as_ref(),
-                "hover" => {
-                    PseudoStateSelector::Hovered
-                },
-                "active" => {
-                    PseudoStateSelector::Pressed
-                },
-                "focus" => {
-                    PseudoStateSelector::Focused
-                },
-                "focus-visible" => {
-                    PseudoStateSelector::FocusedAndVisible
-                },
-                "disabled" => {
-                    PseudoStateSelector::Disabled
-                },
-                "checked" => {
-                    PseudoStateSelector::Checked
-                },
-                _ => {
-                    return Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
-                }
+        Ok(InternalPseudoStateSelector(match_ignore_ascii_case! {name,
+            "hover" => {
+                PseudoStateSelector::Hovered
             },
-        ))
+            "active" => {
+                PseudoStateSelector::Pressed
+            },
+            "focus" => {
+                PseudoStateSelector::Focused
+            },
+            "focus-visible" => {
+                PseudoStateSelector::FocusedAndVisible
+            },
+            "disabled" => {
+                PseudoStateSelector::Disabled
+            },
+            "checked" => {
+                PseudoStateSelector::Checked
+            },
+            _ => {
+                return Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
+            }
+        }))
     }
 
-    fn parse_pseudo_element(
-        &self,
-        _name: CowRcStr<'i>,
-    ) -> Result<CssNever, ParseError<Self::Error>> {
+    fn parse_pseudo_element(&self, _name: &str) -> Result<CssNever, ParseError<Self::Error>> {
         Err(ParseError::custom(
             SelectorParseErrorKind::UnsupportedPseudoClassOrElement,
         ))

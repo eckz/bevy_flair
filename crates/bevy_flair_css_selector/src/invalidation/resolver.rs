@@ -21,8 +21,8 @@ fn compare_selector_with_snapshot(
 ) -> (KleeneValue, KleeneValue) {
     let mut ctx = caches.create_matching_context_for_invalidation();
     ctx.for_invalidation_comparison(|ctx| {
-        let then = matches_selector_kleene(selector, offset, None, snapshot_element, ctx);
-        let now = matches_selector_kleene(selector, offset, None, element, ctx);
+        let then = matches_selector_kleene(selector, offset, None, *snapshot_element, ctx);
+        let now = matches_selector_kleene(selector, offset, None, *element, ctx);
         (then, now)
     })
 }
@@ -126,14 +126,14 @@ pub fn mark_dirty_from_dependency(
                 let then = matches_relative(
                     &dep.selector,
                     dep.offset,
-                    &element_snapshot.0,
+                    element_snapshot.0,
                     anchor_snapshot.0.opaque(),
                     caches,
                 );
                 let now = matches_relative(
                     &dep.selector,
                     dep.offset,
-                    &element,
+                    element,
                     anchor.0.opaque(),
                     caches,
                 );
@@ -199,7 +199,7 @@ pub fn mark_dirty_from_dependency(
     fn matches_relative<E: Element<Impl = CssSelectorImpl>>(
         selector: &Selector<CssSelectorImpl>,
         offset: usize,
-        el: &E,
+        el: E,
         anchor: OpaqueElement,
         caches: &mut SelectorMatchingCaches,
     ) -> bool {
