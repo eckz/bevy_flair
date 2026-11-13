@@ -318,6 +318,49 @@ fn media_queries() {
 }
 
 #[test]
+fn media_query_range_syntax() {
+    use bevy_ecs::system::RunSystemOnce;
+
+    fn set_resolution(app: &mut App, physical_size: impl Into<UVec2>, scale_factor: f32) {
+        let physical_size = physical_size.into();
+        app.world_mut()
+            .run_system_once(move |mut camera: Single<&mut Camera>| {
+                camera.computed.target_info = Some(RenderTargetInfo {
+                    physical_size,
+                    scale_factor,
+                });
+            })
+            .unwrap();
+        app.update();
+    }
+
+    include_test_css!("media_query_range_syntax.css");
+
+    let mut app = test_app();
+    let app = &mut app;
+
+    fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+        commands.spawn(Camera2d);
+        commands.spawn((
+            Root,
+            Styled::new(asset_server.load_style_sheet("media_query_range_syntax.css")),
+            children![(Element, UniqueName::new("child"), ClassList::new("child"),)],
+        ));
+    }
+
+    app.add_systems(Startup, spawn_test_scene);
+    app.update();
+
+    set_resolution(app, (640, 480), 1.0);
+    assert_width_eq!(app, "root", Val::Px(10.0));
+    assert_width_eq!(app, "child", Val::Px(30.0));
+
+    set_resolution(app, (300, 200), 1.0);
+    assert_width_eq!(app, "root", Val::Px(20.0));
+    assert_width_eq!(app, "child", Val::ZERO);
+}
+
+#[test]
 fn imports() {
     include_test_css!("imports.css", "folder/_import_1.css", "_import_2.css");
     include_assets!("fonts/FiraSans-Regular.ttf", "panel-border-010.png");

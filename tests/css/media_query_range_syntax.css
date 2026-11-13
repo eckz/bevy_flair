@@ -1,0 +1,25 @@
+:root {
+    width: 0px;
+}
+
+.child {
+    width: 0px;
+}
+
+@media (width >= 600px) {
+    :root {
+        width: 10px;
+    }
+}
+
+@media (width < 600px) {
+    :root {
+        width: 20px;
+    }
+}
+
+@media (400px <= width <= 800px) {
+    .child {
+        width: 30px;
+    }
+}

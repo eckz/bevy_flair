@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - New `bevy_flair_css_selector` crate (re-exported as `bevy_flair::selector`) containing selector parsing, matching, invalidation and selector caches.
+- CSS Media Queries range syntax for `@media`, including `(width >= 600px)`, `(width <= 600px)`, `(width > 600px)`, `(width < 600px)`, `(width = 600px)`, value-first forms such as `(600px <= width)`, and interval forms such as `(400px <= width <= 800px)`. The same syntax is supported for `height`, `aspect-ratio` and `resolution`; `prefers-color-scheme` supports only the equality form, such as `(prefers-color-scheme = dark)`.
 
 ### Changed
 - Upgraded `cssparser` to 0.38, `cssparser-color` to 0.6 and `selectors` to 0.43.
