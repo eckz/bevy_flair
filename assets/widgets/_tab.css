@@ -123,10 +123,7 @@
 
             border: 3px transparent;
 
-            /* TODO: There is a bug that prevents this from properly working */
-            /* This would be required to have tab navigation properly working */
-            /*visibility: hidden;*/
-            visibility: visible;
+            visibility: hidden;
         }
     }
 }

@@ -15,7 +15,8 @@ mod custom_widgets {
     use bevy::picking::cursor::EntityCursor;
     use bevy::picking::hover::Hovered;
     use bevy::prelude::*;
-    use bevy::ui::{Checked, Selected};
+    use bevy::scene::Ready;
+    use bevy::ui::Checked;
     use bevy::ui_widgets::*;
     use bevy_flair::prelude::*;
 
@@ -302,7 +303,16 @@ mod custom_widgets {
             bsn! {
                 Node
                 Tab
-                @cond_if(selected, || bsn!{ Selected })
+                @cond_if(selected, || bsn! {
+                    on(|ready: On<Ready>, child_of_query: Query<&ChildOf>, tab_lists: Query<(), With<TabList>>, mut commands: Commands| {
+                        let entity = ready.entity;
+                        if let Some(tab_list) = child_of_query.iter_ancestors(entity).find(|e| {
+                            tab_lists.contains(*e)
+                        }) {
+                            commands.entity(tab_list).insert(SelectedTab(Some(entity)));
+                        }
+                    })
+                })
                 ClassList::new("tabs__tab_header")
                 TabHeaderIndex(index)
                 Hovered
