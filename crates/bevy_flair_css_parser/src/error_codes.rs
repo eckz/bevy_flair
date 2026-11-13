@@ -94,6 +94,9 @@ define_errors!(media_queries => {
     UNPEXPECTED_SIZE_TOKEN(101, "Unexpected token for a media size type"),
     UNPEXPECTED_COLOR_SCHEMA_TOKEN(102, "Unexpected token for color-scheme"),
     UNPEXPECTED_RESOLUTION_TOKEN(103, "Unexpected token for a resolution type"),
+    UNEXPECTED_MEDIA_COMPARISON(104, "Unexpected media query comparison"),
+    UNEXPECTED_MEDIA_RANGE(105, "Invalid media query range"),
+    INVALID_MEDIA_RANGE(106, "Invalid media query range bounds"),
 });
 
 define_errors!(animations => {

@@ -2,10 +2,10 @@
 
 use bevy_reflect::prelude::*;
 use cssparser::ToCss;
-use std::fmt;
 use std::fmt::Write;
-use std::ops::Deref;
+use std::ops::{Bound, Deref, RangeBounds};
 use std::sync::Arc;
+use std::{fmt, iter};
 use tracing::warn;
 
 /// A color scheme that represents `light` or `dark` themes.
@@ -20,15 +20,63 @@ pub enum ColorScheme {
 }
 
 /// Represents a selector for media query values that allows matching
-/// ranges, like `min-width` or `max-width`
+/// ranges, like `min-width` or `max-width`.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum MediaRangeSelector<T> {
+pub struct MediaRangeSelector<T> {
+    /// The lower bound.
+    lower: Bound<T>,
+    /// The upper bound.
+    upper: Bound<T>,
+}
+
+impl<T> MediaRangeSelector<T> {
     /// Matches exactly the given value. (e.g. `width: 300px`).
-    Exact(T),
+    pub fn eq(value: T) -> Self
+    where
+        T: Copy,
+    {
+        Self {
+            lower: Bound::Included(value),
+            upper: Bound::Included(value),
+        }
+    }
+
+    /// Matches values less than the given value. (e.g. `width < 300px`).
+    pub fn lt(value: T) -> Self {
+        Self {
+            lower: Bound::Unbounded,
+            upper: Bound::Excluded(value),
+        }
+    }
+
     /// Matches values less than or equal to the given value. (e.g. `max-width: 300px`).
-    LessOrEqual(T),
+    pub fn le(value: T) -> Self {
+        Self {
+            lower: Bound::Unbounded,
+            upper: Bound::Included(value),
+        }
+    }
+
+    /// Matches values greater than the given value. (e.g. `width > 300px`).
+    pub fn gt(value: T) -> Self {
+        Self {
+            lower: Bound::Excluded(value),
+            upper: Bound::Unbounded,
+        }
+    }
+
     /// Matches values greater than or equal to the given value. (e.g. `min-width: 300px`).
-    GreaterOrEqual(T),
+    pub fn ge(value: T) -> Self {
+        Self {
+            lower: Bound::Included(value),
+            upper: Bound::Unbounded,
+        }
+    }
+
+    /// Matches values between the given bounds.
+    pub fn new(lower: Bound<T>, upper: Bound<T>) -> Self {
+        Self { lower, upper }
+    }
 }
 
 impl<T> MediaRangeSelector<T>
@@ -37,18 +85,11 @@ where
 {
     /// Checks whether the given value matches the range selector condition.
     pub fn matches(&self, value: T) -> bool {
-        match *self {
-            MediaRangeSelector::Exact(exact) => value == exact,
-            MediaRangeSelector::LessOrEqual(lt) => value <= lt,
-            MediaRangeSelector::GreaterOrEqual(gt) => value >= gt,
-        }
+        (self.lower, self.upper).contains(&value)
     }
 }
 
 /// A trait for providing media features that can be queried by media selectors.
-///
-/// Types implementing this trait can provide information about color scheme,
-/// screen resolution, viewport dimensions, and aspect ratio.
 pub trait MediaFeaturesProvider {
     /// Returns the current color scheme.
     fn get_color_scheme(&self) -> Option<ColorScheme>;
@@ -69,7 +110,7 @@ pub trait MediaFeaturesProvider {
 }
 
 /// Describes a single media query selector, which can match various media features.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum MediaSelector {
     /// Matches the device's color scheme.
     ColorScheme(ColorScheme),
@@ -136,6 +177,15 @@ impl FromIterator<MediaSelector> for MediaSelectors {
     }
 }
 
+impl<'a> IntoIterator for &'a MediaSelectors {
+    type Item = MediaSelector;
+    type IntoIter = iter::Copied<std::slice::Iter<'a, MediaSelector>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter().copied()
+    }
+}
+
 impl MediaSelectors {
     /// Creates an empty `MediaSelectors` instance.
     pub fn empty() -> Self {
@@ -149,7 +199,7 @@ impl MediaSelectors {
         } else if other.is_empty() {
             self.clone()
         } else {
-            MediaSelectors(Arc::from_iter(self.iter().chain(other.iter()).cloned()))
+            MediaSelectors(Arc::from_iter(self.iter().chain(other.iter()).copied()))
         }
     }
 
@@ -173,21 +223,51 @@ impl MediaSelectors {
 
 impl ToCss for MediaSelector {
     fn to_css<W: Write>(&self, dest: &mut W) -> fmt::Result {
-        fn fmt_range<W: Write, T: fmt::Display>(
+        fn fmt_range<W: Write, T: PartialEq + fmt::Display>(
             f: &mut W,
             feature: &str,
             unit: &str,
             range: &MediaRangeSelector<T>,
         ) -> fmt::Result {
-            match range {
-                MediaRangeSelector::Exact(value) => {
-                    write!(f, "({feature}: {value}{unit})")
+            match (&range.lower, &range.upper) {
+                (Bound::Unbounded, Bound::Unbounded) => {
+                    write!(f, "({feature})")
                 }
-                MediaRangeSelector::LessOrEqual(value) => {
+                (Bound::Unbounded, Bound::Included(value)) => {
                     write!(f, "(max-{feature}: {value}{unit})")
                 }
-                MediaRangeSelector::GreaterOrEqual(value) => {
+                (Bound::Unbounded, Bound::Excluded(value)) => {
+                    write!(f, "({feature} < {value}{unit})")
+                }
+                (Bound::Included(value), Bound::Unbounded) => {
                     write!(f, "(min-{feature}: {value}{unit})")
+                }
+                (Bound::Included(value), Bound::Included(b)) if value == b => {
+                    write!(f, "({feature}: {value}{unit})")
+                }
+                (Bound::Excluded(value), Bound::Unbounded) => {
+                    write!(f, "({feature} > {value}{unit})")
+                }
+                (lower, upper) => {
+                    fn bound_parts<T>(bound: &Bound<T>) -> Option<(&T, &'static str)> {
+                        match bound {
+                            Bound::Included(value) => Some((value, "<=")),
+                            Bound::Excluded(value) => Some((value, "<")),
+                            Bound::Unbounded => None,
+                        }
+                    }
+
+                    let Some((lower_value, lower_op)) = bound_parts(lower) else {
+                        return write!(f, "({feature})");
+                    };
+                    let Some((upper_value, upper_op)) = bound_parts(upper) else {
+                        return write!(f, "({feature})");
+                    };
+
+                    write!(
+                        f,
+                        "({lower_value}{unit} {lower_op} {feature} {upper_op} {upper_value}{unit})"
+                    )
                 }
             }
         }
@@ -238,6 +318,8 @@ mod tests {
     use super::{
         ColorScheme, MediaFeaturesProvider, MediaRangeSelector, MediaSelector, MediaSelectors,
     };
+    use cssparser::ToCss;
+    use std::ops::Bound;
 
     fn ms(m: impl Into<MediaSelectors>) -> MediaSelectors {
         m.into()
@@ -248,7 +330,7 @@ mod tests {
         let dark_selector = ms(MediaSelector::ColorScheme(ColorScheme::Dark));
         let min_width_500_selector = ms([
             MediaSelector::ColorScheme(ColorScheme::Light),
-            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
+            MediaSelector::ViewportWidth(MediaRangeSelector::ge(500)),
         ]);
 
         assert_eq!(ms([]).to_string(), "@media all");
@@ -295,25 +377,20 @@ mod tests {
 
         let min_width_500_selector = ms([
             MediaSelector::ColorScheme(ColorScheme::Light),
-            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500)),
+            MediaSelector::ViewportWidth(MediaRangeSelector::ge(500)),
         ]);
         let width_exact_600_selector = ms([
             MediaSelector::ColorScheme(ColorScheme::Light),
-            MediaSelector::ViewportWidth(MediaRangeSelector::Exact(600)),
+            MediaSelector::ViewportWidth(MediaRangeSelector::eq(600)),
         ]);
 
-        let height_exact_600_selector = ms(MediaSelector::ViewportHeight(
-            MediaRangeSelector::Exact(600),
-        ));
-        let aspect_ratio_ge_1_selector = ms(MediaSelector::AspectRatio(
-            MediaRangeSelector::GreaterOrEqual(1.0),
-        ));
-        let aspect_ratio_le_1_selector = ms(MediaSelector::AspectRatio(
-            MediaRangeSelector::LessOrEqual(1.0),
-        ));
-        let min_resolution_2_selector = ms(MediaSelector::Resolution(
-            MediaRangeSelector::GreaterOrEqual(2.0),
-        ));
+        let height_exact_600_selector =
+            ms(MediaSelector::ViewportHeight(MediaRangeSelector::eq(600)));
+        let aspect_ratio_ge_1_selector =
+            ms(MediaSelector::AspectRatio(MediaRangeSelector::ge(1.0)));
+        let aspect_ratio_le_1_selector =
+            ms(MediaSelector::AspectRatio(MediaRangeSelector::le(1.0)));
+        let min_resolution_2_selector = ms(MediaSelector::Resolution(MediaRangeSelector::ge(2.0)));
 
         let dark_media = TestProvider {
             scheme: Some(ColorScheme::Dark),
@@ -393,9 +470,49 @@ mod tests {
 
         // Selectors whose feature cannot be resolved don't match.
         assert_eq!(
-            MediaSelector::ViewportWidth(MediaRangeSelector::GreaterOrEqual(500))
+            MediaSelector::ViewportWidth(MediaRangeSelector::ge(500))
                 .matches(&TestProvider::default()),
             None
         );
+    }
+
+    #[test]
+    fn formats_range_media_selector() {
+        let width_equal = MediaSelector::ViewportWidth(MediaRangeSelector::eq(500));
+        let width_less = MediaSelector::ViewportWidth(MediaRangeSelector::lt(500));
+        let width_greater = MediaSelector::ViewportWidth(MediaRangeSelector::gt(500));
+        let width_interval = MediaSelector::ViewportWidth(MediaRangeSelector::new(
+            Bound::Included(400),
+            Bound::Excluded(800),
+        ));
+
+        assert_eq!(width_equal.to_css_string(), "(width: 500px)");
+        assert_eq!(width_less.to_css_string(), "(width < 500px)");
+        assert_eq!(width_greater.to_css_string(), "(width > 500px)");
+        assert_eq!(width_interval.to_css_string(), "(400px <= width < 800px)");
+    }
+
+    #[test]
+    fn test_media_range_selector_matches() {
+        let less = MediaRangeSelector::lt(500);
+        let greater = MediaRangeSelector::gt(500);
+        let interval = MediaRangeSelector::new(Bound::Included(400), Bound::Excluded(800));
+
+        assert!(less.matches(499));
+        assert!(!less.matches(500));
+        assert!(greater.matches(501));
+        assert!(!greater.matches(500));
+
+        assert!(interval.matches(400));
+        assert!(interval.matches(799));
+        assert!(!interval.matches(399));
+        assert!(!interval.matches(800));
+
+        let exclusive_interval =
+            MediaRangeSelector::new(Bound::Excluded(400), Bound::Excluded(800));
+        assert!(!exclusive_interval.matches(400));
+        assert!(exclusive_interval.matches(401));
+        assert!(exclusive_interval.matches(799));
+        assert!(!exclusive_interval.matches(800));
     }
 }
