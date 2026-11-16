@@ -46,6 +46,7 @@ pub struct SelectorBuckets {
     by_id: FxHashMap<SmolStr, Vec<CssSelectorWithOpaqueId>>,
     by_class: FxHashMap<SmolStr, Vec<CssSelectorWithOpaqueId>>,
     by_type_name: FxHashMap<SmolStr, Vec<CssSelectorWithOpaqueId>>,
+    with_ancestor_hashes: usize,
 }
 
 impl SelectorBuckets {
@@ -57,7 +58,13 @@ impl SelectorBuckets {
             by_id: FxHashMap::with_hasher(FxBuildHasher),
             by_class: FxHashMap::with_hasher(FxBuildHasher),
             by_type_name: FxHashMap::with_hasher(FxBuildHasher),
+            with_ancestor_hashes: 0,
         }
+    }
+
+    /// How many selectors in these buckets have ancestor hashes.
+    pub fn selectors_with_ancestor_hashes(&self) -> usize {
+        self.with_ancestor_hashes
     }
 
     /// Builds the buckets from a list of selectors, and it's corresponding [`OpaqueId`].
@@ -143,6 +150,9 @@ impl SelectorBuckets {
 
         let mut buckets = Self::default();
         for (css_selector, opaque_id) in selectors {
+            if css_selector.ancestor_hashes().is_some() {
+                buckets.with_ancestor_hashes += 1;
+            }
             let bucket = selector_bucket_key(&css_selector);
             let selector = CssSelectorWithOpaqueId::new(css_selector, opaque_id);
             match bucket {
@@ -350,6 +360,27 @@ mod tests {
         let should_not_get_candidates_element = element_data!(class = "ancestor root");
 
         assert_no_candidates!(buckets, should_not_get_candidates_element);
+    }
+
+    #[test]
+    fn selectors_with_ancestor_hashes_are_counted() {
+        assert_eq!(SelectorBuckets::empty().selectors_with_ancestor_hashes(), 0);
+
+        // Selectors without ancestors have no ancestor hashes.
+        let buckets = SelectorBuckets::build([
+            selector(".test_class", 1),
+            selector("div:hover", 2),
+            selector(":root", 3),
+        ]);
+        assert_eq!(buckets.selectors_with_ancestor_hashes(), 0);
+
+        // Descendant and child combinators produce ancestor hashes.
+        let buckets = SelectorBuckets::build([
+            selector(".ancestor .test_class", 1),
+            selector(".ancestor > .test_class", 2),
+            selector(".test_class", 3),
+        ]);
+        assert_eq!(buckets.selectors_with_ancestor_hashes(), 2);
     }
 
     #[test]

@@ -42,6 +42,10 @@ impl MatchedSelector {
     }
 }
 
+/// Minimum number of selectors with ancestor hashes needed before building the ancestors
+/// bloom filter is worth it.
+const BLOOM_FILTER_MIN_ANCESTOR_SELECTORS: usize = 4;
+
 /// A group of selectors buckets and their associated layer hierarchy.
 ///
 /// Each group might represent a completely independent stylesheet
@@ -50,6 +54,15 @@ pub struct MatchGroup<'a> {
     pub selectors: &'a SelectorBuckets,
     /// Layers hierarchy of this group
     pub layers_hierarchy: &'a LayersHierarchy,
+}
+
+/// Returns whether the ancestors bloom filter should be built.
+fn should_add_bloom_filter(groups: &[MatchGroup]) -> bool {
+    let selectors_with_ancestor_hashes = groups
+        .iter()
+        .map(|group| group.selectors.selectors_with_ancestor_hashes())
+        .sum::<usize>();
+    selectors_with_ancestor_hashes > BLOOM_FILTER_MIN_ANCESTOR_SELECTORS
 }
 
 /// Finds all selectors that match an element across the provided groups and sorts them
@@ -63,8 +76,11 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
 ) -> Vec<MatchedSelector> {
     let entity = element.entity();
 
-    // Build a bloom filter for the ancestor hashes to speed up selector matching.
-    let mut ctx = caches.create_matching_context(true, entity, bloom_filter_builder);
+    let mut ctx = caches.create_matching_context(
+        should_add_bloom_filter(groups),
+        entity,
+        bloom_filter_builder,
+    );
 
     let mut result = Vec::new();
 
@@ -115,7 +131,10 @@ pub fn all_selector_matches<M: MediaFeaturesProvider>(
 
 #[cfg(test)]
 mod tests {
-    use super::{MatchGroup, MatchedSelector, all_selector_matches};
+    use super::{
+        BLOOM_FILTER_MIN_ANCESTOR_SELECTORS, MatchGroup, MatchedSelector, all_selector_matches,
+        should_add_bloom_filter,
+    };
     use crate::bloom_filters::AncestorsBloomFilterBuilder;
     use crate::bucket::SelectorBuckets;
     use crate::context::SelectorMatchingCaches;
@@ -318,6 +337,58 @@ mod tests {
                 "Unstable results on iteration {i}. Selectors: {selectors:#?}"
             );
         }
+    }
+
+    #[test]
+    fn bloom_filter_is_only_used_with_enough_ancestor_selectors() {
+        let no_ancestors = selectors!(
+            ".class1" => 1,
+            ".class2" => 2,
+            ".class3" => 3,
+            ".class4" => 4,
+            ".class5" => 5,
+        );
+        assert!(!should_add_bloom_filter(&[MatchGroup {
+            selectors: &no_ancestors.0,
+            layers_hierarchy: &NO_LAYERS,
+        }]));
+
+        let with_ancestors = |count: usize| {
+            let selectors = [
+                ".ancestor .class1",
+                ".ancestor .class2",
+                ".ancestor .class3",
+                ".ancestor .class4",
+                ".ancestor .class5",
+            ]
+            .into_iter()
+            .take(count)
+            .enumerate()
+            .map(|(index, selector)| {
+                (
+                    CssSelector::parse_single(selector, index as u32 * 100)
+                        .expect("Could not parse selector"),
+                    index as u64,
+                )
+            });
+            let buckets = SelectorBuckets::build(selectors);
+            assert_eq!(buckets.selectors_with_ancestor_hashes(), count);
+            buckets
+        };
+
+        // Exactly at the threshold: still not worth it.
+        let at_threshold = with_ancestors(BLOOM_FILTER_MIN_ANCESTOR_SELECTORS);
+        assert!(!should_add_bloom_filter(&[MatchGroup {
+            selectors: &at_threshold,
+            layers_hierarchy: &NO_LAYERS,
+        }]));
+
+        // More than the threshold: the filter is used.
+        let above_threshold = with_ancestors(BLOOM_FILTER_MIN_ANCESTOR_SELECTORS + 1);
+        assert!(should_add_bloom_filter(&[MatchGroup {
+            selectors: &above_threshold,
+            layers_hierarchy: &NO_LAYERS,
+        }]));
     }
 
     #[test]
