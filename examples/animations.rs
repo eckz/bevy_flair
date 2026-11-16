@@ -12,9 +12,6 @@ fn main() {
         .add_plugins((DefaultPlugins, FlairPlugin))
         .insert_resource(bevy::winit::WinitSettings::desktop_app())
         .add_systems(Startup, setup)
-        .add_systems(Update, || {
-            info!("Update!");
-        })
         .add_observer(observer_on_click)
         .run();
 }

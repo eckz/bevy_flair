@@ -1,20 +1,4 @@
-trait DebugOptionExt<T> {
-    fn debug_unwrap_or_else(self, f: impl FnOnce() -> T) -> T;
-}
-
-impl<T> DebugOptionExt<T> for Option<T> {
-    #[cfg(debug_assertions)]
-    #[inline(always)]
-    fn debug_unwrap_or_else(self, f: impl FnOnce() -> T) -> T {
-        self.unwrap_or_else(f)
-    }
-
-    #[cfg(not(debug_assertions))]
-    #[inline(always)]
-    fn debug_unwrap_or_else(self, _f: impl FnOnce() -> T) -> T {
-        self.unwrap()
-    }
-}
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
 struct ParsedLayer<'a> {
@@ -40,9 +24,10 @@ impl<'a> ParsedLayer<'a> {
     }
 }
 
+/// An ordering of cascade layers
 #[derive(Debug, Clone)]
-pub(crate) struct LayersHierarchy {
-    inner: Vec<String>,
+pub struct LayersHierarchy {
+    inner: Vec<Arc<str>>,
 }
 
 impl Default for LayersHierarchy {
@@ -52,30 +37,44 @@ impl Default for LayersHierarchy {
 }
 
 impl LayersHierarchy {
+    /// Creates an empty layer hierarchy.
     pub const fn new() -> Self {
         Self { inner: Vec::new() }
     }
 
-    pub fn define_layer(&mut self, full_name: &str) {
+    /// Resets the hierarchy
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    fn define_layer_arc(&mut self, full_name: Arc<str>) {
         // Empty layer is always implicit present at the very end
         if full_name.is_empty() {
             return;
         }
-        if self.is_layer_defined(full_name) {
+        if self.is_layer_defined(&full_name) {
             return;
         }
-        let layer = ParsedLayer::parse(full_name);
+        let layer = ParsedLayer::parse(&full_name);
 
         if !layer.has_parents() {
-            self.inner.push(layer.name.into());
+            debug_assert_eq!(layer.name, &*full_name);
+            self.inner.push(full_name);
         } else {
             for parent in &layer.parents {
                 self.define_layer(parent);
             }
 
             let insert_position = self.find_insert_position(&layer);
-            self.inner.insert(insert_position, full_name.into());
+            self.inner.insert(insert_position, full_name);
         }
+    }
+
+    /// Defines a layer, creating any undefined parent layers in its dotted name.
+    ///
+    /// For example, defining `"parent.child"` also defines `"parent"`.
+    pub fn define_layer(&mut self, full_name: &str) {
+        self.define_layer_arc(full_name.into());
     }
 
     fn is_layer_defined(&self, full_name: &str) -> bool {
@@ -91,11 +90,15 @@ impl LayersHierarchy {
         self.inner
             .iter()
             .position(|a| &**a == full_name)
-            .debug_unwrap_or_else(|| {
-                panic!("Layer '{full_name}' not found");
+            .unwrap_or_else(|| {
+                panic!("Layer '{full_name}' not defined");
             })
     }
 
+    /// Compares two layers by their priority in this hierarchy.
+    ///
+    /// The empty layer is treated as having the highest priority. Panics if either
+    /// non-empty layer has not been defined.
     pub fn cmp_layers(&self, a: &str, b: &str) -> std::cmp::Ordering {
         self.get_layer_priority(a).cmp(&self.get_layer_priority(b))
     }
@@ -107,14 +110,33 @@ impl LayersHierarchy {
         self.inner
             .iter()
             .position(|a| &**a == *parent)
-            .debug_unwrap_or_else(|| {
-                panic!("Parent layer '{parent}' not found");
+            .unwrap_or_else(|| {
+                panic!("Parent layer '{parent}' not defined");
             })
     }
 
     #[cfg(test)]
     fn get_layers(&self) -> impl Iterator<Item = &str> {
         self.inner.iter().map(|v| &**v)
+    }
+
+    /// Add all layers defined in `other` to self.
+    /// `self` definitions take precedence over `other`.
+    /// This is used for defining layer ordering from multiple different files
+    pub fn add_all_layers_from(&mut self, other: &LayersHierarchy) {
+        for other_layer in &other.inner {
+            self.define_layer_arc(Arc::clone(other_layer));
+        }
+    }
+}
+
+impl<'a> FromIterator<&'a str> for LayersHierarchy {
+    fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
+        let mut h = LayersHierarchy::new();
+        for s in iter {
+            h.define_layer(s);
+        }
+        h
     }
 }
 
@@ -146,14 +168,11 @@ mod tests {
 
     #[test]
     fn simple_layers() {
-        let mut layers = LayersHierarchy::new();
-        layers.define_layer("first");
-        layers.define_layer("second");
-        layers.define_layer("last");
-
-        // These are repeated so they should be ignored
-        layers.define_layer("first");
-        layers.define_layer("second");
+        let layers = LayersHierarchy::from_iter([
+            "first", "second", "last",
+            // These are repeated so they should be ignored
+            "first", "second",
+        ]);
 
         assert_eq!(
             layers.get_layers().collect::<Vec<_>>(),
@@ -254,5 +273,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected
         );
+    }
+
+    #[test]
+    fn different_hierarchies() {
+        let hierarchy_1 = LayersHierarchy::from_iter(["reset", "base"]);
+        let hierarchy_2 = LayersHierarchy::from_iter(["components", "base", "reset"]);
+
+        let mut final_hierarchy = LayersHierarchy::new();
+
+        final_hierarchy.add_all_layers_from(&hierarchy_1);
+        final_hierarchy.add_all_layers_from(&hierarchy_2);
+
+        let expected = vec!["reset", "base", "components"];
+
+        assert_eq!(final_hierarchy.get_layers().collect::<Vec<_>>(), expected);
     }
 }

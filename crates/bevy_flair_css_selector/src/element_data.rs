@@ -1,0 +1,158 @@
+use crate::element_flags::ElementFlags;
+use crate::pseudo_state::PseudoStateFlags;
+use crate::types::CssString;
+use bevy_ecs::component::Component;
+use precomputed_hash::PrecomputedHash;
+use rustc_hash::{FxBuildHasher, FxHashMap};
+use smallvec::SmallVec;
+use smol_str::SmolStr;
+use std::fmt;
+
+/// All data necessary to match selectors.
+#[derive(Debug, Clone, Default, PartialEq, Component)]
+#[require(ElementFlags, ElementDataSnapshot)]
+pub struct ElementData {
+    /// Whether this element is a root of the element tree (it has no parent element).
+    pub is_root: bool,
+    /// The element's `id`, used by `#id` selectors.
+    pub id: Option<CssString>,
+    /// The element's CSS classes, used by `.class` selectors.
+    pub classes: SmallVec<[CssString; 1]>,
+    /// Additional attributes, used by attribute selectors such as `[name=value]`.
+    pub attributes: FxHashMap<SmolStr, CssString>,
+    /// The element's type/tag name, used by type selectors.
+    pub type_name: Option<CssString>,
+    /// The pseudo-classes currently active on this element.
+    pub pseudo_state: PseudoStateFlags,
+}
+
+impl ElementData {
+    /// Creates an empty `ElementData`.
+    pub const fn new() -> Self {
+        Self {
+            is_root: false,
+            id: None,
+            classes: SmallVec::new_const(),
+            attributes: FxHashMap::with_hasher(FxBuildHasher),
+            type_name: None,
+            pseudo_state: PseudoStateFlags::empty(),
+        }
+    }
+
+    /// Hashes of this element's own id/classes/type_name,
+    /// comparable against a selector's component hashes in a [`selectors::bloom::BloomFilter`].
+    pub(crate) fn unique_hashes(&self) -> impl DoubleEndedIterator<Item = u32> + '_ {
+        let id = self.id.as_ref().map(|id| id.precomputed_hash()).into_iter();
+
+        let classes = self.classes.iter().map(|class| class.precomputed_hash());
+
+        let type_name = self
+            .type_name
+            .as_ref()
+            .map(|type_name| type_name.precomputed_hash())
+            .into_iter();
+
+        id.chain(classes).chain(type_name)
+    }
+}
+
+impl fmt::Display for ElementData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use std::fmt::Write;
+        f.write_char('<')?;
+
+        if let Some(tag) = &self.type_name {
+            write!(f, "{tag}")?;
+        }
+
+        if let Some(id) = &self.id {
+            write!(f, " id=\"{id}\"")?;
+        }
+
+        if !self.classes.is_empty() {
+            f.write_str(" class=\"")?;
+
+            for (index, class) in self.classes.iter().enumerate() {
+                if index > 0 {
+                    f.write_char(' ')?;
+                }
+                write!(f, "{class}")?;
+            }
+
+            f.write_char('"')?;
+        }
+
+        let mut attributes: Vec<_> = self.attributes.iter().collect();
+        attributes.sort_by_key(|(name, _)| *name);
+        for (name, value) in attributes {
+            write!(f, " {name}=\"{value}\"")?;
+        }
+
+        for (flag, name) in [
+            (PseudoStateFlags::PRESSED, "pressed"),
+            (PseudoStateFlags::HOVERED, "hover"),
+            (PseudoStateFlags::FOCUSED, "focus"),
+            (PseudoStateFlags::FOCUSED_AND_VISIBLE, "focus-visible"),
+            (PseudoStateFlags::DISABLED, "disabled"),
+            (PseudoStateFlags::CHECKED, "checked"),
+        ] {
+            if self.pseudo_state.contains(flag) {
+                write!(f, " {name}")?;
+            }
+        }
+
+        if self.is_root {
+            f.write_str(" root")?;
+        }
+
+        f.write_str(" />")
+    }
+}
+
+/// Component that stores a copy of [`ElementData`].
+/// This is used to detect changes to an element,
+/// and to verify if a selector that was matching in the past, matches nows, or the other way around.
+#[derive(Debug, Default, Component)]
+pub struct ElementDataSnapshot(pub(crate) ElementData);
+
+impl ElementDataSnapshot {
+    /// Copy data from the original `ElementData`.
+    /// Call this when no more changes need to be detected for an entity.
+    pub fn take_snapshot_from(&mut self, data: &ElementData) {
+        self.0.clone_from(data);
+    }
+
+    /// Returns the [`ElementData`] that was captured in this snapshot.
+    pub fn snapshot_data(&self) -> &ElementData {
+        &self.0
+    }
+}
+
+impl PartialEq<ElementData> for ElementDataSnapshot {
+    fn eq(&self, element: &ElementData) -> bool {
+        &self.0 == element
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::testing::element_data;
+
+    #[test]
+    fn test_to_string() {
+        assert_eq!(
+            element_data!(<div class="a b c d" />).to_string(),
+            "<div class=\"a b c d\" />"
+        );
+
+        assert_eq!(
+            element_data!(class="a b c d" id="root").to_string(),
+            "< id=\"root\" class=\"a b c d\" />"
+        );
+
+        assert_eq!(
+            element_data!(<div class="a" root hover disabled />).to_string(),
+            "<div class=\"a\" hover disabled root />"
+        );
+    }
+}

@@ -87,7 +87,7 @@ a {
     }
 }
 
-a::before {
+.link-icon {
     font-family: "NotoEmoji";
     font-size: 12px;
     content: "🔗";

@@ -2,7 +2,7 @@ use ariadne::*;
 use std::sync::Arc;
 
 use crate::{Spanned, SpannedStr};
-use bevy_flair_style::css_selector::SelectorErrorKind;
+
 use cssparser::{
     BasicParseError, BasicParseErrorKind, ParseError, ParseErrorKind, SourceLocation, ToCss, Token,
 };
@@ -176,10 +176,17 @@ impl From<BasicParseError> for StyleErrorData {
 impl From<SelectorParseErrorKind> for StyleErrorData {
     fn from(kind: SelectorParseErrorKind) -> Self {
         let code = crate::error_codes::basic::INVALID_SELECTOR;
-        let selector_error = SelectorErrorKind::Selector(kind);
+        let annotated_message = match kind {
+            SelectorParseErrorKind::EmptySelector => "Empty selector found".into(),
+            SelectorParseErrorKind::ClassNeedsIdent => "Expected an ident for a class".into(),
+            SelectorParseErrorKind::UnsupportedPseudoClassOrElement => {
+                "Unsupported pseudo-class. Pseudo-elements are unsupported. Only valid pseudo-classes are: 'hover' | 'active' | 'focus' | 'focus-visible'".into()
+            }
+            other => format!("Selector error: {other:?}").into(),
+        };
         Self {
             code,
-            annotated_message: selector_error.to_string().into(),
+            annotated_message,
         }
     }
 }

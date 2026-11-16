@@ -259,7 +259,7 @@ fn media_queries() {
     let app = &mut app;
 
     let _filter_guard = set_panic_on_warn_filter(|_, message| {
-        !message.starts_with("Media selector for 'prefers-color-scheme' cannot be matched")
+        !message.starts_with("Media selector '@media (prefers-color-scheme")
     });
 
     fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -269,7 +269,19 @@ fn media_queries() {
         commands.spawn((
             Root,
             Styled::new(asset_server.load_style_sheet("media_queries.css")),
-            children![(Element, UniqueName::new("child"), ClassList::new("child"),)],
+            children![
+                (Element, UniqueName::new("child"), ClassList::new("child"),),
+                (
+                    Element,
+                    UniqueName::new("nested-same-specificity"),
+                    ClassList::new("nested-same-specificity"),
+                ),
+                (
+                    Element,
+                    UniqueName::new("nested-media-order"),
+                    ClassList::new("nested-media-order"),
+                ),
+            ],
         ));
     }
 
@@ -278,6 +290,14 @@ fn media_queries() {
 
     set_resolution(app, (640, 480), 1.0);
     assert_width_eq!(app, "root", Val::Px(1.0));
+
+    // A nested `&` rule has the same specificity as its parent, so a later
+    // declaration in the parent must still win.
+    assert_background_color_eq!(app, "nested-same-specificity", css::GREEN);
+
+    // The media query matches at this resolution, but it still has the same
+    // specificity as the parent, so the later declaration must win.
+    assert_background_color_eq!(app, "nested-media-order", css::BLACK);
 
     set_window_theme(app, Some(WindowTheme::Dark));
     assert_width_eq!(app, "root", Val::Px(10.0));
@@ -295,6 +315,49 @@ fn media_queries() {
 
     set_resolution(app, (1024, 768), 1.0);
     assert_width_eq!(app, "child", Val::Px(1024.0));
+}
+
+#[test]
+fn media_query_range_syntax() {
+    use bevy_ecs::system::RunSystemOnce;
+
+    fn set_resolution(app: &mut App, physical_size: impl Into<UVec2>, scale_factor: f32) {
+        let physical_size = physical_size.into();
+        app.world_mut()
+            .run_system_once(move |mut camera: Single<&mut Camera>| {
+                camera.computed.target_info = Some(RenderTargetInfo {
+                    physical_size,
+                    scale_factor,
+                });
+            })
+            .unwrap();
+        app.update();
+    }
+
+    include_test_css!("media_query_range_syntax.css");
+
+    let mut app = test_app();
+    let app = &mut app;
+
+    fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+        commands.spawn(Camera2d);
+        commands.spawn((
+            Root,
+            Styled::new(asset_server.load_style_sheet("media_query_range_syntax.css")),
+            children![(Element, UniqueName::new("child"), ClassList::new("child"),)],
+        ));
+    }
+
+    app.add_systems(Startup, spawn_test_scene);
+    app.update();
+
+    set_resolution(app, (640, 480), 1.0);
+    assert_width_eq!(app, "root", Val::Px(10.0));
+    assert_width_eq!(app, "child", Val::Px(30.0));
+
+    set_resolution(app, (300, 200), 1.0);
+    assert_width_eq!(app, "root", Val::Px(20.0));
+    assert_width_eq!(app, "child", Val::ZERO);
 }
 
 #[test]
@@ -482,4 +545,124 @@ fn inline_loader() {
     app.update();
 
     assert_width_eq!(app, "root", Val::Px(30.0));
+}
+
+#[test]
+fn structural_selectors_restyle_descendants() {
+    include_css_inline!(
+        "structural_descendants.css" => r#"
+            .a {
+                display: flex;
+            }
+
+            .b {
+                display: none;
+            }
+
+            .a:empty ~ .b {
+                display: flex;
+            }
+
+            .y {
+                height: initial;
+            }
+
+            .x:nth-child(odd) .y {
+                width: 10px;
+            }
+
+            .x:nth-child(even) .y {
+                width: 20px;
+            }
+
+            .x:first-child .y {
+                height: 30px;
+            }
+
+            .x:last-child .y {
+                height: 40px;
+            }
+        "#
+    );
+
+    let mut app = test_app();
+
+    fn spawn_test_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+        commands.spawn((
+            Root,
+            Styled::new(asset_server.load_style_sheet("structural_descendants.css")),
+            children![
+                (Element, UniqueName::new("a"), ClassList::new("a"),),
+                (Element, UniqueName::new("b"), ClassList::new("b"),),
+            ],
+        ));
+    }
+
+    fn spawn_x(app: &mut App, a: Entity, x_name: &'static str, y_name: &'static str) {
+        app.world_mut().spawn((
+            Element,
+            ClassList::new("x"),
+            UniqueName::new(x_name),
+            ChildOf(a),
+            children![(Element, ClassList::new("y"), UniqueName::new(y_name),)],
+        ));
+    }
+
+    app.add_systems(Startup, spawn_test_scene);
+    app.update();
+
+    // `.a:empty ~ .b`
+    assert_node_attr_eq!(app, "b", display, Display::Flex);
+
+    let a = app.get_entity_by_unique_name("a");
+
+    spawn_x(&mut app, a, "x1", "x1/y");
+    app.update();
+
+    // First added `x` is both `:first-child` and `:last-child`
+    assert_width_eq!(app, "x1/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(40.0));
+    assert_node_attr_eq!(app, "b", display, Display::None);
+
+    spawn_x(&mut app, a, "x2", "x2/y");
+    app.update();
+
+    // x1 is odd/first, x2 is even/last
+    assert_width_eq!(app, "x1/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(30.0));
+    assert_width_eq!(app, "x2/y", Val::Px(20.0));
+    assert_node_attr_eq!(app, "x2/y", height, Val::Px(40.0));
+
+    spawn_x(&mut app, a, "x3", "x3/y");
+    app.update();
+
+    // x2 is no longer `:last-child`, so its height resets and x3 becomes last
+    assert_width_eq!(app, "x1/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(30.0));
+    assert_width_eq!(app, "x2/y", Val::Px(20.0));
+    assert_node_attr_eq!(app, "x2/y", height, Val::Auto);
+    assert_width_eq!(app, "x3/y", Val::Px(10.0));
+    assert_node_attr_eq!(app, "x3/y", height, Val::Px(40.0));
+
+    let x1 = app.get_entity_by_unique_name("x1");
+    let x2 = app.get_entity_by_unique_name("x2");
+    let x3 = app.get_entity_by_unique_name("x3");
+
+    app.world_mut().despawn(x3);
+    app.update();
+
+    // x2 is `:last-child` again
+    assert_node_attr_eq!(app, "x2/y", height, Val::Px(40.0));
+
+    app.world_mut().despawn(x2);
+    app.update();
+
+    // x1 is `:last-child` again
+    assert_node_attr_eq!(app, "x1/y", height, Val::Px(40.0));
+
+    app.world_mut().despawn(x1);
+    app.update();
+
+    // `a` is empty again, so the empty message is shown
+    assert_node_attr_eq!(app, "b", display, Display::Flex);
 }
